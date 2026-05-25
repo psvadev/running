@@ -23,6 +23,10 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 ---
 
 ## Data model (`løpelogger.json`)
+
+> **Note on shoes:** Stored as objects (`{ name, retirementKm?, startDate? }`) since migration added in v2. Old files with string arrays are migrated automatically by `Store._migrate()`.
+
+
 ```json
 {
   "sessions": [{
@@ -44,7 +48,14 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
     "sko": "ASICS Novablast 5",
     "sovn": 6.87                   // decimal hours (e.g. 6.87 = 6h52m); display via hoursToHHMM()
   }],
-  "shoes": ["ASICS Novablast 5", "Saucony Ride 18", "Adidas trainers"],
+  "shoes": [
+    { "name": "ASICS Novablast 5", "retirementKm": 650 },
+    { "name": "Saucony Ride 18" }
+  ],
+  "events": [
+    { "id": "abc123", "date": "2026-01-15", "title": "Start Runna 10K", "type": "plan" },
+    { "id": "def456", "date": "2026-02-01", "endDate": "2026-02-10", "title": "Forkjølet", "type": "illness" }
+  ],
   "goals": {
     "2026": 705                    // yearly km goal; keyed by year string
   },
@@ -86,24 +97,26 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   - **Rekorder** — general records (best pace, longest dist/time, best km/h, total dist/time, best week, longest streak) + **Distanse-PR** sub-section (5 km, 10 km, Halvmaraton, Maraton — fastest session per bracket)
   - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width)
   - **Treningsstatus (PMC)** — line chart, last 365 days; three lines: Kondisjon/CTL (42-day exp. avg, blue), Tretthet/ATL (7-day exp. avg, red), Form/TSB (CTL−ATL, green). Always uses `allSessions` regardless of dashboard filter — CTL/ATL require full history to be meaningful (full-width)
-  - **Ukentlig distanse** — bar chart, km per week (last 20 weeks)
+  - **Ukentlig distanse** — bar chart, km per week (last 20 weeks). Supports event marker lines.
   - **Tempo per uke** — line chart, weighted average pace per week (total time ÷ total km)
   - **Aerob effektivitet (Easy-økter)** — line chart; per-session score = `snittkmh / gjsnittspuls × 100` for Easy sessions only; individual points + 4-session rolling average (green) + personal average reference line (dashed amber). Tooltip shows session name, speed, and HR. Responds to dashboard filter
   - **Pulssoner** — stacked bar, minutes per zone per week, last 20 weeks; **Uke/Måned toggle** switches grouping
   - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`); responds to type/plan filters
-  - Shoe km horizontal bars
+  - **Treningskalender** — GitHub-style heatmap calendar (full-width). Three modes toggled via radio: *Distanse* (blue intensity by quartile), *Belastning* (zone-weighted load by quartile), *Økttype* (cell coloured by dominant session type). Hover shows date + session details. Shows last 52 weeks; if single year selected, shows full calendar year. Type mode includes a colour legend. **Cell size is dynamic** — calculated from `container.offsetWidth` to fill the card width (min 10px).
+  - Shoe km horizontal bars. Shows ⚠️/🔴 warning when approaching/exceeding retirement km.
   - Weekly summary table (scrollable)
 
 ### 📋 Treningslogg (log tab — full width)
-- Full-width sortable table (click column headers)
-- Filters: fra/til dato, økt-type, sko
+- Full-width sortable table (click column headers); columns include **Plan** (treningsplan) after Navn
+- Filters: fra/til dato, økt-type, **treningsplan (Plan)**, sko — all wired to `fFilterPlan` etc.; Nullstill clears all
 - Row actions: ✏️ edit (goes to form tab), 🗑️ delete (with confirm)
 - **"Importer Excel/CSV"** button → SheetJS modal with preview before confirming
 
 ### ⚙️ Innstillinger (settings tab — max 1200px)
 - **Mål**: add yearly km goals (year + km); listed with delete button; triggers goal card on dashboard
 - **Profil & Puls**: max HR, resting HR, 5 zone BPM boundaries, "Auto-beregn" button (fills zones at 50/60/70/80/90% of max HR)
-- **Sko**: add by name (Enter or button), shows km per shoe, remove button
+- **Sko**: add by name + optional retirement km. Shows progress bar + projected retirement date (8/12-week rate). Old string-only JSON files migrated automatically.
+- **Hendelser**: add timeline events (start date, optional end date, type, title). Types: **plan / race / illness / vacation / personal** ("Sko" removed — mileage is tracked automatically). Point events = dashed vertical line; range events (with `endDate`) = semi-transparent shaded band with dashed borders. Toggled via "Hendelser" checkbox in filter bar. Event list shows date range as "DD. MMM – DD. MMM" when endDate present.
 - **Datafil**: open file, new file, download/export, "Tøm alle data" danger button
 
 ---
@@ -129,6 +142,8 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | `renderDashboard()` | Rebuilds all chart panels and goal card; calls `buildYearPills()`; hides `yearCompCard` when single year selected |
 | `renderPMCChart(allSessions)` | PMC chart — walks every calendar day from first session to today, accumulating CTL and ATL via exponential decay; displays last 365 days. Always called with `allSessions` (not filtered). |
 | `renderEfficiencyChart(sessions)` | Aerobic efficiency chart — filters to Easy sessions with HR+speed data, computes score = `snittkmh/gjsnittspuls×100`, renders points + 4-session rolling avg + personal average reference line |
+| `renderHeatmap(sessions)` | Training calendar heatmap — GitHub-style grid, 3 modes: distance (blue intensity), belastning (zone-load intensity), økttype (coloured by dominant type). Uses DashFilter year for range. Reads `input[name="heatmetric"]` radio for mode. |
+| `eventLinesPlugin` | Chart.js globally registered plugin (`Chart.register(eventLinesPlugin)`). Runs on ALL charts. Draws dashed vertical lines (point events) or semi-transparent shaded bands with dashed borders (range events with `endDate`). Safely no-ops on charts where labels don't match. Guarded with double try-catch so errors never crash chart rendering. |
 | `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses Monday-aligned epoch week index for correct ISO week / year-boundary handling. |
 | `renderZoneChart(sessions)` | Standalone function; reads `zoneGroupBy` ('week'/'month') to group data |
 | `refreshAll()` | Called after any data change; re-renders log, shoe list, dashboard if visible |
@@ -183,6 +198,19 @@ Global state:
 - All Norwegian column headers from the user's exact sheet are mapped, including `"Gj.snittspuls"`, `"Sone1 (min)"` etc.
 - `parseExcelTime(val)` handles both numeric fractions (Excel internal) and `"H:MM:SS"` strings.
 - `parseExcelDate(val)` handles Excel serials, `MM/DD/YYYY`, and ISO strings.
+
+### Shoe data model migration (strings → objects)
+- `Store.data.shoes` was originally `string[]`. Now `{ name, retirementKm?, startDate? }[]`.
+- `_migrate()` converts old string arrays on load. All code that reads shoe names uses `s.name`.
+- Sessions still store `sko: string` (the shoe name), unchanged.
+
+### Event markers — label matching
+- Plugin is **globally registered** via `Chart.register(eventLinesPlugin)` so it runs on every chart. Charts without matching labels simply draw nothing.
+- Matching order: try `evt.date` exact string first, then `isoWeek(evt.date)` (returns `YYYY-WW`).
+- PMC chart uses daily ISO date labels → matches `evt.date` directly.
+- Weekly dist chart uses raw `YYYY-WW` labels → matches via `isoWeek`.
+- Load chart uses formatted display labels (`"Uke 21 '26"`) but stores `_rawLabels: loadWeeks` (raw `YYYY-WW`) on `chart.data` → plugin reads `chart.data._rawLabels` first, so week matching still works.
+- Range events (`endDate` present): draws a `rgba(..., 0.12)` filled rect between the two week columns + dashed lines at each edge. Single events: just a dashed line.
 
 ### snittkmh rounding
 - **Problem:** Excel imports stored `snittkmh` as the raw float (e.g. `7.664592204389127`).

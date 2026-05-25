@@ -152,6 +152,22 @@
   .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 4px; }
   .sync-dot.saving { background: var(--yellow); animation: pulse .8s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Heatmap ── */
+  .heatmap-wrap { display:flex; gap:var(--hm-gap,2px); padding-bottom:4px; }
+  .heatmap-labels { display:flex; flex-direction:column; gap:var(--hm-gap,2px); padding-top:16px; flex-shrink:0; }
+  .heatmap-day-label { width:16px; height:var(--hm-cell,12px); font-size:9px; color:var(--muted); line-height:var(--hm-cell,12px); text-align:right; }
+  .heatmap-col { display:flex; flex-direction:column; gap:var(--hm-gap,2px); flex-shrink:0; }
+  .heatmap-month-label { height:14px; font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; }
+  .heatmap-cell { width:var(--hm-cell,12px); height:var(--hm-cell,12px); border-radius:2px; background:var(--surface2); }
+  .heatmap-cell[data-level="1"] { background:rgba(108,143,255,.2); }
+  .heatmap-cell[data-level="2"] { background:rgba(108,143,255,.45); }
+  .heatmap-cell[data-level="3"] { background:rgba(108,143,255,.7); }
+  .heatmap-cell[data-level="4"] { background:rgba(108,143,255,1); }
+
+  /* ── Shoe retirement progress bar ── */
+  .shoe-retire-bar-bg { background:var(--surface2); border-radius:4px; height:6px; overflow:hidden; flex:1; }
+  .shoe-retire-bar-fill { height:100%; border-radius:4px; transition:width .4s; }
 </style>
 </head>
 <body>
@@ -326,6 +342,9 @@
       <div id="dfYearPills" style="display:flex;flex-wrap:wrap;gap:6px;padding-top:2px"></div>
     </div>
     <button class="btn-secondary btn-sm" id="btnDashReset" style="align-self:flex-end;margin-bottom:1px">Nullstill</button>
+    <label style="font-size:12px;color:var(--muted);display:flex;gap:5px;align-items:center;cursor:pointer;align-self:flex-end;margin-bottom:3px">
+      <input type="checkbox" id="chkEvents" checked> Hendelser
+    </label>
   </div>
 
   <div class="dash-grid">
@@ -392,6 +411,18 @@
       <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
       <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
     </div>
+    <div class="card span2" id="heatmapCard">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0">Treningskalender</div>
+        <div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted)">
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="distance" checked onchange="renderDashboard()"> Distanse</label>
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="load" onchange="renderDashboard()"> Belastning</label>
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="type" onchange="renderDashboard()"> Økttype</label>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Mørkere = mer trening. Hover for detaljer.</div>
+      <div id="heatmapContainer"></div>
+    </div>
     <div class="card">
       <div class="card-title">Sko-kilometer</div>
       <div id="shoeBarChart"></div>
@@ -433,6 +464,13 @@
         </select>
       </div>
       <div class="form-group">
+        <label>Plan</label>
+        <select id="fFilterPlan" style="padding:6px 8px;font-size:12px">
+          <option value="">Alle</option>
+          <option>Egentrening</option><option>Runna</option>
+        </select>
+      </div>
+      <div class="form-group">
         <label>Sko</label>
         <select id="fFilterSko" style="padding:6px 8px;font-size:12px">
           <option value="">Alle</option>
@@ -453,6 +491,7 @@
           <th data-col="uke">Uke <span class="sort-indicator">↕</span></th>
           <th data-col="okttype">Type <span class="sort-indicator">↕</span></th>
           <th data-col="oktnavn">Navn</th>
+          <th data-col="treningsplan">Plan <span class="sort-indicator">↕</span></th>
           <th data-col="distanse">Dist (km) <span class="sort-indicator">↕</span></th>
           <th data-col="varighet">Varighet <span class="sort-indicator">↕</span></th>
           <th data-col="tempo">Tempo <span class="sort-indicator">↕</span></th>
@@ -515,11 +554,33 @@
   <!-- Sko -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Sko</div>
-    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
-      <input type="text" id="newShoeName" placeholder="Navn på sko (f.eks. Nike Pegasus 41)" style="max-width:340px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+      <input type="text" id="newShoeName" placeholder="Navn på sko (f.eks. Nike Pegasus 41)" style="flex:1;min-width:200px;max-width:340px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input type="number" id="newShoeRetirementKm" placeholder="Utløpsgrense km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <button class="btn-primary btn-sm" id="btnAddShoeMain">+ Legg til</button>
     </div>
     <div id="shoeList" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
+  <!-- Hendelser -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Hendelser</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Markeres som vertikale linjer i belastnings- og distansegrafene.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <input type="date" id="newEvtDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <span style="color:var(--muted);align-self:center;font-size:13px">–</span>
+      <input type="date" id="newEvtEndDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;" title="Sluttdato (valgfritt — for perioder som sykdom)">
+      <select id="newEvtType" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+        <option value="plan">Plan</option>
+        <option value="race">Løp / Race</option>
+        <option value="illness">Sykdom</option>
+        <option value="vacation">Ferie</option>
+        <option value="personal">Annet</option>
+      </select>
+      <input type="text" id="newEvtTitle" placeholder="Tittel (f.eks. Start Runna 10K)" style="flex:1;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <button class="btn-primary btn-sm" id="btnAddEvent">+ Legg til</button>
+    </div>
+    <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
 
   <!-- Datafil -->
@@ -651,7 +712,7 @@ function parseSovn(val) {
 // DATA STORE
 // ═══════════════════════════════════════════════════════
 const Store = {
-  data: { sessions: [], shoes: ['ASICS Novablast 5', 'Saucony Ride 18', 'Adidas trainers'], goals: {}, lastUpdated: null },
+  data: { sessions: [], shoes: [{ name: 'ASICS Novablast 5' }, { name: 'Saucony Ride 18' }, { name: 'Adidas trainers' }], goals: {}, events: [], lastUpdated: null },
 
   load(json) {
     try {
@@ -666,6 +727,11 @@ const Store = {
 
   _migrate() {
     if (!this.data.goals) this.data.goals = {};
+    if (!this.data.events) this.data.events = [];
+    // Migrate shoes from string array to object array
+    if (this.data.shoes.length && typeof this.data.shoes[0] === 'string') {
+      this.data.shoes = this.data.shoes.map(s => ({ name: s }));
+    }
     // Convert søvn stored as Excel day-fraction (< 1) to decimal hours
     this.data.sessions.forEach(s => {
       if (s.sovn != null && s.sovn > 0 && s.sovn < 1) s.sovn = s.sovn * 24;
@@ -698,11 +764,36 @@ const Store = {
     FileIO.save();
   },
 
-  addShoe(name) {
-    if (!this.data.shoes.includes(name)) {
-      this.data.shoes.push(name);
+  addShoe(name, retirementKm) {
+    if (!this.data.shoes.find(s => s.name === name)) {
+      const shoe = { name };
+      if (retirementKm) shoe.retirementKm = retirementKm;
+      this.data.shoes.push(shoe);
       FileIO.save();
     }
+  },
+
+  updateShoe(name, updates) {
+    const shoe = this.data.shoes.find(s => s.name === name);
+    if (shoe) {
+      Object.assign(shoe, updates);
+      this.data.lastUpdated = new Date().toISOString();
+      FileIO.save();
+    }
+  },
+
+  addEvent(evt) {
+    if (!this.data.events) this.data.events = [];
+    this.data.events.push(evt);
+    this.data.events.sort((a, b) => a.date.localeCompare(b.date));
+    this.data.lastUpdated = new Date().toISOString();
+    FileIO.save();
+  },
+
+  deleteEvent(id) {
+    this.data.events = (this.data.events || []).filter(e => e.id !== id);
+    this.data.lastUpdated = new Date().toISOString();
+    FileIO.save();
   },
 
   mergeSessions(incoming) {
@@ -794,7 +885,7 @@ const FileIO = {
   },
 
   openNew() {
-    Store.data = { sessions: [], shoes: ['ASICS Novablast 5', 'Saucony Ride 18', 'Adidas trainers'], goals: {}, lastUpdated: null };
+    Store.data = { sessions: [], shoes: [{ name: 'ASICS Novablast 5' }, { name: 'Saucony Ride 18' }, { name: 'Adidas trainers' }], goals: {}, events: [], lastUpdated: null };
     this.handle = null;
     localStorage.removeItem('lpl_cache');
     localStorage.removeItem('lpl_handle_name');
@@ -1009,12 +1100,12 @@ const Form = {
   refreshShoeDropdown(sel) {
     const sk = document.getElementById('fSko');
     const prev = sel || sk.value;
-    sk.innerHTML = Store.data.shoes.map(s => `<option${s===prev?' selected':''}>${s}</option>`).join('');
+    sk.innerHTML = Store.data.shoes.map(s => `<option${s.name===prev?' selected':''}>${s.name}</option>`).join('');
 
     const logFilter = document.getElementById('fFilterSko');
     if (logFilter) {
       logFilter.innerHTML = '<option value="">Alle</option>' +
-        Store.data.shoes.map(s => `<option${s===prev?' selected':''}>${s}</option>`).join('');
+        Store.data.shoes.map(s => `<option${s.name===prev?' selected':''}>${s.name}</option>`).join('');
     }
   },
 
@@ -1137,6 +1228,7 @@ const Log = {
     const fra = document.getElementById('fFra').value;
     const til = document.getElementById('fTil').value;
     const type = document.getElementById('fFilterType').value;
+    const plan = document.getElementById('fFilterPlan').value;
     const sko = document.getElementById('fFilterSko').value;
 
     let sessions = [...Store.data.sessions];
@@ -1144,6 +1236,7 @@ const Log = {
     if (fra) sessions = sessions.filter(s => s.dato >= fra);
     if (til) sessions = sessions.filter(s => s.dato <= til);
     if (type) sessions = sessions.filter(s => s.okttype === type);
+    if (plan) sessions = sessions.filter(s => s.treningsplan === plan);
     if (sko) sessions = sessions.filter(s => s.sko === sko);
 
     sessions.sort((a, b) => {
@@ -1171,6 +1264,7 @@ const Log = {
         <td style="color:var(--muted)">${s.uke||''}</td>
         <td>${badge}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${s.oktnavn||''}</td>
+        <td style="color:var(--muted);font-size:11px">${s.treningsplan||''}</td>
         <td>${fmtDist(s.distanse)}</td>
         <td>${secsToHms(s.varighet)}</td>
         <td>${s.tempo ? secsToMmSs(s.tempo) : ''}</td>
@@ -1292,6 +1386,204 @@ function renderZoneChart(sessions) {
       responsive:true, maintainAspectRatio:false
     }
   });
+}
+
+const EVENT_COLORS = {
+  plan:     'rgba(255,255,255,.9)',
+  race:     'rgba(255,210,50,.95)',
+  illness:  'rgba(255,90,90,.95)',
+  vacation: 'rgba(50,225,185,.95)',
+  personal: 'rgba(200,190,255,.9)'
+};
+
+let showEventMarkers = true;
+
+const eventLinesPlugin = {
+  id: 'eventLines',
+  afterDraw(chart) {
+    if (!showEventMarkers) return;
+    const events = Store.data.events || [];
+    if (!events.length) return;
+    try {
+      const { ctx, chartArea } = chart;
+      if (!chartArea) return;
+      const rawLabels = (chart.data && chart.data._rawLabels) || (chart.data && chart.data.labels);
+      if (!rawLabels || !rawLabels.length) return;
+      // Use dataset meta elements for pixel positions — reliable across all chart types
+      const meta = chart.getDatasetMeta(0);
+      if (!meta || !meta.data || !meta.data.length) return;
+      const colWidth = meta.data.length > 1 ? Math.abs(meta.data[1].x - meta.data[0].x) : 20;
+      ctx.save();
+      try {
+        events.forEach(evt => {
+          let idx = rawLabels.indexOf(evt.date);
+          if (idx < 0) idx = rawLabels.indexOf(isoWeek(evt.date));
+          if (idx < 0 || idx >= meta.data.length) return;
+          const x = meta.data[idx].x;
+          if (x < chartArea.left || x > chartArea.right) return;
+          const color = EVENT_COLORS[evt.type] || EVENT_COLORS.personal;
+          const labelText = evt.title.length > 14 ? evt.title.slice(0, 13) + '…' : evt.title;
+
+          if (evt.endDate) {
+            let idx2 = rawLabels.indexOf(evt.endDate);
+            if (idx2 < 0) idx2 = rawLabels.indexOf(isoWeek(evt.endDate));
+            if (idx2 < 0) idx2 = rawLabels.length - 1;
+            const x2 = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
+            const x2c = Math.min(x2, chartArea.right);
+            ctx.fillStyle = color.replace(/[\d.]+\)$/, '0.12)');
+            ctx.fillRect(x - colWidth * 0.5, chartArea.top, x2c - x + colWidth * 0.5, chartArea.bottom - chartArea.top);
+            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+            ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
+            if (idx2 < meta.data.length) {
+              const xe = meta.data[idx2].x + colWidth * 0.5;
+              ctx.beginPath(); ctx.moveTo(xe, chartArea.top); ctx.lineTo(xe, chartArea.bottom); ctx.stroke();
+            }
+            ctx.setLineDash([]);
+          } else {
+            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+            ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
+            ctx.setLineDash([]);
+          }
+
+          ctx.fillStyle = color;
+          ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
+          ctx.fillText(labelText, x + 3, chartArea.top + 10);
+        });
+      } finally {
+        ctx.restore();
+      }
+    } catch (e) { console.warn('[eventLines]', e); }
+  }
+};
+Chart.register(eventLinesPlugin);
+
+function renderHeatmap(sessions) {
+  const container = document.getElementById('heatmapContainer');
+  if (!container) return;
+
+  const metric = document.querySelector('input[name="heatmetric"]:checked')?.value || 'distance';
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+  const TYPE_HUE = {
+    Easy: 'rgba(108,143,255,.85)', Steady: 'rgba(75,190,180,.85)',
+    Long: 'rgba(75,190,120,.85)', Tempo: 'rgba(240,150,60,.85)',
+    Intervaller: 'rgba(224,85,85,.85)', Test: 'rgba(180,120,220,.85)'
+  };
+
+  // Date range
+  const todayD = new Date(); todayD.setHours(12, 0, 0, 0);
+  let rangeStart, rangeEnd = new Date(todayD);
+  const activeYrs = [...DashFilter.years];
+  if (activeYrs.length === 1) {
+    const yr = activeYrs[0];
+    rangeStart = new Date(`${yr}-01-01T12:00:00`);
+    rangeEnd = new Date(`${yr}-12-31T12:00:00`);
+    if (rangeEnd > todayD) rangeEnd = new Date(todayD);
+  } else {
+    rangeStart = new Date(todayD);
+    rangeStart.setDate(rangeStart.getDate() - 364);
+  }
+
+  // Build daily data
+  const dailyData = {};
+  sessions.forEach(s => {
+    if (!s.dato) return;
+    if (!dailyData[s.dato]) dailyData[s.dato] = { distance: 0, load: 0, types: {}, names: [] };
+    dailyData[s.dato].distance += s.distanse || 0;
+    const load = s.soner ? s.soner.reduce((sum, secs, i) => sum + (secs||0) * [1,2,3,4,5][i], 0) / 60 : 0;
+    dailyData[s.dato].load += load;
+    if (s.okttype) dailyData[s.dato].types[s.okttype] = (dailyData[s.dato].types[s.okttype] || 0) + (s.distanse || 0);
+    if (s.oktnavn) dailyData[s.dato].names.push(s.oktnavn);
+  });
+
+  // Quartile thresholds for intensity levels
+  function quartiles(arr) {
+    const sorted = arr.filter(v => v > 0).sort((a, b) => a - b);
+    if (!sorted.length) return [1, 2, 3];
+    const q = i => sorted[Math.floor(sorted.length * i)] || sorted[sorted.length - 1];
+    return [q(0.25), q(0.5), q(0.75)];
+  }
+  const distQ = quartiles(Object.values(dailyData).map(d => d.distance));
+  const loadQ = quartiles(Object.values(dailyData).map(d => d.load));
+  function getLevel(val, q) {
+    if (!val) return 0;
+    if (val <= q[0]) return 1;
+    if (val <= q[1]) return 2;
+    if (val <= q[2]) return 3;
+    return 4;
+  }
+
+  // Build week columns aligned to Monday
+  const gridStart = new Date(rangeStart);
+  const sdow = gridStart.getDay() || 7;
+  if (sdow !== 1) gridStart.setDate(gridStart.getDate() - sdow + 1);
+
+  const weeks = [];
+  const d = new Date(gridStart); d.setHours(12, 0, 0, 0);
+  while (d <= rangeEnd) {
+    const week = { monthLabel: '', cells: [] };
+    if (d.getDate() <= 7) week.monthLabel = MONTH_NAMES[d.getMonth()];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(d); day.setDate(day.getDate() + i);
+      const key = day.toISOString().slice(0, 10);
+      const inRange = day >= rangeStart && day <= rangeEnd;
+      week.cells.push({ key, inRange, data: inRange ? (dailyData[key] || null) : null });
+    }
+    weeks.push(week);
+    d.setDate(d.getDate() + 7);
+  }
+
+  // Scale cells to fill container width
+  const GAP = 2;
+  const availWidth = container.offsetWidth || 900;
+  const cellSize = Math.max(10, Math.floor((availWidth - 20 - weeks.length * GAP) / weeks.length));
+  container.style.setProperty('--hm-cell', cellSize + 'px');
+  container.style.setProperty('--hm-gap', GAP + 'px');
+
+  // Render
+  const DAY_LABELS = ['M', '', 'O', '', 'F', '', ''];
+  let html = '<div class="heatmap-wrap">';
+  html += '<div class="heatmap-labels"><div class="heatmap-month-label"></div>';
+  DAY_LABELS.forEach(l => { html += `<div class="heatmap-day-label">${l}</div>`; });
+  html += '</div>';
+
+  weeks.forEach(week => {
+    html += `<div class="heatmap-col"><div class="heatmap-month-label">${week.monthLabel}</div>`;
+    week.cells.forEach(cell => {
+      if (!cell.inRange) { html += '<div class="heatmap-cell"></div>'; return; }
+      let levelAttr = '', styleAttr = '', title = cell.key;
+      if (cell.data) {
+        const d2 = cell.data;
+        const typeNames = Object.keys(d2.types).join(', ');
+        title = `${cell.key}: ${d2.distance.toFixed(1)} km${typeNames ? ' · ' + typeNames : ''}${d2.names.length ? ' (' + d2.names.join(', ') + ')' : ''}`;
+        if (metric === 'type') {
+          const dominant = Object.entries(d2.types).sort((a, b) => b[1] - a[1])[0]?.[0];
+          if (dominant) styleAttr = ` style="background:${TYPE_HUE[dominant] || 'rgba(160,160,180,.85)'}"`;
+        } else {
+          const lv = metric === 'load' ? getLevel(d2.load, loadQ) : getLevel(d2.distance, distQ);
+          if (lv > 0) levelAttr = ` data-level="${lv}"`;
+        }
+      }
+      html += `<div class="heatmap-cell"${levelAttr}${styleAttr} title="${title}"></div>`;
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Legend for type mode
+  if (metric === 'type') {
+    const typesPresent = new Set();
+    sessions.forEach(s => { if (s.okttype) typesPresent.add(s.okttype); });
+    if (typesPresent.size) {
+      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--muted)">';
+      [...typesPresent].sort().forEach(t => {
+        const c = TYPE_HUE[t] || 'rgba(160,160,180,.85)';
+        html += `<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:${c};display:inline-block"></span>${t}</span>`;
+      });
+      html += '</div>';
+    }
+  }
+
+  container.innerHTML = html;
 }
 
 function renderPMCChart(allSessions) {
@@ -1489,6 +1781,7 @@ function renderDashboard() {
   Charts.load = new Chart(document.getElementById('chartLoad'), {
     type: 'bar',
     data: {
+      _rawLabels: loadWeeks,
       labels: loadWeeks.map(wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }),
       datasets: [
         { type: 'bar', data: loadValues, backgroundColor: loadColors, borderRadius: 4, label: 'Belastning', order: 2 },
@@ -1617,18 +1910,27 @@ function renderDashboard() {
     }
   });
 
+  renderHeatmap(sessions);
+
   // Shoe bar chart
   const shoeMap = {};
   sessions.forEach(s => { if (s.sko) { shoeMap[s.sko] = (shoeMap[s.sko]||0) + (s.distanse||0); } });
   const shoeEntries = Object.entries(shoeMap).sort((a,b)=>b[1]-a[1]);
   const maxKm = shoeEntries[0]?.[1] || 1;
+  const shoeObjects = Store.data.shoes;
   document.getElementById('shoeBarChart').innerHTML = `<div class="shoe-bar-wrap">${
-    shoeEntries.map(([name, km]) => `
+    shoeEntries.map(([name, km]) => {
+      const shoe = shoeObjects.find(s => s.name === name);
+      const retKm = shoe?.retirementKm;
+      const pct = retKm ? km / retKm : null;
+      const warn = pct != null && pct >= 0.9 ? (pct >= 1 ? ' 🔴' : ' ⚠️') : '';
+      return `
       <div class="shoe-bar-row">
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}</span>
         <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>
-        <span style="text-align:right">${km.toFixed(0)} km</span>
-      </div>`).join('')
+        <span style="text-align:right">${km.toFixed(0)} km${warn}</span>
+      </div>`;
+    }).join('')
   }</div>`;
 
   // Weekly summary table
@@ -1870,6 +2172,10 @@ const Settings = {
     document.getElementById('btnAddShoeMain').addEventListener('click', () => this.addShoe());
     document.getElementById('newShoeName').addEventListener('keydown', e => { if (e.key === 'Enter') this.addShoe(); });
 
+    // Event management
+    document.getElementById('btnAddEvent').addEventListener('click', () => this.addEvent());
+    document.getElementById('newEvtTitle').addEventListener('keydown', e => { if (e.key === 'Enter') this.addEvent(); });
+
     // Profile / zones
     document.getElementById('btnSaveProfile').addEventListener('click', () => this.saveProfile());
     document.getElementById('btnAutoZones').addEventListener('click', () => this.autoZones());
@@ -1899,6 +2205,7 @@ const Settings = {
     this.renderShoeList();
     this.renderZoneEditor();
     this.loadProfileFields();
+    this.renderEventList();
     // Pre-fill goal year with current year if empty
     const yr = document.getElementById('newGoalYear');
     if (!yr.value) yr.value = new Date().getFullYear();
@@ -1943,14 +2250,17 @@ const Settings = {
 
   // ── Shoes ──
   addShoe() {
-    const input = document.getElementById('newShoeName');
-    const name = input.value.trim();
+    const nameInput = document.getElementById('newShoeName');
+    const retInput = document.getElementById('newShoeRetirementKm');
+    const name = nameInput.value.trim();
     if (!name) return;
-    if (!Store.data.shoes.includes(name)) {
-      Store.addShoe(name);
+    const retirementKm = parseFloat(retInput.value) || null;
+    if (!Store.data.shoes.find(s => s.name === name)) {
+      Store.addShoe(name, retirementKm);
       Form.refreshShoeDropdown(name);
     }
-    input.value = '';
+    nameInput.value = '';
+    retInput.value = '';
     this.renderShoeList();
   },
 
@@ -1963,23 +2273,134 @@ const Settings = {
       list.innerHTML = '<p style="color:var(--muted);font-size:13px">Ingen sko lagt til ennå.</p>';
       return;
     }
-    list.innerHTML = Store.data.shoes.map(name => {
-      const km = kmMap[name] ? kmMap[name].toFixed(0) : '0';
-      return `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
-        <span style="font-size:18px">👟</span>
-        <span style="flex:1;font-size:13px;font-weight:500">${name}</span>
-        <span style="font-size:12px;color:var(--muted)">${km} km</span>
-        <button class="btn-secondary btn-sm" onclick="Settings.deleteshoe('${name.replace(/'/g,"\\'")}')">Fjern</button>
+    const now = new Date();
+
+    list.innerHTML = Store.data.shoes.map(shoe => {
+      const name = shoe.name;
+      const usedKm = kmMap[name] || 0;
+      const retKm = shoe.retirementKm;
+      const safeId = name.replace(/[^a-zA-Z0-9]/g, '_');
+
+      let retireHtml = '';
+      if (retKm) {
+        const pct = Math.min(100, usedKm / retKm * 100);
+        const barColor = pct >= 100 ? 'var(--danger)' : pct >= 80 ? 'var(--yellow)' : 'var(--accent)';
+
+        // Projected retirement date
+        let projHtml = '';
+        if (usedKm < retKm) {
+          const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - 56);
+          const cutoffStr = cutoff.toISOString().slice(0, 10);
+          let recent = Store.data.sessions.filter(s => s.sko === name && s.dato >= cutoffStr);
+          if (recent.length < 2) {
+            const cutoff12 = new Date(now); cutoff12.setDate(cutoff12.getDate() - 84);
+            recent = Store.data.sessions.filter(s => s.sko === name && s.dato >= cutoff12.toISOString().slice(0, 10));
+          }
+          const windowWeeks = recent.length >= 2 ? (recent.length < 3 ? 12 : 8) : 0;
+          if (windowWeeks > 0) {
+            const weeklyRate = recent.reduce((sum, s) => sum + (s.distanse || 0), 0) / windowWeeks;
+            if (weeklyRate > 0) {
+              const weeksLeft = Math.round((retKm - usedKm) / weeklyRate);
+              const projDate = new Date(now); projDate.setDate(projDate.getDate() + weeksLeft * 7);
+              const projStr = projDate.toLocaleDateString('nb-NO', { day: 'numeric', month: 'short', year: 'numeric' });
+              projHtml = `<div style="font-size:11px;color:var(--muted);margin-top:4px">Ferdig om ca. ${weeksLeft} uker · ${projStr}</div>`;
+            }
+          }
+        }
+
+        retireHtml = `
+          <div style="margin-top:8px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+              <div class="shoe-retire-bar-bg"><div class="shoe-retire-bar-fill" style="width:${pct.toFixed(1)}%;background:${barColor}"></div></div>
+              <span style="font-size:11px;color:var(--muted);white-space:nowrap">${usedKm.toFixed(0)} / ${retKm} km</span>
+            </div>
+            ${pct >= 100 ? '<div style="font-size:11px;color:var(--danger);margin-top:4px">🔴 Pensjonert — bør byttes</div>' : projHtml}
+          </div>`;
+      }
+
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:18px">👟</span>
+          <span style="flex:1;font-size:13px;font-weight:500">${name}</span>
+          <span style="font-size:12px;color:var(--muted)">${usedKm.toFixed(0)} km</span>
+          <button class="btn-secondary btn-sm" onclick="Settings.toggleShoeEdit('${safeId}')" style="font-size:11px">Rediger</button>
+          <button class="btn-secondary btn-sm" onclick="Settings.deleteshoe('${name.replace(/'/g,"\\'")}')">Fjern</button>
+        </div>
+        ${retireHtml}
+        <div id="shoe-edit-${safeId}" style="display:none;margin-top:10px;display:none;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="number" id="shoe-ret-${safeId}" placeholder="Utløpsgrense km" value="${retKm || ''}" min="1"
+            style="width:160px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px">
+          <button class="btn-primary btn-sm" onclick="Settings.saveShoeRetirement('${name.replace(/'/g,"\\'")}', '${safeId}')">Lagre</button>
+          <button class="btn-secondary btn-sm" onclick="Settings.toggleShoeEdit('${safeId}')">Avbryt</button>
+        </div>
       </div>`;
     }).join('');
   },
 
+  toggleShoeEdit(safeId) {
+    const el = document.getElementById(`shoe-edit-${safeId}`);
+    if (!el) return;
+    el.style.display = el.style.display === 'flex' ? 'none' : 'flex';
+  },
+
+  saveShoeRetirement(name, safeId) {
+    const input = document.getElementById(`shoe-ret-${safeId}`);
+    const km = parseFloat(input.value) || null;
+    Store.updateShoe(name, { retirementKm: km });
+    this.renderShoeList();
+  },
+
   deleteshoe(name) {
     if (!confirm(`Fjerne "${name}" fra listen?`)) return;
-    Store.data.shoes = Store.data.shoes.filter(s => s !== name);
+    Store.data.shoes = Store.data.shoes.filter(s => s.name !== name);
     FileIO.save();
     Form.refreshShoeDropdown();
     this.renderShoeList();
+  },
+
+  // ── Events ──
+  renderEventList() {
+    const list = document.getElementById('eventList');
+    if (!list) return;
+    const events = (Store.data.events || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+    if (!events.length) {
+      list.innerHTML = '<p style="color:var(--muted);font-size:13px">Ingen hendelser lagt til ennå.</p>';
+      return;
+    }
+    const typeLabel = { plan: 'Plan', race: 'Løp/Race', illness: 'Sykdom', vacation: 'Ferie', personal: 'Annet' };
+    list.innerHTML = events.map(evt => {
+      const color = EVENT_COLORS[evt.type] || EVENT_COLORS.personal;
+      const dateStr = evt.endDate ? `${fmtDate(evt.date)} – ${fmtDate(evt.endDate)}` : evt.date;
+      return `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
+        <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
+        <span style="font-size:12px;color:var(--muted);min-width:120px">${dateStr}</span>
+        <span style="font-size:11px;color:${color};min-width:64px">${typeLabel[evt.type] || evt.type}</span>
+        <span style="flex:1;font-size:13px;font-weight:500">${evt.title}</span>
+        <button class="btn-secondary btn-sm" onclick="Settings.deleteEvent('${evt.id}')">✕</button>
+      </div>`;
+    }).join('');
+  },
+
+  addEvent() {
+    const date = document.getElementById('newEvtDate').value;
+    const endDate = document.getElementById('newEvtEndDate').value;
+    const type = document.getElementById('newEvtType').value;
+    const title = document.getElementById('newEvtTitle').value.trim();
+    if (!date || !title) return;
+    const evt = { id: genId(), date, type, title };
+    if (endDate && endDate > date) evt.endDate = endDate;
+    Store.addEvent(evt);
+    document.getElementById('newEvtDate').value = '';
+    document.getElementById('newEvtEndDate').value = '';
+    document.getElementById('newEvtTitle').value = '';
+    this.renderEventList();
+    if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
+  },
+
+  deleteEvent(id) {
+    Store.deleteEvent(id);
+    this.renderEventList();
+    if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
   },
 
   // ── HR Zones ──
@@ -2067,12 +2488,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Filters
-  ['fFra','fTil','fFilterType','fFilterSko'].forEach(id => {
+  ['fFra','fTil','fFilterType','fFilterPlan','fFilterSko'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => Log.render());
   });
   document.getElementById('btnClearFilters').addEventListener('click', () => {
     ['fFra','fTil'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('fFilterType').value = '';
+    document.getElementById('fFilterPlan').value = '';
     document.getElementById('fFilterSko').value = '';
     Log.render();
   });
@@ -2105,6 +2527,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Dashboard filters
   document.getElementById('dfType').addEventListener('change', e => { DashFilter.type = e.target.value; renderDashboard(); });
   document.getElementById('dfPlan').addEventListener('change', e => { DashFilter.plan = e.target.value; renderDashboard(); });
+  document.getElementById('chkEvents').addEventListener('change', e => { showEventMarkers = e.target.checked; renderDashboard(); });
   document.getElementById('btnDashReset').addEventListener('click', () => {
     DashFilter.years.clear(); DashFilter.type = ''; DashFilter.plan = '';
     document.getElementById('dfType').value = '';
