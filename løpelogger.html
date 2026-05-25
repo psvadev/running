@@ -807,7 +807,6 @@ const FileIO = {
         }
       }
 
-      // Still no handle — first save of a new file
       if (!this.handle) {
         try {
           this.handle = await window.showSaveFilePicker({
@@ -815,7 +814,8 @@ const FileIO = {
             types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
           });
           await HandleDB.set(this.handle);
-          localStorage.setItem('lpl_handle_name', 'løpelogger.json');
+          localStorage.setItem('lpl_handle_name', this.handle.name);
+          this.updateStatus(this.handle.name);
         } catch(e) {
           if (e.name === 'AbortError') { this.setSyncOk(); return; }
           console.warn('showSaveFilePicker failed', e);
@@ -827,8 +827,7 @@ const FileIO = {
           const writable = await this.handle.createWritable();
           await writable.write(json);
           await writable.close();
-          const file = await this.handle.getFile();
-          this.updateStatus(file.name);
+          this.updateStatus(localStorage.getItem('lpl_handle_name') || this.handle.name);
           this.setSyncOk();
           return;
         } catch(e) { console.warn('Could not write to file handle', e); }
