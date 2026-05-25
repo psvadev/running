@@ -76,7 +76,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 
 ---
 
-## App structure (4 tabs)
+## App structure (5 tabs)
 
 ### ➕ Legg til økt (form tab)
 - Fields in **Excel column order**: Dato, Uke (auto), Øktnavn, Økt-type, Treningsplan, Varighet (auto), Distanse, Gj.snittspuls, Toppuls, Sone 1–5, Kalorier, Tempo (auto), Snitt km/t (auto), Stigning, Sko, Søvn
@@ -112,11 +112,13 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 - Row actions: ✏️ edit (goes to form tab), 🗑️ delete (with confirm)
 - **"Importer Excel/CSV"** button → SheetJS modal with preview before confirming
 
-### ⚙️ Innstillinger (settings tab — max 1200px)
+### 📅 Planlegging (planning tab — max 1200px)
 - **Mål**: add yearly km goals (year + km); listed with delete button; triggers goal card on dashboard
-- **Profil & Puls**: max HR, resting HR, 5 zone BPM boundaries, "Auto-beregn" button (fills zones at 50/60/70/80/90% of max HR)
 - **Sko**: add by name + optional retirement km. Shows progress bar + projected retirement date (8/12-week rate). Old string-only JSON files migrated automatically.
-- **Hendelser**: add timeline events (start date, optional end date, type, title). Types: **plan / race / illness / vacation / personal** ("Sko" removed — mileage is tracked automatically). Point events = dashed vertical line; range events (with `endDate`) = semi-transparent shaded band with dashed borders. Toggled via "Hendelser" checkbox in filter bar. Event list shows date range as "DD. MMM – DD. MMM" when endDate present.
+- **Hendelser**: add timeline events (start date, optional end date, type, title). Types: **plan / race / illness / vacation / personal**. Point events = dashed vertical line; range events (with `endDate`) = semi-transparent shaded band with dashed borders. Toggled via "Hendelser" checkbox in dashboard filter bar. Event list shows date range as "DD. MMM – DD. MMM" when endDate present.
+
+### ⚙️ Innstillinger (settings tab — max 1200px)
+- **Profil & Puls**: max HR, resting HR, 5 zone BPM boundaries, "Auto-beregn" button (fills zones at 50/60/70/80/90% of max HR)
 - **Datafil**: open file, new file, download/export, "Tøm alle data" danger button
 
 ---
@@ -147,7 +149,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses Monday-aligned epoch week index for correct ISO week / year-boundary handling. |
 | `renderZoneChart(sessions)` | Standalone function; reads `zoneGroupBy` ('week'/'month') to group data |
 | `refreshAll()` | Called after any data change; re-renders log, shoe list, dashboard if visible |
-| `switchTab(name)` | Tab navigation; triggers tab-specific render |
+| `switchTab(name)` | Tab navigation; triggers tab-specific render (`dash`→`renderDashboard`, `log`→`Log.render`, `plan`/`settings`→`Settings.render`) |
 
 Global state:
 - `let zoneGroupBy = 'week'` — controls Uke/Måned toggle for zones chart
@@ -254,7 +256,7 @@ Global state:
 
 ## How to open and test
 1. Open `løpelogger.html` in **Edge** or **Chrome**
-2. Go to ⚙️ Innstillinger → click **📂 Åpne fil** → select your `løpelogger.json`
+2. Go to **⚙️ Innstillinger** → click **📂 Åpne fil** → select your `løpelogger.json`
 3. Data loads; all tabs refresh automatically
 4. On subsequent loads the app will attempt to reattach the file handle automatically
 5. In **Firefox**: same, but use "⬇️ Last ned" to save changes (no auto-save)

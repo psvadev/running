@@ -185,6 +185,7 @@
   <div class="tab active" data-tab="form">➕ Legg til økt</div>
   <div class="tab" data-tab="dash">📊 Oversikt</div>
   <div class="tab" data-tab="log">📋 Treningslogg</div>
+  <div class="tab" data-tab="plan">📅 Planlegging</div>
   <div class="tab" data-tab="settings">⚙️ Innstillinger</div>
 </div>
 
@@ -513,8 +514,8 @@
   <div id="logCount" style="font-size:12px;color:var(--muted);margin-top:10px"></div>
 </div>
 
-<!-- ══════════════ TAB 4: SETTINGS ══════════════ -->
-<div class="panel" id="panel-settings" style="max-width:1200px;margin:0 auto">
+<!-- ══════════════ TAB 4: PLANLEGGING ══════════════ -->
+<div class="panel" id="panel-plan" style="max-width:1200px;margin:0 auto">
 
   <!-- Mål -->
   <div class="card" style="margin-bottom:16px">
@@ -524,30 +525,6 @@
       <input type="number" id="newGoalYear" placeholder="År" min="2020" max="2040" style="width:90px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newGoalKm" placeholder="Mål (km)" min="1" style="width:140px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <button class="btn-primary btn-sm" id="btnAddGoal">+ Legg til</button>
-    </div>
-  </div>
-
-  <!-- Profil & Puls -->
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-title">Profil &amp; Puls</div>
-    <div class="form-grid" style="margin-bottom:18px">
-      <div class="form-group">
-        <label>Maks puls (slag/min)</label>
-        <input type="number" id="sMaxHR" min="100" max="250" placeholder="195">
-      </div>
-      <div class="form-group">
-        <label>Hvilepuls (slag/min)</label>
-        <input type="number" id="sRestHR" min="30" max="120" placeholder="55">
-      </div>
-    </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <span class="form-section-title" style="margin-bottom:0;border:none">Pulssoner (BPM-grenser)</span>
-      <button class="btn-secondary btn-sm" id="btnAutoZones">⚡ Auto-beregn fra maks puls</button>
-    </div>
-    <div id="zoneEditor" style="display:flex;flex-direction:column;gap:8px"></div>
-    <div style="margin-top:14px">
-      <button class="btn-primary btn-sm" id="btnSaveProfile">💾 Lagre profil</button>
-      <span id="profileMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
     </div>
   </div>
 
@@ -581,6 +558,35 @@
       <button class="btn-primary btn-sm" id="btnAddEvent">+ Legg til</button>
     </div>
     <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
+</div>
+
+<!-- ══════════════ TAB 5: SETTINGS ══════════════ -->
+<div class="panel" id="panel-settings" style="max-width:1200px;margin:0 auto">
+
+  <!-- Profil & Puls -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Profil &amp; Puls</div>
+    <div class="form-grid" style="margin-bottom:18px">
+      <div class="form-group">
+        <label>Maks puls (slag/min)</label>
+        <input type="number" id="sMaxHR" min="100" max="250" placeholder="195">
+      </div>
+      <div class="form-group">
+        <label>Hvilepuls (slag/min)</label>
+        <input type="number" id="sRestHR" min="30" max="120" placeholder="55">
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span class="form-section-title" style="margin-bottom:0;border:none">Pulssoner (BPM-grenser)</span>
+      <button class="btn-secondary btn-sm" id="btnAutoZones">⚡ Auto-beregn fra maks puls</button>
+    </div>
+    <div id="zoneEditor" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div style="margin-top:14px">
+      <button class="btn-primary btn-sm" id="btnSaveProfile">💾 Lagre profil</button>
+      <span id="profileMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
+    </div>
   </div>
 
   <!-- Datafil -->
@@ -2457,6 +2463,7 @@ function switchTab(name) {
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-'+name));
   if (name === 'dash') renderDashboard();
   if (name === 'log') Log.render();
+  if (name === 'plan') Settings.render();
   if (name === 'settings') Settings.render();
 }
 
@@ -2464,7 +2471,8 @@ function refreshAll() {
   Log.render();
   Form.refreshShoeDropdown();
   if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
-  if (document.getElementById('panel-settings').classList.contains('active')) Settings.render();
+  if (document.getElementById('panel-plan').classList.contains('active') ||
+      document.getElementById('panel-settings').classList.contains('active')) Settings.render();
   else Settings.renderShoeList();
 }
 
