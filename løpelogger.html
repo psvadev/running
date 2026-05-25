@@ -155,7 +155,7 @@
 
   /* ── Heatmap ── */
   .heatmap-wrap { display:flex; gap:var(--hm-gap,2px); padding-bottom:4px; }
-  .heatmap-labels { display:flex; flex-direction:column; gap:var(--hm-gap,2px); padding-top:16px; flex-shrink:0; }
+  .heatmap-labels { display:flex; flex-direction:column; gap:var(--hm-gap,2px); flex-shrink:0; margin-right:4px; }
   .heatmap-day-label { width:16px; height:var(--hm-cell,12px); font-size:9px; color:var(--muted); line-height:var(--hm-cell,12px); text-align:right; }
   .heatmap-col { display:flex; flex-direction:column; gap:var(--hm-gap,2px); flex-shrink:0; }
   .heatmap-month-label { height:14px; font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; }
@@ -399,7 +399,7 @@
     </div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <div class="card-title" style="margin-bottom:0">Pulssoner (minutter)</div>
+        <div class="card-title" style="margin-bottom:0">Pulssoner (tt:mm)</div>
         <div style="display:flex;gap:6px">
           <span class="year-pill active" id="zoneToggleWeek">Uke</span>
           <span class="year-pill" id="zoneToggleMaaned">Måned</span>
@@ -416,9 +416,9 @@
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">Treningskalender</div>
         <div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted)">
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="distance" checked onchange="renderDashboard()"> Distanse</label>
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="load" onchange="renderDashboard()"> Belastning</label>
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="type" onchange="renderDashboard()"> Økttype</label>
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="distance" checked onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Distanse</label>
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="load" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Belastning</label>
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="type" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Økttype</label>
         </div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Mørkere = mer trening. Hover for detaljer.</div>
@@ -655,6 +655,10 @@ function secsToHms(s) {
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
   return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+function minsToHm(m) {
+  const t = Math.round(m);
+  return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`;
 }
 
 function hmsToSecs(str) {
@@ -1384,10 +1388,13 @@ function renderZoneChart(sessions) {
     },
     options:{
       indexAxis:'x',
-      plugins:{ legend:{ labels:{color:'#e8eaf0',boxWidth:12} } },
+      plugins:{
+        legend:{ labels:{color:'#e8eaf0',boxWidth:12} },
+        tooltip:{ callbacks:{ label: ctx => `${ctx.dataset.label}: ${minsToHm(ctx.parsed.y)}` } }
+      },
       scales:{
         x:{ stacked:true, grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45} },
-        y:{ stacked:true, grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}, title:{display:true,text:'min',color:'#7880a0'} }
+        y:{ stacked:true, grid:{color:'#2e3248'}, ticks:{color:'#7880a0', callback: v => minsToHm(v)}, title:{display:true,text:'tt:mm',color:'#7880a0'} }
       },
       responsive:true, maintainAspectRatio:false
     }
@@ -1546,7 +1553,7 @@ function renderHeatmap(sessions) {
   container.style.setProperty('--hm-gap', GAP + 'px');
 
   // Render
-  const DAY_LABELS = ['M', '', 'O', '', 'F', '', ''];
+  const DAY_LABELS = ['M', 'T', 'O', 'T', 'F', 'L', 'S'];
   let html = '<div class="heatmap-wrap">';
   html += '<div class="heatmap-labels"><div class="heatmap-month-label"></div>';
   DAY_LABELS.forEach(l => { html += `<div class="heatmap-day-label">${l}</div>`; });

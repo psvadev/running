@@ -100,9 +100,9 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   - **Ukentlig distanse** — bar chart, km per week (last 20 weeks). Supports event marker lines.
   - **Tempo per uke** — line chart, weighted average pace per week (total time ÷ total km)
   - **Aerob effektivitet (Easy-økter)** — line chart; per-session score = `snittkmh / gjsnittspuls × 100` for Easy sessions only; individual points + 4-session rolling average (green) + personal average reference line (dashed amber). Tooltip shows session name, speed, and HR. Responds to dashboard filter
-  - **Pulssoner** — stacked bar, minutes per zone per week, last 20 weeks; **Uke/Måned toggle** switches grouping
+  - **Pulssoner** — stacked bar, time per zone per week, last 20 weeks; Y-axis and tooltips display in `tt:mm` (h:mm) format via `minsToHm()`; **Uke/Måned toggle** switches grouping
   - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`); responds to type/plan filters
-  - **Treningskalender** — GitHub-style heatmap calendar (full-width). Three modes toggled via radio: *Distanse* (blue intensity by quartile), *Belastning* (zone-weighted load by quartile), *Økttype* (cell coloured by dominant session type). Hover shows date + session details. Shows last 52 weeks; if single year selected, shows full calendar year. Type mode includes a colour legend. **Cell size is dynamic** — calculated from `container.offsetWidth` to fill the card width (min 10px).
+  - **Treningskalender** — GitHub-style heatmap calendar (full-width). Three modes toggled via radio: *Distanse* (blue intensity by quartile), *Belastning* (zone-weighted load by quartile), *Økttype* (cell coloured by dominant session type). Hover shows date + session details. Shows last 52 weeks; if single year selected, shows full calendar year. Type mode includes a colour legend. **Cell size is dynamic** — calculated from `container.offsetWidth` to fill the card width (min 10px). **Day labels** M T O T F L S are aligned to their row (label column uses matching height + gap; `margin-right:4px` separates labels from cells). **Radio buttons call `renderHeatmap()` directly** — they do not trigger a full `renderDashboard()` re-render.
   - Shoe km horizontal bars. Shows ⚠️/🔴 warning when approaching/exceeding retirement km.
   - Weekly summary table (scrollable)
 
@@ -148,6 +148,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | `eventLinesPlugin` | Chart.js globally registered plugin (`Chart.register(eventLinesPlugin)`). Runs on ALL charts. Draws dashed vertical lines (point events) or semi-transparent shaded bands with dashed borders (range events with `endDate`). Safely no-ops on charts where labels don't match. Guarded with double try-catch so errors never crash chart rendering. |
 | `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses Monday-aligned epoch week index for correct ISO week / year-boundary handling. |
 | `renderZoneChart(sessions)` | Standalone function; reads `zoneGroupBy` ('week'/'month') to group data |
+| `minsToHm(m)` | Formats decimal minutes as `h:mm` (e.g. `90.5` → `"1:30"`); used in Pulssoner chart ticks and tooltips |
 | `refreshAll()` | Called after any data change; re-renders log, shoe list, dashboard if visible |
 | `switchTab(name)` | Tab navigation; triggers tab-specific render (`dash`→`renderDashboard`, `log`→`Log.render`, `plan`/`settings`→`Settings.render`) |
 
