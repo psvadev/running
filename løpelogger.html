@@ -790,7 +790,24 @@ const FileIO = {
     localStorage.setItem('lpl_cache', json);
 
     if (this.supportsApi) {
-      // No handle yet — ask user where to save (first save of a new file)
+      // No in-memory handle — try to recover from IndexedDB first (handles page-reload case)
+      if (!this.handle) {
+        const stored = await HandleDB.get();
+        if (stored) {
+          try {
+            const perm = await stored.queryPermission({ mode: 'readwrite' });
+            if (perm === 'granted') {
+              this.handle = stored;
+            } else if (perm === 'prompt') {
+              // Clicking Lagre is a user gesture so requestPermission is allowed here
+              const newPerm = await stored.requestPermission({ mode: 'readwrite' });
+              if (newPerm === 'granted') this.handle = stored;
+            }
+          } catch { /* fall through to showSaveFilePicker */ }
+        }
+      }
+
+      // Still no handle — first save of a new file
       if (!this.handle) {
         try {
           this.handle = await window.showSaveFilePicker({
@@ -799,17 +816,19 @@ const FileIO = {
           });
           await HandleDB.set(this.handle);
           localStorage.setItem('lpl_handle_name', 'løpelogger.json');
-          this.updateStatus('løpelogger.json');
         } catch(e) {
           if (e.name === 'AbortError') { this.setSyncOk(); return; }
           console.warn('showSaveFilePicker failed', e);
         }
       }
+
       if (this.handle) {
         try {
           const writable = await this.handle.createWritable();
           await writable.write(json);
           await writable.close();
+          const file = await this.handle.getFile();
+          this.updateStatus(file.name);
           this.setSyncOk();
           return;
         } catch(e) { console.warn('Could not write to file handle', e); }
