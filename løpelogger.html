@@ -340,7 +340,14 @@
       <div class="records-grid" id="distPRGrid"></div>
     </div>
     <div class="card span2">
-      <div class="card-title">Treningsbelastning per uke</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0">Treningsbelastning per uke</div>
+        <div style="font-size:11px;color:var(--muted);display:flex;gap:10px">
+          <span style="color:rgba(75,190,120,.9)">&#9646; Lav</span>
+          <span style="color:rgba(240,192,80,.95)">&#9646; Middels</span>
+          <span style="color:rgba(224,85,85,1)">&#9646; Høy</span>
+        </div>
+      </div>
       <div class="chart-wrap"><canvas id="chartLoad"></canvas></div>
     </div>
     <div class="card">
@@ -1322,15 +1329,39 @@ function renderDashboard() {
     loadWeekMap[wk] = (loadWeekMap[wk] || 0) + s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
   });
   const loadWeeks = Object.keys(loadWeekMap).sort().slice(-20);
+  const loadValues = loadWeeks.map(w => +loadWeekMap[w].toFixed(0));
+  const maxLoad = Math.max(...loadValues, 1);
+  const loadColors = loadValues.map(v => {
+    const r = v / maxLoad;
+    if (r < 0.4) return 'rgba(75,190,120,.8)';   // low — green
+    if (r < 0.7) return 'rgba(240,192,80,.85)';   // medium — amber
+    return 'rgba(224,85,85,.9)';                   // high — red
+  });
+  const rollingAvg = loadWeeks.map((_, i) => {
+    const slice = loadValues.slice(Math.max(0, i - 3), i + 1);
+    return +(slice.reduce((s, v) => s + v, 0) / slice.length).toFixed(0);
+  });
   destroyChart('load');
   Charts.load = new Chart(document.getElementById('chartLoad'), {
     type: 'bar',
     data: {
       labels: loadWeeks.map(wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }),
-      datasets: [{ data: loadWeeks.map(w => +loadWeekMap[w].toFixed(0)), backgroundColor: 'rgba(108,143,255,.65)', borderRadius: 4 }]
+      datasets: [
+        { type: 'bar', data: loadValues, backgroundColor: loadColors, borderRadius: 4, label: 'Belastning', order: 2 },
+        { type: 'line', data: rollingAvg, label: '4-ukers snitt', borderColor: '#6c8fff', backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 4, borderWidth: 2, tension: 0.4, order: 1 }
+      ]
     },
     options: {
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} poeng` } } },
+      plugins: {
+        legend: { labels: { color: '#e8eaf0', boxWidth: 12, filter: i => i.datasetIndex === 1 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.datasetIndex === 0
+              ? `${ctx.raw} poeng · ${ctx.raw/maxLoad < 0.4 ? 'Lav' : ctx.raw/maxLoad < 0.7 ? 'Middels' : 'Høy'} belastning`
+              : `Snitt (4 uker): ${ctx.raw} poeng`
+          }
+        }
+      },
       scales: {
         x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
         y: { grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'poeng', color: '#7880a0' } }
