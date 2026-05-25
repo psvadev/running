@@ -88,7 +88,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   - **Ukentlig distanse** — bar chart, km per week (last 20 weeks)
   - **Tempo per uke** — line chart, weighted average pace per week (total time ÷ total km)
   - **Pulssoner** — stacked bar, minutes per zone per week, last 20 weeks; **Uke/Måned toggle** switches grouping
-  - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`)
+  - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`); responds to type/plan filters
   - Shoe km horizontal bars
   - Weekly summary table (scrollable)
 
@@ -125,7 +125,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | `Settings` | Shoe management, goal management, zone editor, profile save, file controls |
 | `Import` | SheetJS parse, Norwegian column mapping, preview modal, `mergeSessions` dedup |
 | `renderDashboard()` | Rebuilds all chart panels and goal card; calls `buildYearPills()`; hides `yearCompCard` when single year selected |
-| `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses absolute week index (`Math.floor(date / 7days)`) for correct year-boundary handling. |
+| `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses Monday-aligned epoch week index for correct ISO week / year-boundary handling. |
 | `renderZoneChart(sessions)` | Standalone function; reads `zoneGroupBy` ('week'/'month') to group data |
 | `refreshAll()` | Called after any data change; re-renders log, shoe list, dashboard if visible |
 | `switchTab(name)` | Tab navigation; triggers tab-specific render |
@@ -145,6 +145,10 @@ Global state:
 - Handle is stored to IndexedDB in `open()` and on first successful `save()`
 - `openNew()` clears the stored handle via `HandleDB.clear()`
 
+### Manual save (💾 Lagre) re-using the existing file
+- **Problem:** After a page reload, `this.handle` is null until `restoreHandle()` completes. If the user clicks Lagre first, `save()` would call `showSaveFilePicker` and prompt for a location — even though the file is known.
+- **Fix:** `save()` checks IndexedDB for a stored handle before falling back to `showSaveFilePicker`. Clicking Lagre IS a user gesture, so `requestPermission` is allowed inline. `this.handle.name` (synchronous) is used for the filename instead of `getFile()`. Filename is cached in `localStorage('lpl_handle_name')` and used in the write-success path to avoid an extra async `getFile()` call on every save.
+
 ### Distance PRs (distPRs)
 - Brackets: 5 km (4.5–5.5), 10 km (9.0–11.0), Halvmaraton (19.5–22.0), Maraton (40.0–43.5)
 - Best = lowest `tempo` (fastest pace) within bracket
@@ -156,6 +160,13 @@ Global state:
 - Grouped by week; bar color relative to personal max in displayed window: <40% = green, 40–70% = amber, >70% = red
 - Blue line = 4-week rolling average
 - Only counts sessions that have HR zone data logged
+
+### Streak calculation
+- Uses Monday-aligned epoch week: `Math.floor((date.getTime() + 3*86400000) / (7*86400000))`
+- The `+3 days` shift aligns week boundaries to Monday (ISO week start), so a run on Dec 31 and Jan 1 of the following week count as consecutive weeks correctly. The original Thursday-aligned formula (Unix epoch = Thursday) could falsely break streaks at year boundaries.
+
+### Weekly chart fallback for missing `uke`
+- All weekly aggregations use `s.uke || isoWeek(s.dato)` so sessions without a stored week string still bucket correctly. This covers sessions from old imports or hand-crafted records.
 
 ### søvn (sleep) format
 - **Problem:** Excel stores time values (e.g. `6:52`) as fractions of a day (`0.2868`). `parseFloat` took the raw fraction.
@@ -178,6 +189,7 @@ Global state:
 - `_migrate()` ensures `goals` exists on old files that pre-date this feature.
 - Dashboard goal card is hidden if no goal is set for the target year.
 - Target year = single selected year in filter, otherwise current calendar year.
+- Goal card always uses `allSessions` (unfiltered) — intentional, since the yearly km goal is a total regardless of session type.
 
 ---
 
@@ -199,7 +211,6 @@ Global state:
 ### Other ideas noted
 - HR zone labels in charts could show actual BPM ranges once settings are saved
 - Import dedup logic: matches on `dato + distanse (±0.05km) + varighet (±30s)`
-- Year comparison chart uses `allSessions` (ignores type/plan filter) — known inconsistency; hidden automatically when only one year is selected (nothing to compare)
 - Fitness & Fatigue (PMC) chart — rolling 42-day vs 7-day training load averages; discussed but not yet implemented
 
 ---
