@@ -648,6 +648,11 @@ function isoWeek(dateStr) {
   return `${d.getFullYear()}-${String(week).padStart(2, '0')}`;
 }
 
+function fmtWeekLabel(wk) {
+  const [yr, wn] = wk.split('-');
+  return `Uke ${wn} '${yr.slice(2)}`;
+}
+
 function secsToHms(s) {
   if (!s && s !== 0) return '';
   s = Math.round(s);
@@ -1371,7 +1376,7 @@ function renderZoneChart(sessions) {
   });
   const keys = Object.keys(zoneMap).sort().slice(-20);
   const fmtKey = k => {
-    if (zoneGroupBy === 'week') { const [yr,wn]=k.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }
+    if (zoneGroupBy === 'week') return fmtWeekLabel(k);
     const [yr,mn]=k.split('-'); return `${NO_MTHS[+mn-1]} '${yr.slice(2)}`;
   };
   destroyChart('zones');
@@ -1408,6 +1413,9 @@ const EVENT_COLORS = {
   vacation: 'rgba(50,225,185,.95)',
   personal: 'rgba(200,190,255,.9)'
 };
+const EVENT_FILL_COLORS = Object.fromEntries(
+  Object.entries(EVENT_COLORS).map(([k, v]) => [k, v.replace(/[\d.]+\)$/, '0.12)')])
+);
 
 let showEventMarkers = true;
 
@@ -1441,27 +1449,25 @@ const eventLinesPlugin = {
           ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
 
           if (evt.endDate) {
+            const endWkIso = isoWeek(evt.endDate);
             let idx2 = rawLabels.indexOf(evt.endDate);
-            if (idx2 < 0) idx2 = rawLabels.indexOf(isoWeek(evt.endDate));
+            if (idx2 < 0) idx2 = rawLabels.indexOf(endWkIso);
             if (idx2 < 0) {
-              // End week has no data — snap to nearest label before the end date
-              const endWk = isoWeek(evt.endDate);
-              if (endWk <= (rawLabels[rawLabels.length - 1] || '')) {
+              if (endWkIso <= (rawLabels[rawLabels.length - 1] || '')) {
                 for (let i = rawLabels.length - 1; i >= 0; i--) {
-                  if (rawLabels[i] <= endWk) { idx2 = i; break; }
+                  if (rawLabels[i] <= endWkIso) { idx2 = i; break; }
                 }
               }
-              // else: end is beyond the visible range — idx2 stays -1
             }
-            const endFound = idx2 >= 0;
+            const endWeekVisible = idx2 >= 0;
             if (idx2 < 0) idx2 = rawLabels.length - 1;
             const xStart = x - colWidth * 0.5;
             const xEnd = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
             const xEndC = Math.min(xEnd, chartArea.right);
-            ctx.fillStyle = color.replace(/[\d.]+\)$/, '0.12)');
+            ctx.fillStyle = EVENT_FILL_COLORS[evt.type] || EVENT_FILL_COLORS.personal;
             ctx.fillRect(xStart, chartArea.top, xEndC - xStart, chartArea.bottom - chartArea.top);
             ctx.beginPath(); ctx.moveTo(xStart, chartArea.top); ctx.lineTo(xStart, chartArea.bottom); ctx.stroke();
-            if (endFound && xEnd <= chartArea.right + 1) {
+            if (endWeekVisible && xEnd <= chartArea.right + 1) {
               ctx.beginPath(); ctx.moveTo(xEnd, chartArea.top); ctx.lineTo(xEnd, chartArea.bottom); ctx.stroke();
             }
             ctx.setLineDash([]);
@@ -1771,7 +1777,7 @@ function renderDashboard() {
     { label:'Beste snitt km/t', value: recs.bestKmh ? recs.bestKmh.snittkmh.toFixed(1)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
     { label:'Totalt distanse', value: recs.totalDist.toFixed(1)+' km', sub: `${sessions.length} økter` },
     { label:'Totalt tid', value: secsToHms(recs.totalTime), sub: '' },
-    { label:'Beste uke', value: recs.besteUke ? recs.besteUkeKm.toFixed(1)+' km' : '–', sub: recs.besteUke ? (wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; })(recs.besteUke) : '' },
+    { label:'Beste uke', value: recs.besteUke ? recs.besteUkeKm.toFixed(1)+' km' : '–', sub: recs.besteUke ? fmtWeekLabel(recs.besteUke) : '' },
     { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
   ].map(r => `<div class="record-card"><div class="record-label">${r.label}</div><div class="record-value">${r.value}</div><div class="record-sub">${r.sub}</div></div>`).join('');
 
@@ -1807,7 +1813,7 @@ function renderDashboard() {
     type: 'bar',
     data: {
       _rawLabels: loadWeeks,
-      labels: loadWeeks.map(wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }),
+      labels: loadWeeks.map(fmtWeekLabel),
       datasets: [
         { type: 'bar', data: loadValues, backgroundColor: loadColors, borderRadius: 4, label: 'Belastning', order: 2 },
         { type: 'line', data: rollingAvg, label: '4-ukers snitt', borderColor: '#6c8fff', backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 4, borderWidth: 2, tension: 0.4, order: 1 }
@@ -1843,7 +1849,7 @@ function renderDashboard() {
     type:'bar',
     data:{
       _rawLabels: weeks,
-      labels: weeks.map(wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }),
+      labels: weeks.map(fmtWeekLabel),
       datasets:[{ data: weeks.map(w => weekMap[w].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
     },
     options:{ plugins:{legend:{display:false}}, scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} }, responsive:true, maintainAspectRatio:false }
@@ -1861,7 +1867,7 @@ function renderDashboard() {
   destroyChart('pace');
   Charts.pace = new Chart(document.getElementById('chartPace'), {
     type:'line',
-    data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }),
+    data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(fmtWeekLabel),
       datasets:[{
         data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return +(secs/dist/60).toFixed(3); }),
         borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',

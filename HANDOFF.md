@@ -148,6 +148,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | `eventLinesPlugin` | Chart.js globally registered plugin (`Chart.register(eventLinesPlugin)`). Runs on ALL charts. Draws dashed vertical lines (point events) or semi-transparent shaded bands with dashed borders (range events with `endDate`). Safely no-ops on charts where labels don't match. Guarded with double try-catch so errors never crash chart rendering. |
 | `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses Monday-aligned epoch week index for correct ISO week / year-boundary handling. |
 | `renderZoneChart(sessions)` | Standalone function; reads `zoneGroupBy` ('week'/'month') to group data |
+| `fmtWeekLabel(wk)` | Formats a `YYYY-WW` string as `"Uke N 'YY"` — used for all weekly chart display labels; defined near `isoWeek` |
 | `minsToHm(m)` | Formats decimal minutes as `h:mm` (e.g. `90.5` → `"1:30"`); used in Pulssoner chart ticks and tooltips |
 | `refreshAll()` | Called after any data change; re-renders log, shoe list, dashboard if visible |
 | `switchTab(name)` | Tab navigation; triggers tab-specific render (`dash`→`renderDashboard`, `log`→`Log.render`, `plan`/`settings`→`Settings.render`) |
@@ -251,7 +252,6 @@ Global state:
 ### Other ideas noted
 - HR zone labels in charts could show actual BPM ranges once settings are saved
 - Import dedup logic: matches on `dato + distanse (±0.05km) + varighet (±30s)`
-- Fitness & Fatigue (PMC) chart — rolling 42-day vs 7-day training load averages; discussed but not yet implemented
 
 ---
 
