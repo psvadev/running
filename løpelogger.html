@@ -361,18 +361,6 @@
     </div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <div class="card-title" style="margin-bottom:0">Treningsbelastning per uke</div>
-        <div style="font-size:11px;color:var(--muted);display:flex;gap:10px">
-          <span style="color:rgba(75,190,120,.9)">&#9646; Lav</span>
-          <span style="color:rgba(240,192,80,.95)">&#9646; Middels</span>
-          <span style="color:rgba(224,85,85,1)">&#9646; Høy</span>
-        </div>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Tid i pulssoner veid etter intensitet (S1=1 … S5=5 poeng/min). Blå linje = 4-ukers snitt.</div>
-      <div class="chart-wrap"><canvas id="chartLoad"></canvas></div>
-    </div>
-    <div class="card span2">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">Treningsstatus (PMC)</div>
         <div style="font-size:11px;color:var(--muted);display:flex;gap:10px">
           <span style="color:rgba(108,143,255,.9)">— Kondisjon</span>
@@ -383,6 +371,18 @@
       <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Kondisjon bygges over 42 dager, tretthet over 7 dager. Positiv form (grønn &gt; 0) = klar for harde økter.</div>
       <div class="chart-wrap" style="height:260px"><canvas id="chartPMC"></canvas></div>
     </div>
+    <div class="card span2">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0">Treningsbelastning per uke</div>
+        <div style="font-size:11px;color:var(--muted);display:flex;gap:10px">
+          <span style="color:rgba(75,190,120,.9)">&#9646; Lav</span>
+          <span style="color:rgba(240,192,80,.95)">&#9646; Middels</span>
+          <span style="color:rgba(224,85,85,1)">&#9646; Høy</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Tid i pulssoner veid etter intensitet (S1=1 … S5=5 poeng/min). Blå linje = 4-ukers snitt.</div>
+      <div class="chart-wrap"><canvas id="chartLoad"></canvas></div>
+    </div>
     <div class="card">
       <div class="card-title">Ukentlig distanse (km)</div>
       <div class="chart-wrap"><canvas id="chartWeeklyDist"></canvas></div>
@@ -391,6 +391,22 @@
       <div class="card-title">Tempo per uke (min/km)</div>
       <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Lavere er raskere. Veid snitt per uke.</div>
       <div class="chart-wrap"><canvas id="chartPace"></canvas></div>
+    </div>
+    <div class="card span2" id="heatmapCard">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0">Treningskalender</div>
+        <div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted)">
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="distance" checked onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Distanse</label>
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="load" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Belastning</label>
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="type" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Økttype</label>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Mørkere = mer trening. Hover for detaljer.</div>
+      <div id="heatmapContainer"></div>
+    </div>
+    <div class="card span2" id="yearCompCard">
+      <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
+      <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
     </div>
     <div class="card span2">
       <div class="card-title">Aerob effektivitet (Easy-økter)</div>
@@ -407,22 +423,6 @@
       </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:12px">S1–2 rolig og aerob · S3 terskel · S4–5 høy intensitet.</div>
       <div class="chart-wrap" style="height:260px"><canvas id="chartZones"></canvas></div>
-    </div>
-    <div class="card span2" id="yearCompCard">
-      <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
-      <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
-    </div>
-    <div class="card span2" id="heatmapCard">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <div class="card-title" style="margin-bottom:0">Treningskalender</div>
-        <div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted)">
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="distance" checked onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Distanse</label>
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="load" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Belastning</label>
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="type" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Økttype</label>
-        </div>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Mørkere = mer trening. Hover for detaljer.</div>
-      <div id="heatmapContainer"></div>
     </div>
     <div class="card">
       <div class="card-title">Sko-kilometer</div>
@@ -1437,30 +1437,42 @@ const eventLinesPlugin = {
           const color = EVENT_COLORS[evt.type] || EVENT_COLORS.personal;
           const labelText = evt.title.length > 14 ? evt.title.slice(0, 13) + '…' : evt.title;
 
+          ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+          ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
+
           if (evt.endDate) {
             let idx2 = rawLabels.indexOf(evt.endDate);
             if (idx2 < 0) idx2 = rawLabels.indexOf(isoWeek(evt.endDate));
+            if (idx2 < 0) {
+              // End week has no data — snap to nearest label before the end date
+              const endWk = isoWeek(evt.endDate);
+              if (endWk <= (rawLabels[rawLabels.length - 1] || '')) {
+                for (let i = rawLabels.length - 1; i >= 0; i--) {
+                  if (rawLabels[i] <= endWk) { idx2 = i; break; }
+                }
+              }
+              // else: end is beyond the visible range — idx2 stays -1
+            }
+            const endFound = idx2 >= 0;
             if (idx2 < 0) idx2 = rawLabels.length - 1;
-            const x2 = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
-            const x2c = Math.min(x2, chartArea.right);
+            const xStart = x - colWidth * 0.5;
+            const xEnd = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
+            const xEndC = Math.min(xEnd, chartArea.right);
             ctx.fillStyle = color.replace(/[\d.]+\)$/, '0.12)');
-            ctx.fillRect(x - colWidth * 0.5, chartArea.top, x2c - x + colWidth * 0.5, chartArea.bottom - chartArea.top);
-            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
-            ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
-            if (idx2 < meta.data.length) {
-              const xe = meta.data[idx2].x + colWidth * 0.5;
-              ctx.beginPath(); ctx.moveTo(xe, chartArea.top); ctx.lineTo(xe, chartArea.bottom); ctx.stroke();
+            ctx.fillRect(xStart, chartArea.top, xEndC - xStart, chartArea.bottom - chartArea.top);
+            ctx.beginPath(); ctx.moveTo(xStart, chartArea.top); ctx.lineTo(xStart, chartArea.bottom); ctx.stroke();
+            if (endFound && xEnd <= chartArea.right + 1) {
+              ctx.beginPath(); ctx.moveTo(xEnd, chartArea.top); ctx.lineTo(xEnd, chartArea.bottom); ctx.stroke();
             }
             ctx.setLineDash([]);
+            ctx.fillStyle = color;
+            ctx.fillText(labelText, xStart + 3, chartArea.top + 10);
           } else {
-            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
             ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
             ctx.setLineDash([]);
+            ctx.fillStyle = color;
+            ctx.fillText(labelText, x + 3, chartArea.top + 10);
           }
-
-          ctx.fillStyle = color;
-          ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
-          ctx.fillText(labelText, x + 3, chartArea.top + 10);
         });
       } finally {
         ctx.restore();
@@ -1829,7 +1841,11 @@ function renderDashboard() {
   destroyChart('weeklyDist');
   Charts.weeklyDist = new Chart(document.getElementById('chartWeeklyDist'), {
     type:'bar',
-    data:{ labels: weeks, datasets:[{ data: weeks.map(w => weekMap[w].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }] },
+    data:{
+      _rawLabels: weeks,
+      labels: weeks.map(wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }),
+      datasets:[{ data: weeks.map(w => weekMap[w].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
+    },
     options:{ plugins:{legend:{display:false}}, scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} }, responsive:true, maintainAspectRatio:false }
   });
 
@@ -1845,7 +1861,7 @@ function renderDashboard() {
   destroyChart('pace');
   Charts.pace = new Chart(document.getElementById('chartPace'), {
     type:'line',
-    data:{ labels: paceWeeks.map(wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }),
+    data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }),
       datasets:[{
         data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return +(secs/dist/60).toFixed(3); }),
         borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',

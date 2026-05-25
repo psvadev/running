@@ -93,16 +93,16 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 ### 📊 Oversikt (dashboard tab — full width)
 - Filter bar at top: økt-type dropdown, treningsplan dropdown, year pills (toggle individual years), Nullstill button
 - **Yearly goal card** (full-width, hidden if no goal set): progress bar, km løpt, km igjen, Prognose (year-end projection), km/uke nødvendig. Green if on track, warning if projected to fall short.
-- Charts (all **week-based**, not per-session — except Records):
+- Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → PMC → Belastning → Ukentlig distanse + Tempo → Treningskalender → Årssammenligning → Aerob effektivitet → Pulssoner → Sko-km + Ukentlig oversikt
   - **Rekorder** — general records (best pace, longest dist/time, best km/h, total dist/time, best week, longest streak) + **Distanse-PR** sub-section (5 km, 10 km, Halvmaraton, Maraton — fastest session per bracket)
-  - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width)
   - **Treningsstatus (PMC)** — line chart, last 365 days; three lines: Kondisjon/CTL (42-day exp. avg, blue), Tretthet/ATL (7-day exp. avg, red), Form/TSB (CTL−ATL, green). Always uses `allSessions` regardless of dashboard filter — CTL/ATL require full history to be meaningful (full-width)
-  - **Ukentlig distanse** — bar chart, km per week (last 20 weeks). Supports event marker lines.
-  - **Tempo per uke** — line chart, weighted average pace per week (total time ÷ total km)
+  - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width). Supports event marker lines.
+  - **Ukentlig distanse** — bar chart, km per week (last 20 weeks). Supports event marker lines. Uses `_rawLabels` (YYYY-WW) for event matching alongside formatted display labels.
+  - **Tempo per uke** — line chart, weighted average pace per week (total time ÷ total km). Supports event marker lines. Uses `_rawLabels` (YYYY-WW) for event matching.
+  - **Treningskalender** — GitHub-style heatmap calendar (full-width). Three modes toggled via radio: *Distanse* (blue intensity by quartile), *Belastning* (zone-weighted load by quartile), *Økttype* (cell coloured by dominant session type). Hover shows date + session details. Shows last 52 weeks; if single year selected, shows full calendar year. Type mode includes a colour legend. **Cell size is dynamic** — calculated from `container.offsetWidth` to fill the card width (min 10px). **Day labels** M T O T F L S are aligned to their row (label column uses matching height + gap; `margin-right:4px` separates labels from cells). **Radio buttons call `renderHeatmap()` directly** — they do not trigger a full `renderDashboard()` re-render.
+  - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`); responds to type/plan filters
   - **Aerob effektivitet (Easy-økter)** — line chart; per-session score = `snittkmh / gjsnittspuls × 100` for Easy sessions only; individual points + 4-session rolling average (green) + personal average reference line (dashed amber). Tooltip shows session name, speed, and HR. Responds to dashboard filter
   - **Pulssoner** — stacked bar, time per zone per week, last 20 weeks; Y-axis and tooltips display in `tt:mm` (h:mm) format via `minsToHm()`; **Uke/Måned toggle** switches grouping
-  - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`); responds to type/plan filters
-  - **Treningskalender** — GitHub-style heatmap calendar (full-width). Three modes toggled via radio: *Distanse* (blue intensity by quartile), *Belastning* (zone-weighted load by quartile), *Økttype* (cell coloured by dominant session type). Hover shows date + session details. Shows last 52 weeks; if single year selected, shows full calendar year. Type mode includes a colour legend. **Cell size is dynamic** — calculated from `container.offsetWidth` to fill the card width (min 10px). **Day labels** M T O T F L S are aligned to their row (label column uses matching height + gap; `margin-right:4px` separates labels from cells). **Radio buttons call `renderHeatmap()` directly** — they do not trigger a full `renderDashboard()` re-render.
   - Shoe km horizontal bars. Shows ⚠️/🔴 warning when approaching/exceeding retirement km.
   - Weekly summary table (scrollable)
 
@@ -211,9 +211,9 @@ Global state:
 - Plugin is **globally registered** via `Chart.register(eventLinesPlugin)` so it runs on every chart. Charts without matching labels simply draw nothing.
 - Matching order: try `evt.date` exact string first, then `isoWeek(evt.date)` (returns `YYYY-WW`).
 - PMC chart uses daily ISO date labels → matches `evt.date` directly.
-- Weekly dist chart uses raw `YYYY-WW` labels → matches via `isoWeek`.
-- Load chart uses formatted display labels (`"Uke 21 '26"`) but stores `_rawLabels: loadWeeks` (raw `YYYY-WW`) on `chart.data` → plugin reads `chart.data._rawLabels` first, so week matching still works.
-- Range events (`endDate` present): draws a `rgba(..., 0.12)` filled rect between the two week columns + dashed lines at each edge. Single events: just a dashed line.
+- Load, weekly dist, and pace charts use formatted display labels (`"Uke 21 '26"`) but all store `_rawLabels` (raw `YYYY-WW`) on `chart.data` → plugin reads `chart.data._rawLabels` first.
+- Range events (`endDate` present): draws a `rgba(..., 0.12)` filled rect + dashed start line. End line drawn only when the end label is found. **End-date finding order**: (1) exact match, (2) `isoWeek` match, (3) nearest session-week before the end date (handles gaps where the end week had no sessions). If end is beyond the visible range entirely, band extends to the right edge with no end line.
+- Band edges: both dashed lines and the filled rect use the same `xStart = x - colWidth/2` and `xEnd = meta.data[idx2].x + colWidth/2` coordinates — no offset between line and band boundary.
 
 ### snittkmh rounding
 - **Problem:** Excel imports stored `snittkmh` as the raw float (e.g. `7.664592204389127`).
