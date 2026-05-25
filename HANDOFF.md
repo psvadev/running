@@ -85,8 +85,10 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 - Charts (all **week-based**, not per-session — except Records):
   - **Rekorder** — general records (best pace, longest dist/time, best km/h, total dist/time, best week, longest streak) + **Distanse-PR** sub-section (5 km, 10 km, Halvmaraton, Maraton — fastest session per bracket)
   - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width)
+  - **Treningsstatus (PMC)** — line chart, last 365 days; three lines: Kondisjon/CTL (42-day exp. avg, blue), Tretthet/ATL (7-day exp. avg, red), Form/TSB (CTL−ATL, green). Always uses `allSessions` regardless of dashboard filter — CTL/ATL require full history to be meaningful (full-width)
   - **Ukentlig distanse** — bar chart, km per week (last 20 weeks)
   - **Tempo per uke** — line chart, weighted average pace per week (total time ÷ total km)
+  - **Aerob effektivitet (Easy-økter)** — line chart; per-session score = `snittkmh / gjsnittspuls × 100` for Easy sessions only; individual points + 4-session rolling average (green) + personal average reference line (dashed amber). Tooltip shows session name, speed, and HR. Responds to dashboard filter
   - **Pulssoner** — stacked bar, minutes per zone per week, last 20 weeks; **Uke/Måned toggle** switches grouping
   - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`); responds to type/plan filters
   - Shoe km horizontal bars
@@ -125,6 +127,8 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | `Settings` | Shoe management, goal management, zone editor, profile save, file controls |
 | `Import` | SheetJS parse, Norwegian column mapping, preview modal, `mergeSessions` dedup |
 | `renderDashboard()` | Rebuilds all chart panels and goal card; calls `buildYearPills()`; hides `yearCompCard` when single year selected |
+| `renderPMCChart(allSessions)` | PMC chart — walks every calendar day from first session to today, accumulating CTL and ATL via exponential decay; displays last 365 days. Always called with `allSessions` (not filtered). |
+| `renderEfficiencyChart(sessions)` | Aerobic efficiency chart — filters to Easy sessions with HR+speed data, computes score = `snittkmh/gjsnittspuls×100`, renders points + 4-session rolling avg + personal average reference line |
 | `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses Monday-aligned epoch week index for correct ISO week / year-boundary handling. |
 | `renderZoneChart(sessions)` | Standalone function; reads `zoneGroupBy` ('week'/'month') to group data |
 | `refreshAll()` | Called after any data change; re-renders log, shoe list, dashboard if visible |
@@ -179,6 +183,11 @@ Global state:
 - All Norwegian column headers from the user's exact sheet are mapped, including `"Gj.snittspuls"`, `"Sone1 (min)"` etc.
 - `parseExcelTime(val)` handles both numeric fractions (Excel internal) and `"H:MM:SS"` strings.
 - `parseExcelDate(val)` handles Excel serials, `MM/DD/YYYY`, and ISO strings.
+
+### snittkmh rounding
+- **Problem:** Excel imports stored `snittkmh` as the raw float (e.g. `7.664592204389127`).
+- **Fix:** Import parser now rounds to 2 decimal places: `+parseFloat(obj.snittkmh).toFixed(2)`. `autoCalcPace()` was also updated from `.toFixed(1)` to `.toFixed(2)`.
+- **Migration:** `Store._migrate()` rounds any stored `snittkmh` that differs from its 2-decimal representation, so existing data is cleaned up on next load.
 
 ### Auto-calculated fields
 - `varighet`, `tempo`, `snittkmh` are `readonly` inputs styled with accent colour and no border.

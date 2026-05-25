@@ -340,7 +340,7 @@
       <div class="records-grid" id="distPRGrid"></div>
     </div>
     <div class="card span2">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">Treningsbelastning per uke</div>
         <div style="font-size:11px;color:var(--muted);display:flex;gap:10px">
           <span style="color:rgba(75,190,120,.9)">&#9646; Lav</span>
@@ -348,7 +348,20 @@
           <span style="color:rgba(224,85,85,1)">&#9646; Høy</span>
         </div>
       </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Tid i pulssoner veid etter intensitet (S1=1 … S5=5 poeng/min). Blå linje = 4-ukers snitt.</div>
       <div class="chart-wrap"><canvas id="chartLoad"></canvas></div>
+    </div>
+    <div class="card span2">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0">Treningsstatus (PMC)</div>
+        <div style="font-size:11px;color:var(--muted);display:flex;gap:10px">
+          <span style="color:rgba(108,143,255,.9)">— Kondisjon</span>
+          <span style="color:rgba(224,85,85,.9)">— Tretthet</span>
+          <span style="color:rgba(75,190,120,.9)">— Form</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Kondisjon bygges over 42 dager, tretthet over 7 dager. Positiv form (grønn &gt; 0) = klar for harde økter.</div>
+      <div class="chart-wrap" style="height:260px"><canvas id="chartPMC"></canvas></div>
     </div>
     <div class="card">
       <div class="card-title">Ukentlig distanse (km)</div>
@@ -356,16 +369,23 @@
     </div>
     <div class="card">
       <div class="card-title">Tempo per uke (min/km)</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Lavere er raskere. Veid snitt per uke.</div>
       <div class="chart-wrap"><canvas id="chartPace"></canvas></div>
     </div>
     <div class="card span2">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="card-title">Aerob effektivitet (Easy-økter)</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Høyere = mer fart per hjerteslag. Stigende trend betyr bedre kondisjon.</div>
+      <div class="chart-wrap"><canvas id="chartEfficiency"></canvas></div>
+    </div>
+    <div class="card span2">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">Pulssoner (minutter)</div>
         <div style="display:flex;gap:6px">
           <span class="year-pill active" id="zoneToggleWeek">Uke</span>
           <span class="year-pill" id="zoneToggleMaaned">Måned</span>
         </div>
       </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">S1–2 rolig og aerob · S3 terskel · S4–5 høy intensitet.</div>
       <div class="chart-wrap" style="height:260px"><canvas id="chartZones"></canvas></div>
     </div>
     <div class="card span2" id="yearCompCard">
@@ -648,9 +668,8 @@ const Store = {
     if (!this.data.goals) this.data.goals = {};
     // Convert søvn stored as Excel day-fraction (< 1) to decimal hours
     this.data.sessions.forEach(s => {
-      if (s.sovn != null && s.sovn > 0 && s.sovn < 1) {
-        s.sovn = s.sovn * 24;
-      }
+      if (s.sovn != null && s.sovn > 0 && s.sovn < 1) s.sovn = s.sovn * 24;
+      if (s.snittkmh != null && s.snittkmh !== +s.snittkmh.toFixed(2)) s.snittkmh = +s.snittkmh.toFixed(2);
     });
   },
 
@@ -973,7 +992,7 @@ const Form = {
     const dist = parseFloat(document.getElementById('fDistanse').value);
     if (varSecs > 0 && dist > 0) {
       document.getElementById('fTempo').value = secsToMmSs(Math.round(varSecs / dist));
-      document.getElementById('fSnittkmh').value = (dist / (varSecs / 3600)).toFixed(1);
+      document.getElementById('fSnittkmh').value = (dist / (varSecs / 3600)).toFixed(2);
     }
   },
 
@@ -1275,6 +1294,114 @@ function renderZoneChart(sessions) {
   });
 }
 
+function renderPMCChart(allSessions) {
+  const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
+  const dailyLoad = {};
+  allSessions.forEach(s => {
+    if (!s.dato || !s.soner || !s.soner.some(v => v > 0)) return;
+    const load = s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
+    dailyLoad[s.dato] = (dailyLoad[s.dato] || 0) + load;
+  });
+  destroyChart('pmc');
+  if (!Object.keys(dailyLoad).length) return;
+
+  const kCTL = Math.exp(-1 / 42);
+  const kATL = Math.exp(-1 / 7);
+  const today = new Date();
+  const displayStart = new Date(today);
+  displayStart.setDate(displayStart.getDate() - 365);
+  const firstDate = new Date(Object.keys(dailyLoad).sort()[0]);
+
+  let ctl = 0, atl = 0;
+  const labels = [], ctlData = [], atlData = [], tsbData = [];
+  const d = new Date(firstDate);
+  while (d <= today) {
+    const key = d.toISOString().slice(0, 10);
+    const tss = dailyLoad[key] || 0;
+    ctl = ctl * kCTL + tss * (1 - kCTL);
+    atl = atl * kATL + tss * (1 - kATL);
+    if (d >= displayStart) {
+      labels.push(key);
+      ctlData.push(+ctl.toFixed(1));
+      atlData.push(+atl.toFixed(1));
+      tsbData.push(+(ctl - atl).toFixed(1));
+    }
+    d.setDate(d.getDate() + 1);
+  }
+
+  Charts.pmc = new Chart(document.getElementById('chartPMC'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Kondisjon (CTL)', data: ctlData, borderColor: 'rgba(108,143,255,.9)', pointRadius: 0, tension: 0.2, borderWidth: 2 },
+        { label: 'Tretthet (ATL)', data: atlData, borderColor: 'rgba(224,85,85,.9)', pointRadius: 0, tension: 0.2, borderWidth: 2 },
+        { label: 'Form (TSB)', data: tsbData, borderColor: 'rgba(75,190,120,.9)', pointRadius: 0, tension: 0.2, borderWidth: 1.5 }
+      ]
+    },
+    options: {
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        y: { grid: { color: '#2e3248' }, ticks: { color: '#7880a0' } },
+        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45, maxTicksLimit: 12 } }
+      },
+      responsive: true, maintainAspectRatio: false
+    }
+  });
+}
+
+function renderEfficiencyChart(sessions) {
+  const easySessions = sessions
+    .filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.snittkmh > 0)
+    .sort((a, b) => a.dato.localeCompare(b.dato));
+
+  destroyChart('efficiency');
+  if (easySessions.length < 2) return;
+
+  const scores = easySessions.map(s => +(s.snittkmh / s.gjsnittspuls * 100).toFixed(2));
+  const avg = +(scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(2);
+
+  const rollingAvg = scores.map((_, i) => {
+    const slice = scores.slice(Math.max(0, i - 3), i + 1);
+    return +(slice.reduce((sum, v) => sum + v, 0) / slice.length).toFixed(2);
+  });
+
+  Charts.efficiency = new Chart(document.getElementById('chartEfficiency'), {
+    type: 'line',
+    data: {
+      labels: easySessions.map(s => s.dato),
+      datasets: [
+        { label: 'Effektivitet', data: scores, borderColor: 'rgba(108,143,255,.5)', backgroundColor: 'rgba(108,143,255,.1)', pointRadius: 3, borderWidth: 1, tension: 0, fill: true },
+        { label: '4-økt snitt', data: rollingAvg, borderColor: 'rgba(75,190,120,.9)', pointRadius: 0, borderWidth: 2, tension: 0.3 },
+        { label: `Gjennomsnitt (${avg})`, data: scores.map(() => avg), borderColor: 'rgba(240,192,80,.7)', borderDash: [6, 3], pointRadius: 0, borderWidth: 1.5, tension: 0 }
+      ]
+    },
+    options: {
+      plugins: {
+        legend: { display: true, labels: { color: '#e8eaf0', boxWidth: 20, font: { size: 11 } } },
+        tooltip: {
+          mode: 'index', intersect: false,
+          filter: item => item.datasetIndex < 2,
+          callbacks: {
+            title: ctx => {
+              const s = easySessions[ctx[0].dataIndex];
+              return s.oktnavn ? `${s.dato} · ${s.oktnavn}` : s.dato;
+            },
+            label: ctx => ctx.datasetIndex === 0
+              ? [`Effektivitet: ${ctx.raw}`, `${easySessions[ctx.dataIndex].snittkmh} km/t · ${easySessions[ctx.dataIndex].gjsnittspuls} bpm`]
+              : `4-økt snitt: ${ctx.raw}`
+          }
+        }
+      },
+      scales: {
+        y: { grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'km/t per puls ×100', color: '#7880a0' } },
+        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45, maxTicksLimit: 12 } }
+      },
+      responsive: true, maintainAspectRatio: false
+    }
+  });
+}
+
 function renderDashboard() {
   const allSessions = Store.data.sessions;
   buildYearPills(allSessions);
@@ -1387,6 +1514,8 @@ function renderDashboard() {
     }
   });
 
+  renderPMCChart(allSessions);
+
   // Weekly distance chart (last 20 weeks)
   const weekMap = {};
   sessions.forEach(s => { const wk = s.uke || isoWeek(s.dato); if (!weekMap[wk]) weekMap[wk] = 0; weekMap[wk] += s.distanse || 0; });
@@ -1426,6 +1555,8 @@ function renderDashboard() {
       responsive:true, maintainAspectRatio:false
     }
   });
+
+  renderEfficiencyChart(sessions);
 
   // HR Zone stacked bar
   renderZoneChart(sessions);
@@ -1684,7 +1815,7 @@ const Import = {
             ],
             kalorier: parseInt(obj.kalorier)||null,
             tempo: parseExcelTime(obj.tempo)||null,
-            snittkmh: parseFloat(obj.snittkmh)||null,
+            snittkmh: obj.snittkmh ? +parseFloat(obj.snittkmh).toFixed(2) : null,
             stigning: parseFloat(obj.stigning)||null,
             sko: String(obj.sko||'').trim(),
             sovn: parseSovn(obj.sovn),
