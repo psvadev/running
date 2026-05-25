@@ -754,7 +754,6 @@ const HandleDB = {
 const FileIO = {
   handle: null,
   supportsApi: 'showOpenFilePicker' in window,
-  dirty: false,
 
   async open() {
     if (this.supportsApi) {
@@ -1390,7 +1389,7 @@ function renderDashboard() {
 
   // Weekly distance chart (last 20 weeks)
   const weekMap = {};
-  sessions.forEach(s => { if (!weekMap[s.uke]) weekMap[s.uke] = 0; weekMap[s.uke] += s.distanse; });
+  sessions.forEach(s => { const wk = s.uke || isoWeek(s.dato); if (!weekMap[wk]) weekMap[wk] = 0; weekMap[wk] += s.distanse || 0; });
   const weeks = Object.keys(weekMap).sort().slice(-20);
   destroyChart('weeklyDist');
   Charts.weeklyDist = new Chart(document.getElementById('chartWeeklyDist'), {
@@ -1437,7 +1436,7 @@ function renderDashboard() {
 
   // Year comparison — cumulative km by week number
   const yearGroups = {};
-  allSessions.forEach(s => {  // always use allSessions so unselected years still visible as ghost? No — use filtered sessions so the chart responds to type/plan filters but always shows all years for comparison
+  sessions.forEach(s => {
     if (!s.dato || !s.distanse) return;
     const year = s.dato.slice(0, 4);
     const d = new Date(s.dato); d.setHours(12);
@@ -1455,10 +1454,9 @@ function renderDashboard() {
     const weekly = yearGroups[year];
     let cum = 0;
     const data = [];
+    const lastWk = Math.max(...Object.keys(weekly).map(Number));
     for (let w = 1; w <= maxWeek; w++) {
       cum += weekly[w] || 0;
-      // Stop at last known week for this year
-      const lastWk = Math.max(...Object.keys(weekly).map(Number));
       data.push(w <= lastWk ? +cum.toFixed(1) : null);
     }
     return {
@@ -1505,11 +1503,12 @@ function renderDashboard() {
   // Weekly summary table
   const weekStats = {};
   sessions.forEach(s => {
-    if (!weekStats[s.uke]) weekStats[s.uke] = { sessions:0, dist:0, time:0, paceSum:0, paceCount:0 };
-    weekStats[s.uke].sessions++;
-    weekStats[s.uke].dist += s.distanse||0;
-    weekStats[s.uke].time += s.varighet||0;
-    if (s.tempo) { weekStats[s.uke].paceSum += s.tempo; weekStats[s.uke].paceCount++; }
+    const wk = s.uke || isoWeek(s.dato);
+    if (!weekStats[wk]) weekStats[wk] = { sessions:0, dist:0, time:0, paceSum:0, paceCount:0 };
+    weekStats[wk].sessions++;
+    weekStats[wk].dist += s.distanse||0;
+    weekStats[wk].time += s.varighet||0;
+    if (s.tempo) { weekStats[wk].paceSum += s.tempo; weekStats[wk].paceCount++; }
   });
   const sortedWeeks = Object.keys(weekStats).sort().reverse();
   let totDist=0, totTime=0, totSessions=0;
@@ -1543,7 +1542,7 @@ function computeRecords(sessions) {
     if (s.snittkmh && (!bestKmh || s.snittkmh > bestKmh.snittkmh)) bestKmh=s;
     const wk = s.uke || isoWeek(s.dato);
     weekKm[wk] = (weekKm[wk]||0) + (s.distanse||0);
-    if (s.dato) absWeekSet.add(Math.floor(new Date(s.dato).getTime() / (7*24*3600*1000)));
+    if (s.dato) absWeekSet.add(Math.floor((new Date(s.dato).getTime() + 3*86400000) / (7*86400000)));
   });
   // Best week by km
   let besteUke=null, besteUkeKm=0;
@@ -1643,6 +1642,7 @@ const Import = {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
+    reader.onerror = () => alert('Klarte ikke lese filen.');
     reader.onload = ev => {
       try {
         const wb = XLSX.read(ev.target.result, { type:'array', cellDates:false });
@@ -1693,7 +1693,6 @@ const Import = {
         }
 
         // Preview
-        const previewCols = ['dato','okttype','oktnavn','distanse','varighed_fmt','sko'];
         document.getElementById('importSummary').textContent =
           `Fant ${importParsed.length} gyldige rader i "${file.name}". Forhåndsvisning (maks 10):`;
         const headRow = document.getElementById('importPreviewHead');
@@ -1912,9 +1911,9 @@ function switchTab(name) {
 function refreshAll() {
   Log.render();
   Form.refreshShoeDropdown();
-  Settings.renderShoeList();
   if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
   if (document.getElementById('panel-settings').classList.contains('active')) Settings.render();
+  else Settings.renderShoeList();
 }
 
 // ═══════════════════════════════════════════════════════
