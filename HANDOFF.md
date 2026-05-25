@@ -5,6 +5,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 
 ## File locations
 - **App:** `c:\temp\GitHub\running\løpelogger.html`
+- **Repo:** `https://github.com/psvadev/running` (private)
 - **Data:** wherever the user saves their `løpelogger.json` (opened via File System Access API in Edge/Chrome)
 
 ---
@@ -16,6 +17,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | Charts | Chart.js 4.4.0 (CDN) |
 | Excel import | SheetJS xlsx 0.18.5 (CDN) |
 | Data storage | Local JSON file via File System Access API (Edge/Chrome auto-save); download/upload fallback for Firefox |
+| Handle persistence | `HandleDB` — stores `FileSystemFileHandle` in IndexedDB so the file re-attaches on next load without a file picker |
 | Language | Vanilla JS, no TypeScript |
 
 ---
@@ -38,7 +40,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
     "kalorier": 672,               // or null
     "tempo": 470,                  // seconds/km (auto-calculated); displayed as MM:SS
     "snittkmh": 7.7,               // auto-calculated
-    "stigning": 1.0,               // %
+    "stigning": 1.0,               // % (step 0.5)
     "sko": "ASICS Novablast 5",
     "sovn": 6.87                   // decimal hours (e.g. 6.87 = 6h52m); display via hoursToHHMM()
   }],
@@ -65,9 +67,6 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 
 ## App structure (4 tabs)
 
-### Small field tweaks
-- **Stigning**: `step="0.5"` — spinner moves in 0.5% increments
-
 ### ➕ Legg til økt (form tab)
 - Fields in **Excel column order**: Dato, Uke (auto), Øktnavn, Økt-type, Treningsplan, Varighet (auto), Distanse, Gj.snittspuls, Toppuls, Sone 1–5, Kalorier, Tempo (auto), Snitt km/t (auto), Stigning, Sko, Søvn
 - Layout: 4 sections
@@ -76,6 +75,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   - **Pulssoner** (5-col zone-grid): Sone 1–5
   - **Trailing row** (3-col, 2 rows): Kalorier, Tempo, Snitt km/t → Stigning, Sko, Søvn
 - Auto-calculated (readonly, shown in accent blue): Varighet (sum of zones), Tempo, Snitt km/t
+- Stigning: `step="0.5"` — spinner moves in 0.5% increments
 - Shoe dropdown has a `+` button that navigates to Innstillinger tab
 - Edit mode: clicking a row in the log pre-fills the form; edit banner shown; "Oppdater økt" replaces "Lagre økt"
 
@@ -83,11 +83,12 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 - Filter bar at top: økt-type dropdown, treningsplan dropdown, year pills (toggle individual years), Nullstill button
 - **Yearly goal card** (full-width, hidden if no goal set): progress bar, km løpt, km igjen, Prognose (year-end projection), km/uke nødvendig. Green if on track, warning if projected to fall short.
 - Charts (all **week-based**, not per-session — except Records):
-  - **Rekorder** — best pace, longest dist, longest time, best km/h, total dist, total time, best week (km), longest streak (consecutive weeks) — per-session level, full-width
+  - **Rekorder** — general records (best pace, longest dist/time, best km/h, total dist/time, best week, longest streak) + **Distanse-PR** sub-section (5 km, 10 km, Halvmaraton, Maraton — fastest session per bracket)
+  - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width)
   - **Ukentlig distanse** — bar chart, km per week (last 20 weeks)
   - **Tempo per uke** — line chart, weighted average pace per week (total time ÷ total km)
   - **Pulssoner** — stacked bar, minutes per zone per week, last 20 weeks; **Uke/Måned toggle** switches grouping
-  - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** in the filter (card id: `yearCompCard`)
+  - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`)
   - Shoe km horizontal bars
   - Weekly summary table (scrollable)
 
@@ -116,14 +117,15 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | Name | Role |
 |---|---|
 | `Store` | In-memory data; `addSession`, `updateSession`, `deleteSession`, `mergeSessions`, `_migrate()` |
-| `FileIO` | File System Access API wrapper; `open()`, `save()`, `download()`, `loadCache()` |
+| `HandleDB` | IndexedDB wrapper; `get()`, `set(handle)`, `clear()` — persists `FileSystemFileHandle` across page loads |
+| `FileIO` | File System Access API wrapper; `open()`, `save()`, `download()`, `loadCache()`, `restoreHandle()` |
 | `Form` | Form read/write; `read()`, `populate()`, `save()`, `editSession()`, `autoCalcVarighet()`, `autoCalcPace()` |
 | `Log` | Session table render + sort/filter |
 | `DashFilter` | Dashboard filter state (years Set, type, plan); `get(sessions)` returns filtered array |
 | `Settings` | Shoe management, goal management, zone editor, profile save, file controls |
 | `Import` | SheetJS parse, Norwegian column mapping, preview modal, `mergeSessions` dedup |
 | `renderDashboard()` | Rebuilds all chart panels and goal card; calls `buildYearPills()`; hides `yearCompCard` when single year selected |
-| `computeRecords(sessions)` | Returns `{ bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, besteUke, besteUkeKm, longestStreak }`. Streak uses absolute week index (`Math.floor(date / 7days)`) so year-boundary weeks are handled correctly. |
+| `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses absolute week index (`Math.floor(date / 7days)`) for correct year-boundary handling. |
 | `renderZoneChart(sessions)` | Standalone function; reads `zoneGroupBy` ('week'/'month') to group data |
 | `refreshAll()` | Called after any data change; re-renders log, shoe list, dashboard if visible |
 | `switchTab(name)` | Tab navigation; triggers tab-specific render |
@@ -134,6 +136,26 @@ Global state:
 ---
 
 ## Important quirks & fixes made during build
+
+### File handle persistence (HandleDB)
+- `FileIO.restoreHandle()` is called on startup after `loadCache()`
+- `queryPermission({ mode:'readwrite' })` — if `'granted'` (same session/recent reload): reads file silently
+- If `'prompt'`: status bar shows "📂 Klikk for å gjenåpne [filename]" — one click calls `requestPermission` (requires user gesture)
+- If `'denied'` or no handle stored: falls back to cache message
+- Handle is stored to IndexedDB in `open()` and on first successful `save()`
+- `openNew()` clears the stored handle via `HandleDB.clear()`
+
+### Distance PRs (distPRs)
+- Brackets: 5 km (4.5–5.5), 10 km (9.0–11.0), Halvmaraton (19.5–22.0), Maraton (40.0–43.5)
+- Best = lowest `tempo` (fastest pace) within bracket
+- Displayed as `varighet` (HH:MM:SS) with pace + date subtitle
+- Shows "–" if no session logged in that bracket
+
+### Training load chart (Treningsbelastning)
+- Score per session = `sum(zone_secs[i] × weight[i]) / 60` where weights = [1,2,3,4,5]
+- Grouped by week; bar color relative to personal max in displayed window: <40% = green, 40–70% = amber, >70% = red
+- Blue line = 4-week rolling average
+- Only counts sessions that have HR zone data logged
 
 ### søvn (sleep) format
 - **Problem:** Excel stores time values (e.g. `6:52`) as fractions of a day (`0.2868`). `parseFloat` took the raw fraction.
@@ -150,12 +172,6 @@ Global state:
 ### Auto-calculated fields
 - `varighet`, `tempo`, `snittkmh` are `readonly` inputs styled with accent colour and no border.
 - They are set programmatically; the form's `clear()` still resets them.
-
-### New file save flow
-- When no file handle exists, `FileIO.save()` calls `showSaveFilePicker()` → browser shows Save As dialog on first save.
-- Subsequent saves are automatic (handle is retained in memory for the session).
-- `AbortError` (user cancels dialog) is handled gracefully.
-- Only works in Edge/Chrome; Firefox users must use the "Last ned" button in Innstillinger.
 
 ### Goals data
 - Stored as `Store.data.goals: { "YYYY": km }` — plain object keyed by year string.
@@ -184,6 +200,7 @@ Global state:
 - HR zone labels in charts could show actual BPM ranges once settings are saved
 - Import dedup logic: matches on `dato + distanse (±0.05km) + varighet (±30s)`
 - Year comparison chart uses `allSessions` (ignores type/plan filter) — known inconsistency; hidden automatically when only one year is selected (nothing to compare)
+- Fitness & Fatigue (PMC) chart — rolling 42-day vs 7-day training load averages; discussed but not yet implemented
 
 ---
 
@@ -191,12 +208,13 @@ Global state:
 1. Open `løpelogger.html` in **Edge** or **Chrome**
 2. Go to ⚙️ Innstillinger → click **📂 Åpne fil** → select your `løpelogger.json`
 3. Data loads; all tabs refresh automatically
-4. In **Firefox**: same, but use "⬇️ Last ned" to save changes (no auto-save)
+4. On subsequent loads the app will attempt to reattach the file handle automatically
+5. In **Firefox**: same, but use "⬇️ Last ned" to save changes (no auto-save)
 
 ## Saving a new file (Edge/Chrome)
 - Click **✨ Ny fil** → enter some data → click **💾 Lagre** in the header (or save a session)
 - Browser shows a "Save As" dialog on the first save; pick folder and filename (default: `løpelogger.json`)
-- All future saves are automatic
+- All future saves are automatic; handle persists across page reloads via IndexedDB
 
 ## Re-importing Excel data
 - Export the Excel sheet as `.xlsx` or `.csv`
