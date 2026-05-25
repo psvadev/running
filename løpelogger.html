@@ -336,6 +336,12 @@
     <div class="card span2">
       <div class="card-title">Rekorder</div>
       <div class="records-grid" id="recordsGrid"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Distanse-PR</div>
+      <div class="records-grid" id="distPRGrid"></div>
+    </div>
+    <div class="card span2">
+      <div class="card-title">Treningsbelastning per uke</div>
+      <div class="chart-wrap"><canvas id="chartLoad"></canvas></div>
     </div>
     <div class="card">
       <div class="card-title">Ukentlig distanse (km)</div>
@@ -1301,6 +1307,38 @@ function renderDashboard() {
     { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
   ].map(r => `<div class="record-card"><div class="record-label">${r.label}</div><div class="record-value">${r.value}</div><div class="record-sub">${r.sub}</div></div>`).join('');
 
+  document.getElementById('distPRGrid').innerHTML = recs.distPRs.map(({ label, session: s }) => {
+    const value = s ? secsToHms(s.varighet) : '–';
+    const sub = s ? `${secsToMmSs(s.tempo)} /km · ${fmtDate(s.dato)}` : '';
+    return `<div class="record-card"><div class="record-label">${label}</div><div class="record-value">${value}</div><div class="record-sub">${sub}</div></div>`;
+  }).join('');
+
+  // Training load per week (zone minutes × zone weight, summed per week)
+  const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
+  const loadWeekMap = {};
+  sessions.forEach(s => {
+    if (!s.soner || !s.soner.some(v => v > 0)) return;
+    const wk = s.uke || isoWeek(s.dato);
+    loadWeekMap[wk] = (loadWeekMap[wk] || 0) + s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
+  });
+  const loadWeeks = Object.keys(loadWeekMap).sort().slice(-20);
+  destroyChart('load');
+  Charts.load = new Chart(document.getElementById('chartLoad'), {
+    type: 'bar',
+    data: {
+      labels: loadWeeks.map(wk => { const [yr,wn]=wk.split('-'); return `Uke ${wn} '${yr.slice(2)}`; }),
+      datasets: [{ data: loadWeeks.map(w => +loadWeekMap[w].toFixed(0)), backgroundColor: 'rgba(108,143,255,.65)', borderRadius: 4 }]
+    },
+    options: {
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} poeng` } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
+        y: { grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'poeng', color: '#7880a0' } }
+      },
+      responsive: true, maintainAspectRatio: false
+    }
+  });
+
   // Weekly distance chart (last 20 weeks)
   const weekMap = {};
   sessions.forEach(s => { if (!weekMap[s.uke]) weekMap[s.uke] = 0; weekMap[s.uke] += s.distanse; });
@@ -1468,7 +1506,18 @@ function computeRecords(sessions) {
     curStreak = (i>0 && w===absWeeks[i-1]+1) ? curStreak+1 : 1;
     if (curStreak>maxStreak) maxStreak=curStreak;
   });
-  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, besteUke, besteUkeKm:+besteUkeKm.toFixed(1), longestStreak:maxStreak };
+  const PR_BRACKETS = [
+    { label:'5 km',        min:4.5,  max:5.5  },
+    { label:'10 km',       min:9.0,  max:11.0 },
+    { label:'Halvmaraton', min:19.5, max:22.0 },
+    { label:'Maraton',     min:40.0, max:43.5 },
+  ];
+  const distPRs = PR_BRACKETS.map(b => {
+    const candidates = sessions.filter(s => s.distanse >= b.min && s.distanse <= b.max && s.tempo);
+    if (!candidates.length) return { label: b.label, session: null };
+    return { label: b.label, session: candidates.reduce((a, s) => s.tempo < a.tempo ? s : a) };
+  });
+  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, besteUke, besteUkeKm:+besteUkeKm.toFixed(1), longestStreak:maxStreak, distPRs };
 }
 
 // ═══════════════════════════════════════════════════════
