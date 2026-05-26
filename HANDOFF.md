@@ -45,6 +45,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
     "tempo": 470,                  // seconds/km (auto-calculated); displayed as MM:SS
     "snittkmh": 7.7,               // auto-calculated
     "stigning": 1.0,               // % (step 0.5)
+    "malDistanse": 8.0,            // optional km target set at logging time; null if not set
     "sko": "ASICS Novablast 5",
     "sovn": 6.87                   // decimal hours (e.g. 6.87 = 6h52m); display via hoursToHHMM()
   }],
@@ -84,7 +85,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   - **Øktinfo** (5-col auto-fill): Dato, Uke, Øktnavn, Økt-type, Treningsplan
   - **Ytelse** (4-col fixed): Varighet, Distanse, Gj.snittspuls, Toppuls
   - **Pulssoner** (5-col zone-grid): Sone 1–5
-  - **Trailing row** (3-col, 2 rows): Kalorier, Tempo, Snitt km/t → Stigning, Sko, Søvn
+  - **Trailing row** (4-col, 2 rows): Kalorier, Mål distanse, Tempo, Snitt km/t → Stigning, Sko, Søvn, (empty)
 - Auto-calculated (readonly, shown in accent blue): Varighet (sum of zones), Tempo, Snitt km/t
 - Stigning: `step="0.5"` — spinner moves in 0.5% increments
 - Shoe dropdown has a `+` button that navigates to Innstillinger tab
@@ -93,12 +94,13 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 ### 📊 Oversikt (dashboard tab — full width)
 - Filter bar at top: økt-type dropdown, treningsplan dropdown, year pills (toggle individual years), Nullstill button
 - **Yearly goal card** (full-width, hidden if no goal set): progress bar, km løpt, km igjen, Prognose (year-end projection), km/uke nødvendig. Green if on track, warning if projected to fall short.
-- Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → PMC → Belastning → Ukentlig distanse + Tempo → Treningskalender → Årssammenligning → Aerob effektivitet → Pulssoner → Sko-km + Ukentlig oversikt
+- Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → PMC → Belastning → Ukentlig distanse + Tempo → **Plan vs faktisk** → Treningskalender → Årssammenligning → Aerob effektivitet → Pulssoner → Sko-km + Ukentlig oversikt
   - **Rekorder** — general records (best pace, longest dist/time, best km/h, total dist/time, best week, longest streak) + **Distanse-PR** sub-section (5 km, 10 km, Halvmaraton, Maraton — fastest session per bracket)
   - **Treningsstatus (PMC)** — line chart, last 365 days; three lines: Kondisjon/CTL (42-day exp. avg, blue), Tretthet/ATL (7-day exp. avg, red), Form/TSB (CTL−ATL, green). Always uses `allSessions` regardless of dashboard filter — CTL/ATL require full history to be meaningful (full-width)
   - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width). Supports event marker lines.
   - **Ukentlig distanse** — bar chart, km per week (last 20 weeks). Supports event marker lines. Uses `_rawLabels` (YYYY-WW) for event matching alongside formatted display labels.
   - **Tempo per uke** — line chart, weighted average pace per week (total time ÷ total km). Supports event marker lines. Uses `_rawLabels` (YYYY-WW) for event matching.
+  - **Plan vs faktisk** — bar chart, last 20 weeks where ≥1 session has `malDistanse` set; **hidden when no sessions have a target**. Bars coloured by completion %: blue ≥105%, green ≥100%, amber ≥80%, red <80%. Dashed white line shows the target km per week. Tooltip shows % av mål. Aggregates all session targets within a week (e.g. Mon 5 km + Wed 8 km = 13 km target for the week).
   - **Treningskalender** — GitHub-style heatmap calendar (full-width). Three modes toggled via radio: *Distanse* (blue intensity by quartile), *Belastning* (zone-weighted load by quartile), *Økttype* (cell coloured by dominant session type). Hover shows date + session details. Shows last 52 weeks; if single year selected, shows full calendar year. Type mode includes a colour legend. **Cell size is dynamic** — calculated from `container.offsetWidth` to fill the card width (min 10px). **Day labels** M T O T F L S are aligned to their row (label column uses matching height + gap; `margin-right:4px` separates labels from cells). **Radio buttons call `renderHeatmap()` directly** — they do not trigger a full `renderDashboard()` re-render.
   - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`); responds to type/plan filters
   - **Aerob effektivitet (Easy-økter)** — line chart; per-session score = `snittkmh / gjsnittspuls × 100` for Easy sessions only; individual points + 4-session rolling average (green) + personal average reference line (dashed amber). Tooltip shows session name, speed, and HR. Responds to dashboard filter
@@ -107,7 +109,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   - Weekly summary table (scrollable)
 
 ### 📋 Treningslogg (log tab — full width)
-- Full-width sortable table (click column headers); columns include **Plan** (treningsplan) after Navn
+- Full-width sortable table (click column headers); columns include **Plan** (treningsplan) after Navn and **Mål km** after Dist
 - Filters: fra/til dato, økt-type, **treningsplan (Plan)**, sko — all wired to `fFilterPlan` etc.; Nullstill clears all
 - Row actions: ✏️ edit (goes to form tab), 🗑️ delete (with confirm)
 - **"Importer Excel/CSV"** button → SheetJS modal with preview before confirming
@@ -149,6 +151,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses Monday-aligned epoch week index for correct ISO week / year-boundary handling. |
 | `renderZoneChart(sessions)` | Standalone function; reads `zoneGroupBy` ('week'/'month') to group data |
 | `fmtWeekLabel(wk)` | Formats a `YYYY-WW` string as `"Uke N 'YY"` — used for all weekly chart display labels; defined near `isoWeek` |
+| `malCell(s)` | Returns colour-coded HTML for the log table "Mål km" cell; blue ≥105%, green ≥100%, amber ≥80%, red <80% of target; empty string if `malDistanse` is null |
 | `minsToHm(m)` | Formats decimal minutes as `h:mm` (e.g. `90.5` → `"1:30"`); used in Pulssoner chart ticks and tooltips |
 | `refreshAll()` | Called after any data change; re-renders log, shoe list, dashboard if visible |
 | `switchTab(name)` | Tab navigation; triggers tab-specific render (`dash`→`renderDashboard`, `log`→`Log.render`, `plan`/`settings`→`Settings.render`) |

@@ -281,10 +281,14 @@
   </div>
 
   <div class="form-section">
-    <div class="form-grid" style="grid-template-columns:repeat(3,1fr)">
+    <div class="form-grid" style="grid-template-columns:repeat(4,1fr)">
       <div class="form-group">
         <label>Kalorier</label>
         <input type="number" id="fKalorier" min="0" placeholder="500">
+      </div>
+      <div class="form-group">
+        <label>Mål distanse (km)</label>
+        <input type="number" id="fMalDistanse" min="0" step="0.01" placeholder="–">
       </div>
       <div class="form-group">
         <label>Tempo (mm:ss /km) <span style="color:var(--accent);font-size:10px">auto</span></label>
@@ -392,6 +396,11 @@
       <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Lavere er raskere. Veid snitt per uke.</div>
       <div class="chart-wrap"><canvas id="chartPace"></canvas></div>
     </div>
+    <div class="card span2" id="planActualCard">
+      <div class="card-title">Plan vs faktisk — distanse</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Uker med planlagt distanse. Blå = over mål · grønn = nådd · gul = nær · rød = under.</div>
+      <div class="chart-wrap"><canvas id="chartPlanActual"></canvas></div>
+    </div>
     <div class="card span2" id="heatmapCard">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">Treningskalender</div>
@@ -494,6 +503,7 @@
           <th data-col="oktnavn">Navn</th>
           <th data-col="treningsplan">Plan <span class="sort-indicator">↕</span></th>
           <th data-col="distanse">Dist (km) <span class="sort-indicator">↕</span></th>
+          <th data-col="malDistanse">Mål km</th>
           <th data-col="varighet">Varighet <span class="sort-indicator">↕</span></th>
           <th data-col="tempo">Tempo <span class="sort-indicator">↕</span></th>
           <th data-col="gjsnittspuls">♥ Snitt <span class="sort-indicator">↕</span></th>
@@ -1145,6 +1155,7 @@ const Form = {
         hmsToSecs(document.getElementById('fSone5').value),
       ],
       kalorier: parseInt(document.getElementById('fKalorier').value) || null,
+      malDistanse: parseFloat(document.getElementById('fMalDistanse').value) || null,
       tempo: mmSsToSecs(document.getElementById('fTempo').value) || null,
       snittkmh: parseFloat(document.getElementById('fSnittkmh').value) || null,  // set by autoCalcPace
       stigning: parseFloat(document.getElementById('fStigning').value) || null,
@@ -1169,6 +1180,7 @@ const Form = {
     document.getElementById('fSone4').value = secsToHms(s.soner?.[3]);
     document.getElementById('fSone5').value = secsToHms(s.soner?.[4]);
     document.getElementById('fKalorier').value = s.kalorier || '';
+    document.getElementById('fMalDistanse').value = s.malDistanse || '';
     document.getElementById('fTempo').value = s.tempo ? secsToMmSs(s.tempo) : '';
     document.getElementById('fSnittkmh').value = s.snittkmh || '';
     document.getElementById('fStigning').value = s.stigning ?? '';
@@ -1220,7 +1232,7 @@ const Form = {
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
-     'fKalorier','fTempo','fSnittkmh','fStigning','fSovn'].forEach(id => {
+     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fSovn'].forEach(id => {
       document.getElementById(id).value = '';
     });
   }
@@ -1262,6 +1274,16 @@ const Log = {
       return this.sortAsc ? va - vb : vb - va;
     });
 
+    const malCell = s => {
+      if (!s.malDistanse) return '';
+      const pct = s.distanse / s.malDistanse;
+      const color = pct >= 1.05 ? 'var(--accent)'
+                  : pct >= 1.0  ? 'rgba(75,190,120,.95)'
+                  : pct >= 0.8  ? 'rgba(240,192,80,.95)'
+                  :               'rgba(224,85,85,.95)';
+      return `<span style="color:${color}">${s.malDistanse.toFixed(1)}</span>`;
+    };
+
     const tbody = document.getElementById('logBody');
     if (sessions.length === 0) {
       tbody.innerHTML = '';
@@ -1281,6 +1303,7 @@ const Log = {
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${s.oktnavn||''}</td>
         <td style="color:var(--muted);font-size:11px">${s.treningsplan||''}</td>
         <td>${fmtDist(s.distanse)}</td>
+        <td>${malCell(s)}</td>
         <td>${secsToHms(s.varighet)}</td>
         <td>${s.tempo ? secsToMmSs(s.tempo) : ''}</td>
         <td>${s.gjsnittspuls||''}</td>
@@ -1883,6 +1906,75 @@ function renderDashboard() {
       responsive:true, maintainAspectRatio:false
     }
   });
+
+  // Plan vs faktisk
+  const planWeekMap = {};
+  sessions.filter(s => s.malDistanse).forEach(s => {
+    const wk = s.uke || isoWeek(s.dato);
+    if (!planWeekMap[wk]) planWeekMap[wk] = { actual: 0, target: 0 };
+    planWeekMap[wk].actual += s.distanse || 0;
+    planWeekMap[wk].target += s.malDistanse;
+  });
+  const planWeeks = Object.keys(planWeekMap).sort().slice(-20);
+  document.getElementById('planActualCard').style.display = planWeeks.length ? '' : 'none';
+  if (planWeeks.length) {
+    destroyChart('planActual');
+    const planBarColors = planWeeks.map(wk => {
+      const pct = planWeekMap[wk].actual / planWeekMap[wk].target;
+      return pct >= 1.05 ? 'rgba(108,143,255,.85)'
+           : pct >= 1.0  ? 'rgba(75,190,120,.85)'
+           : pct >= 0.8  ? 'rgba(240,192,80,.85)'
+           :               'rgba(224,85,85,.85)';
+    });
+    Charts.planActual = new Chart(document.getElementById('chartPlanActual'), {
+      type: 'bar',
+      data: {
+        _rawLabels: planWeeks,
+        labels: planWeeks.map(fmtWeekLabel),
+        datasets: [
+          {
+            label: 'Faktisk km',
+            data: planWeeks.map(wk => +planWeekMap[wk].actual.toFixed(2)),
+            backgroundColor: planBarColors,
+            borderRadius: 4,
+            order: 2
+          },
+          {
+            type: 'line',
+            label: 'Mål km',
+            data: planWeeks.map(wk => +planWeekMap[wk].target.toFixed(2)),
+            borderColor: 'rgba(255,255,255,.4)',
+            backgroundColor: 'transparent',
+            pointBackgroundColor: 'rgba(255,255,255,.6)',
+            pointRadius: 4,
+            borderDash: [4, 3],
+            tension: 0,
+            order: 1
+          }
+        ]
+      },
+      options: {
+        plugins: {
+          legend: { labels: { color: '#e8eaf0', boxWidth: 12 } },
+          tooltip: {
+            callbacks: {
+              afterBody: items => {
+                const wk = planWeeks[items[0].dataIndex];
+                const { actual, target } = planWeekMap[wk];
+                return `${Math.round(actual / target * 100)}% av mål`;
+              }
+            }
+          }
+        },
+        scales: {
+          y: { grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'km', color: '#7880a0' } },
+          x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } }
+        },
+        responsive: true,
+        maintainAspectRatio: false
+      }
+    });
+  }
 
   renderEfficiencyChart(sessions);
 
