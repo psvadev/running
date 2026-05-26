@@ -150,6 +150,13 @@
   .modal h2 { font-size: 16px; }
   .modal-body { overflow-y: auto; flex: 1; }
   .modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding-top: 12px; border-top: 1px solid var(--border); }
+  .dp-stat-row { display:flex; gap:20px; flex-wrap:wrap; margin-bottom:14px; }
+  .dp-stat { display:flex; flex-direction:column; min-width:80px; }
+  .dp-stat .dpv { font-size:18px; font-weight:600; color:var(--text); }
+  .dp-stat .dpl { font-size:11px; color:var(--muted); margin-top:2px; }
+  .dp-session-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer; }
+  .dp-session-row:hover { background:rgba(255,255,255,.04); border-radius:4px; padding-left:4px; }
+  .dp-section-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:14px 0 8px; }
   .import-preview { font-size: 12px; }
   .import-preview td, .import-preview th { padding: 6px 10px; }
 
@@ -425,6 +432,7 @@
       <div id="consistencyContent" style="margin-top:12px"></div>
       <div class="chart-wrap" style="height:110px;margin-top:16px"><canvas id="chartConsistency"></canvas></div>
     </div>
+    <div class="card span2" id="blocksCard" style="display:none"></div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">Treningsstatus (PMC)</div>
@@ -570,9 +578,6 @@
       </div>
       <button class="btn-secondary btn-sm" id="btnClearFilters" style="margin-bottom:1px">Nullstill</button>
     </div>
-    <div style="display:flex;gap:8px">
-      <button class="btn-secondary btn-sm" id="btnImport">📥 Importer Excel/CSV</button>
-    </div>
   </div>
 
   <div class="table-wrap">
@@ -601,7 +606,7 @@
   </div>
   <div id="logEmpty" class="empty-state" style="display:none">
     <div style="font-size:48px">🏃</div>
-    <p>Ingen økter funnet. Legg til din første økt eller importer fra Excel.</p>
+    <p>Ingen økter funnet. Legg til din første økt under ➕, eller importer fra Innstillinger.</p>
   </div>
   <div id="logCount" style="font-size:12px;color:var(--muted);margin-top:10px"></div>
 </div>
@@ -648,6 +653,10 @@
       </select>
       <input type="text" id="newEvtTitle" placeholder="Tittel (f.eks. Start Runna 10K)" style="flex:1;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <button class="btn-primary btn-sm" id="btnAddEvent">+ Legg til</button>
+    </div>
+    <div id="evtPlanTargets" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input type="number" id="newEvtRunTarget" placeholder="Mål løp/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
     </div>
     <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -707,6 +716,7 @@
       <button class="btn-primary btn-sm" id="btnOpen">📂 Åpne fil</button>
       <button class="btn-secondary btn-sm" id="btnNew">✨ Ny fil</button>
       <button class="btn-secondary btn-sm" id="btnDownload">⬇️ Last ned / eksporter</button>
+      <button class="btn-secondary btn-sm" id="btnImport">📥 Importer Excel/CSV</button>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px">
       <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Slett alle treningsøkter permanent. Kan ikke angres.</p>
@@ -737,6 +747,17 @@
       <button class="btn-secondary" id="btnImportCancel">Avbryt</button>
       <button class="btn-primary" id="btnImportConfirm" disabled>Importer</button>
     </div>
+  </div>
+</div>
+
+<!-- ══════════════ DETAIL PANEL ══════════════ -->
+<div class="modal-backdrop" id="detailModal">
+  <div class="modal" style="max-width:640px">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <h2 id="detailTitle" style="font-size:15px;font-weight:600"></h2>
+      <button class="btn-secondary btn-sm" id="btnDetailClose">✕</button>
+    </div>
+    <div class="modal-body" id="detailBody" style="padding-top:14px"></div>
   </div>
 </div>
 
@@ -1225,13 +1246,14 @@ const Form = {
 
   refreshShoeDropdown(sel) {
     const sk = document.getElementById('fSko');
-    const prev = sel || sk.value;
-    sk.innerHTML = Store.data.shoes.map(s => `<option${s.name===prev?' selected':''}>${s.name}</option>`).join('');
+    const formPrev = sel || sk.value;
+    sk.innerHTML = Store.data.shoes.filter(s => !s.retired).map(s => `<option${s.name===formPrev?' selected':''}>${s.name}</option>`).join('');
 
     const logFilter = document.getElementById('fFilterSko');
     if (logFilter) {
+      const filterPrev = logFilter.value;
       logFilter.innerHTML = '<option value="">Alle</option>' +
-        Store.data.shoes.map(s => `<option${s.name===prev?' selected':''}>${s.name}</option>`).join('');
+        Store.data.shoes.map(s => `<option${s.name===filterPrev?' selected':''}>${s.name}</option>`).join('');
     }
   },
 
@@ -2079,6 +2101,91 @@ function renderConsistency(sessions) {
   });
 }
 
+function computeBlocks(allSessions) {
+  const planEvents = (Store.data.events || [])
+    .filter(e => e.type === 'plan')
+    .sort((a,b) => a.date.localeCompare(b.date));
+  if (!planEvents.length) return [];
+
+  const today   = new Date().toISOString().slice(0,10);
+  const absWeekFn = d => Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000));
+
+  return planEvents.map((evt, i) => {
+    const startDate     = evt.date;
+    const endDate       = evt.endDate || planEvents[i+1]?.date || today;
+    const blockSessions = allSessions.filter(s => s.dato >= startDate && s.dato <= endDate);
+    const weeks         = Math.max(1, Math.round((new Date(endDate) - new Date(startDate)) / (7*86400000)));
+
+    const totalKm   = blockSessions.reduce((s,x) => s+(x.distanse||0), 0);
+    const totalSecs = blockSessions.reduce((s,x) => s+(x.varighet||0), 0);
+    const runs      = blockSessions.length;
+    const paceArr   = blockSessions.filter(s=>s.tempo);
+    const hrArr     = blockSessions.filter(s=>s.gjsnittspuls);
+    const avgPace   = paceArr.length ? Math.round(paceArr.reduce((s,x)=>s+x.tempo,0)/paceArr.length) : null;
+    const avgHR     = hrArr.length   ? Math.round(hrArr.reduce((s,x)=>s+x.gjsnittspuls,0)/hrArr.length) : null;
+
+    const weekKm  = {}, weekRuns = {};
+    blockSessions.forEach(s => {
+      const w = s.uke || isoWeek(s.dato);
+      weekKm[w]   = (weekKm[w]  ||0) + (s.distanse||0);
+      weekRuns[w] = (weekRuns[w]||0) + 1;
+    });
+    const bestWeekKm = Object.values(weekKm).reduce((m,v)=>v>m?v:m, 0) || null;
+    const longestRun = blockSessions.reduce((m,s)=>s.distanse>m?s.distanse:m, 0) || null;
+
+    const startAbs        = absWeekFn(startDate);
+    const endAbs          = absWeekFn(endDate);
+    const activeAbsWeeks  = new Set(blockSessions.filter(s=>s.dato).map(s=>absWeekFn(s.dato)));
+    const blockSpanWeeks  = Math.max(endAbs - startAbs + 1, 1);
+    const consistencyScore = Math.round((activeAbsWeeks.size / blockSpanWeeks) * 100);
+
+    const indoorKm  = blockSessions.filter(s=>s.løpetype==='treadmill').reduce((s,x)=>s+(x.distanse||0), 0);
+    const outdoorKm = totalKm - indoorKm;
+    const shoes     = [...new Set(blockSessions.map(s=>s.sko).filter(Boolean))];
+
+    const targetKmWeek   = evt.targetKmPerWeek   || null;
+    const targetRunsWeek = evt.targetRunsPerWeek || null;
+    const kmAboveTarget   = targetKmWeek   ? Object.values(weekKm).filter(km=>km>=targetKmWeek).length   : null;
+    const runsAboveTarget = targetRunsWeek ? Object.values(weekRuns).filter(c=>c>=targetRunsWeek).length : null;
+
+    return { id:evt.id, title:evt.title, startDate, endDate, weeks, totalKm, totalSecs, runs,
+             avgKmWeek: totalKm/weeks, avgRunsWeek: runs/weeks, avgPace, avgHR,
+             bestWeekKm, longestRun, consistencyScore, indoorKm, outdoorKm,
+             shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget };
+  });
+}
+
+function renderBlocks() {
+  const el = document.getElementById('blocksCard');
+  if (!el) return;
+  const blocks = computeBlocks(Store.data.sessions);
+  if (!blocks.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+
+  const today = new Date().toISOString().slice(0,10);
+  const cards = blocks.slice().reverse().map(b => {
+    const isCurrent = b.endDate >= today;
+    const safeBlock = JSON.stringify(b).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;cursor:pointer;flex:1;min-width:180px;max-width:300px" onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))" data-block="${safeBlock}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600;flex:1">${b.title}</span>
+        ${isCurrent ? '<span style="font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:1px 6px">Pågår</span>' : ''}
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${fmtDate(b.startDate)} – ${isCurrent?'nå':fmtDate(b.endDate)} · ${b.weeks} uker</div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <div class="dp-stat"><div class="dpv">${b.totalKm.toFixed(0)} km</div><div class="dpl">totalt</div></div>
+        <div class="dp-stat"><div class="dpv">${b.runs}</div><div class="dpl">løp</div></div>
+        <div class="dp-stat"><div class="dpv">${b.avgKmWeek.toFixed(1)}</div><div class="dpl">km/uke</div></div>
+        <div class="dp-stat"><div class="dpv">${b.consistencyScore}%</div><div class="dpl">konsistens</div></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="card-title">Treningsblokker</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Generert fra Plan-hendelser. Klikk for detaljer.</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">${cards}</div>`;
+}
+
 function renderVenueChart(sessions) {
   destroyChart('venue');
   const el = document.getElementById('chartVenue');
@@ -2115,6 +2222,150 @@ function renderVenueChart(sessions) {
     }
   });
 }
+
+// ═══════════════════════════════════════════════════════
+// DETAIL PANEL
+// ═══════════════════════════════════════════════════════
+const DetailPanel = {
+  open(title, html) {
+    document.getElementById('detailTitle').textContent = title;
+    document.getElementById('detailBody').innerHTML = html;
+    document.getElementById('detailModal').classList.add('open');
+  },
+  close() {
+    document.getElementById('detailModal').classList.remove('open');
+  },
+
+  openWeek(isoWk, allSessions) {
+    const weekSessions = allSessions.filter(s => (s.uke || isoWeek(s.dato)) === isoWk);
+    const [yr, wn] = isoWk.split('-');
+    const totalKm   = weekSessions.reduce((s,x) => s+(x.distanse||0), 0);
+    const totalSecs = weekSessions.reduce((s,x) => s+(x.varighet||0), 0);
+    const paceArr   = weekSessions.filter(s=>s.tempo);
+    const hrArr     = weekSessions.filter(s=>s.gjsnittspuls);
+    const avgPace   = paceArr.length ? Math.round(paceArr.reduce((s,x)=>s+x.tempo,0)/paceArr.length) : null;
+    const avgHR     = hrArr.length   ? Math.round(hrArr.reduce((s,x)=>s+x.gjsnittspuls,0)/hrArr.length) : null;
+    const shoes     = [...new Set(weekSessions.map(s=>s.sko).filter(Boolean))];
+    const stats = [
+      { v: totalKm.toFixed(1)+' km', l: 'distanse' },
+      { v: weekSessions.length,       l: 'løp' },
+      { v: secsToHms(totalSecs),      l: 'tid' },
+      ...(avgPace ? [{ v: secsToMmSs(avgPace)+'/km', l: 'snitt tempo' }] : []),
+      ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
+    ];
+    const sessionRows = weekSessions.slice().sort((a,b)=>a.dato.localeCompare(b.dato)).map(s =>
+      `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
+        <span style="min-width:80px;color:var(--muted)">${fmtDate(s.dato)}</span>
+        <span style="flex:1">${s.oktnavn || s.okttype || '–'}</span>
+        <span style="min-width:50px;text-align:right">${(s.distanse||0).toFixed(1)} km</span>
+        <span style="min-width:54px;text-align:right;color:var(--muted)">${secsToHms(s.varighet)}</span>
+        ${s.sko ? `<span style="min-width:80px;color:var(--muted);text-align:right;font-size:11px">${s.sko}</span>` : ''}
+      </div>`
+    ).join('');
+    this.open(`Uke ${wn}, ${yr}`, `
+      <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      ${shoes.length ? `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sko: ${shoes.join(', ')}</div>` : ''}
+      <div class="dp-section-label">Øktene</div>
+      ${sessionRows || '<div style="color:var(--muted);font-size:12px">Ingen løp</div>'}`
+    );
+  },
+
+  openSession(id) {
+    const s = Store.data.sessions.find(x => x.id === id);
+    if (!s) return;
+    const zones = (s.soner||[]).map((v,i)=>v>0?`<span style="color:${ZONE_COLORS[i]};font-size:11px">S${i+1} ${secsToHms(v)}</span>`:null).filter(Boolean).join('  ');
+    const rows = [
+      ['Dato',           fmtDate(s.dato)],
+      ['Type',           [s.okttype, s.treningsplan].filter(Boolean).join(' · ')],
+      ['Type løp',       s.løpetype === 'treadmill' ? 'Tredemølle' : 'Utendørs'],
+      ['Distanse',       s.distanse ? s.distanse+' km' : null],
+      ['Tid',            s.varighet ? secsToHms(s.varighet) : null],
+      ['Tempo',          s.tempo    ? secsToMmSs(s.tempo)+'/km' : null],
+      ['Snitt km/t',     s.snittkmh ? s.snittkmh+' km/t' : null],
+      ['HR snitt / topp',(s.gjsnittspuls||s.toppuls) ? [s.gjsnittspuls, s.toppuls].filter(Boolean).join(' / ') : null],
+      ['Kalorier',       s.kalorier ? s.kalorier+' kcal' : null],
+      ['Stigning',       s.stigning ? s.stigning+'%' : null],
+      ['Sko',            s.sko  || null],
+      ['Søvn',           s.sovn ? hoursToHHMM(s.sovn) : null],
+    ].filter(([,v]) => v);
+    const table = rows.map(([l,v]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${v}</span></div>`).join('');
+    this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : ''));
+  },
+
+  openShoe(name) {
+    const sessions = Store.data.sessions.filter(s=>s.sko===name);
+    const shoe     = Store.data.shoes.find(s=>s.name===name);
+    const totalKm  = sessions.reduce((s,x)=>s+(x.distanse||0),0);
+    const paceArr  = sessions.filter(s=>s.tempo);
+    const hrArr    = sessions.filter(s=>s.gjsnittspuls);
+    const avgPace  = paceArr.length ? Math.round(paceArr.reduce((s,x)=>s+x.tempo,0)/paceArr.length) : null;
+    const avgHR    = hrArr.length   ? Math.round(hrArr.reduce((s,x)=>s+x.gjsnittspuls,0)/hrArr.length) : null;
+    const longest  = sessions.reduce((a,s)=>(!a||s.distanse>a.distanse)?s:a, null);
+    const sorted   = sessions.slice().sort((a,b)=>a.dato.localeCompare(b.dato));
+    const firstUsed = sorted[0]?.dato;
+    const lastUsed  = sorted[sorted.length-1]?.dato;
+    const stats = [
+      { v: totalKm.toFixed(0)+' km', l: 'totalt' },
+      { v: sessions.length,           l: 'løp' },
+      ...(avgPace ? [{ v: secsToMmSs(avgPace)+'/km', l: 'snitt tempo' }] : []),
+      ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
+    ];
+    const recent = sessions.slice().sort((a,b)=>b.dato.localeCompare(a.dato)).slice(0,5);
+    const recentRows = recent.map(s=>
+      `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
+        <span style="min-width:80px;color:var(--muted)">${fmtDate(s.dato)}</span>
+        <span style="flex:1">${s.oktnavn||s.okttype||'–'}</span>
+        <span>${(s.distanse||0).toFixed(1)} km</span>
+      </div>`
+    ).join('');
+    let retireHtml = '';
+    if (shoe?.retirementKm) {
+      const pct = Math.min(100,(totalKm/shoe.retirementKm*100)).toFixed(1);
+      retireHtml = `<div class="dp-section-label">Kilometergrense</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div class="shoe-retire-bar-bg" style="flex:1"><div class="shoe-retire-bar-fill" style="width:${pct}%;background:var(--accent)"></div></div>
+          <span style="font-size:12px;color:var(--muted)">${totalKm.toFixed(0)} / ${shoe.retirementKm} km</span>
+        </div>`;
+    }
+    this.open(`👟 ${name}`, `
+      <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        ${firstUsed ? `Første bruk: ${fmtDate(firstUsed)}` : ''}${lastUsed ? ` · Sist brukt: ${fmtDate(lastUsed)}` : ''}<br>
+        ${longest ? `Lengste løp: ${longest.distanse} km (${fmtDate(longest.dato)})` : ''}
+      </div>
+      ${retireHtml}
+      <div class="dp-section-label">Siste løp</div>${recentRows || '<div style="color:var(--muted);font-size:12px">Ingen løp logget</div>'}`
+    );
+  },
+
+  openBlock(block) {
+    const { title, startDate, endDate, weeks, totalKm, totalSecs, runs, avgKmWeek, avgRunsWeek, avgPace, avgHR, bestWeekKm, longestRun, consistencyScore, indoorKm, outdoorKm, shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget } = block;
+    const isCurrent = endDate >= new Date().toISOString().slice(0,10);
+    const stats = [
+      { v: totalKm.toFixed(1)+' km',  l: 'total distanse' },
+      { v: runs,                        l: 'løp' },
+      { v: secsToHms(totalSecs),        l: 'total tid' },
+      { v: avgKmWeek.toFixed(1)+' km', l: 'km/uke' },
+      { v: avgRunsWeek.toFixed(1),      l: 'løp/uke' },
+      ...(avgPace ? [{ v: secsToMmSs(avgPace)+'/km', l: 'snitt tempo' }] : []),
+      ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
+      { v: consistencyScore+'%',        l: 'konsistens' },
+    ];
+    const targetHtml = (targetKmWeek||targetRunsWeek) ? `
+      <div class="dp-section-label">Mål vs faktisk</div>
+      ${targetKmWeek   ? `<div style="font-size:12px;margin-bottom:4px">${kmAboveTarget} / ${weeks} uker over ${targetKmWeek} km</div>` : ''}
+      ${targetRunsWeek ? `<div style="font-size:12px;margin-bottom:4px">${runsAboveTarget} / ${weeks} uker med ${targetRunsWeek}+ løp</div>` : ''}` : '';
+    const shoeHtml  = shoes.length ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Sko: ${shoes.join(', ')}</div>` : '';
+    const venueHtml = (indoorKm+outdoorKm) > 0 ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ute ${outdoorKm.toFixed(0)} km · Inne ${indoorKm.toFixed(0)} km</div>` : '';
+    this.open(title, `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">${fmtDate(startDate)} – ${isCurrent?'nå':fmtDate(endDate)} · ${weeks} uker</div>
+      <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      ${shoeHtml}${venueHtml}
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Beste uke: ${bestWeekKm?.toFixed(1)||'–'} km · Lengste løp: ${longestRun?.toFixed(1)||'–'} km</div>
+      ${targetHtml}`
+    );
+  },
+};
 
 function renderDashboard() {
   const allSessions = Store.data.sessions;
@@ -2181,9 +2432,14 @@ function renderDashboard() {
   // Training load per week (zone minutes × zone weight, summed per week)
   const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
   const loadWeekMap = {};
+  const loadWeekDetails = {};
   sessions.forEach(s => {
-    if (!s.soner || !s.soner.some(v => v > 0)) return;
     const wk = s.uke || isoWeek(s.dato);
+    if (!loadWeekDetails[wk]) loadWeekDetails[wk] = { km:0, runs:0, secs:0 };
+    loadWeekDetails[wk].km   += s.distanse||0;
+    loadWeekDetails[wk].runs += 1;
+    loadWeekDetails[wk].secs += s.varighet||0;
+    if (!s.soner || !s.soner.some(v => v > 0)) return;
     loadWeekMap[wk] = (loadWeekMap[wk] || 0) + s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
   });
   const loadWeeks = Object.keys(loadWeekMap).sort().slice(-20);
@@ -2215,9 +2471,16 @@ function renderDashboard() {
         legend: { labels: { color: '#e8eaf0', boxWidth: 12, filter: i => i.datasetIndex === 1 } },
         tooltip: {
           callbacks: {
+            title: items => fmtWeekLabel(loadWeeks[items[0].dataIndex]),
             label: ctx => ctx.datasetIndex === 0
               ? `${ctx.raw} poeng · ${ctx.raw/maxLoad < 0.4 ? 'Lav' : ctx.raw/maxLoad < 0.7 ? 'Middels' : 'Høy'} belastning`
-              : `Snitt (4 uker): ${ctx.raw} poeng`
+              : `Snitt (4 uker): ${ctx.raw} poeng`,
+            afterBody: items => {
+              if (items[0].datasetIndex !== 0) return [];
+              const d = loadWeekDetails[loadWeeks[items[0].dataIndex]];
+              if (!d) return [];
+              return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+            }
           }
         }
       },
@@ -2225,6 +2488,7 @@ function renderDashboard() {
         x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
         y: { grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'poeng', color: '#7880a0' } }
       },
+      onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(loadWeeks[elements[0].index], Store.data.sessions); },
       responsive: true, maintainAspectRatio: false
     }
   });
@@ -2233,7 +2497,18 @@ function renderDashboard() {
 
   // Weekly distance chart (last 20 weeks)
   const weekMap = {};
-  sessions.forEach(s => { const wk = s.uke || isoWeek(s.dato); if (!weekMap[wk]) weekMap[wk] = 0; weekMap[wk] += s.distanse || 0; });
+  const weekDetails = {};
+  sessions.forEach(s => {
+    const wk = s.uke || isoWeek(s.dato);
+    if (!weekMap[wk]) weekMap[wk] = 0;
+    weekMap[wk] += s.distanse || 0;
+    if (!weekDetails[wk]) weekDetails[wk] = { km:0, runs:0, secs:0, paceSum:0, paceCount:0, hrSum:0, hrCount:0 };
+    weekDetails[wk].km   += s.distanse||0;
+    weekDetails[wk].runs += 1;
+    weekDetails[wk].secs += s.varighet||0;
+    if (s.tempo)        { weekDetails[wk].paceSum += s.tempo;        weekDetails[wk].paceCount++; }
+    if (s.gjsnittspuls) { weekDetails[wk].hrSum   += s.gjsnittspuls; weekDetails[wk].hrCount++;   }
+  });
   const weeks = Object.keys(weekMap).sort().slice(-20);
   destroyChart('weeklyDist');
   Charts.weeklyDist = new Chart(document.getElementById('chartWeeklyDist'), {
@@ -2243,16 +2518,39 @@ function renderDashboard() {
       labels: weeks.map(fmtWeekLabel),
       datasets:[{ data: weeks.map(w => weekMap[w].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
     },
-    options:{ plugins:{legend:{display:false}}, scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} }, responsive:true, maintainAspectRatio:false }
+    options:{
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+        title: items => fmtWeekLabel(weeks[items[0].dataIndex]),
+        label: () => null,
+        afterBody: items => {
+          const d = weekDetails[weeks[items[0].dataIndex]];
+          if (!d) return [];
+          const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+          if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
+          if (d.hrCount)   lines.push(`HR: ${Math.round(d.hrSum/d.hrCount)}`);
+          return lines;
+        }
+      }}},
+      scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} },
+      onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(weeks[elements[0].index], Store.data.sessions); },
+      responsive:true, maintainAspectRatio:false
+    }
   });
 
   // Pace per week (weighted average: total time / total distance)
   const paceWeekMap = {};
-  sessions.filter(s => s.distanse > 0 && s.varighet > 0).forEach(s => {
+  const paceWeekDetails = {};
+  sessions.forEach(s => {
     const wk = s.uke || isoWeek(s.dato);
-    if (!paceWeekMap[wk]) paceWeekMap[wk] = { dist: 0, secs: 0 };
-    paceWeekMap[wk].dist += s.distanse;
-    paceWeekMap[wk].secs += s.varighet;
+    if (!paceWeekDetails[wk]) paceWeekDetails[wk] = { km:0, runs:0, secs:0 };
+    paceWeekDetails[wk].km   += s.distanse||0;
+    paceWeekDetails[wk].runs += 1;
+    paceWeekDetails[wk].secs += s.varighet||0;
+    if (s.distanse > 0 && s.varighet > 0) {
+      if (!paceWeekMap[wk]) paceWeekMap[wk] = { dist: 0, secs: 0 };
+      paceWeekMap[wk].dist += s.distanse;
+      paceWeekMap[wk].secs += s.varighet;
+    }
   });
   const paceWeeks = Object.keys(paceWeekMap).sort().slice(-20);
   destroyChart('pace');
@@ -2266,11 +2564,20 @@ function renderDashboard() {
         pointRadius:4, tension:.3, fill:true
       }]},
     options:{
-      plugins:{legend:{display:false}, tooltip:{callbacks:{label: ctx => secsToMmSs(Math.round(ctx.raw*60))+' /km'}}},
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+        title: items => fmtWeekLabel(paceWeeks[items[0].dataIndex]),
+        label: ctx => secsToMmSs(Math.round(ctx.raw*60))+' /km',
+        afterBody: items => {
+          const d = paceWeekDetails[paceWeeks[items[0].dataIndex]];
+          if (!d) return [];
+          return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+        }
+      }}},
       scales:{
         y:{ reverse:true, grid:{color:'#2e3248'}, ticks:{color:'#7880a0', callback: v => Math.floor(v)+':'+(Math.round((v%1)*60)).toString().padStart(2,'0')} },
         x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
       },
+      onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(paceWeeks[elements[0].index], Store.data.sessions); },
       responsive:true, maintainAspectRatio:false
     }
   });
@@ -2411,6 +2718,7 @@ function renderDashboard() {
   renderHeatmap(sessions);
   renderInsights(sessions);
   renderConsistency(sessions);
+  renderBlocks();
 
   // Shoe bar chart
   const shoeMap = {};
@@ -2441,8 +2749,9 @@ function renderDashboard() {
       if (st.hrCount)   chips.push(`<span class="shoe-stat"><span class="sl">HR</span><span class="sv">${Math.round(st.hrSum/st.hrCount)}</span></span>`);
       if (st.lastDate)  chips.push(`<span class="shoe-stat"><span class="sl">sist</span><span class="sv">${fmtDate(st.lastDate)}</span></span>`);
       const metaLine = chips.length ? `<div class="shoe-meta">${chips.join('')}</div>` : '';
+      const nameEsc = name.replace(/'/g,"\\'");
       return `
-      <div>
+      <div style="cursor:pointer" onclick="DetailPanel.openShoe('${nameEsc}')">
         <div class="shoe-bar-row">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}</span>
           <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>
@@ -2656,7 +2965,7 @@ const Import = {
         document.getElementById('btnImportConfirm').disabled = importParsed.length === 0;
 
         // Add any new shoes from import
-        importParsed.forEach(s => { if (s.sko && !Store.data.shoes.includes(s.sko)) Store.data.shoes.push(s.sko); });
+        importParsed.forEach(s => { if (s.sko) Store.addShoe(s.sko); });
 
       } catch(err) {
         console.error(err);
@@ -2694,6 +3003,9 @@ const Settings = {
     // Event management
     document.getElementById('btnAddEvent').addEventListener('click', () => this.addEvent());
     document.getElementById('newEvtTitle').addEventListener('keydown', e => { if (e.key === 'Enter') this.addEvent(); });
+    document.getElementById('newEvtType').addEventListener('change', e => {
+      document.getElementById('evtPlanTargets').style.display = e.target.value === 'plan' ? 'flex' : 'none';
+    });
 
     // Profile / zones
     document.getElementById('btnSaveProfile').addEventListener('click', () => this.saveProfile());
@@ -2755,6 +3067,7 @@ const Settings = {
       </div>`).join('');
     container.querySelectorAll('[data-del-goal]').forEach(btn => {
       btn.addEventListener('click', () => {
+        if (!confirm(`Slette mål for ${btn.dataset.delGoal}?`)) return;
         delete Store.data.goals[btn.dataset.delGoal];
         FileIO.save(); this.renderGoalList(); renderDashboard();
       });
@@ -2797,19 +3110,20 @@ const Settings = {
       return;
     }
     const now = new Date();
+    const active  = Store.data.shoes.filter(s => !s.retired);
+    const retired = Store.data.shoes.filter(s =>  s.retired);
 
-    list.innerHTML = Store.data.shoes.map(shoe => {
+    const renderShoeCard = (shoe, isRetired) => {
       const name = shoe.name;
       const usedKm = kmMap[name] || 0;
       const retKm = shoe.retirementKm;
       const safeId = name.replace(/[^a-zA-Z0-9]/g, '_');
+      const nameEsc = name.replace(/'/g, "\\'");
 
       let retireHtml = '';
-      if (retKm) {
+      if (retKm && !isRetired) {
         const pct = Math.min(100, usedKm / retKm * 100);
         const barColor = pct >= 100 ? 'var(--danger)' : pct >= 80 ? 'var(--yellow)' : 'var(--accent)';
-
-        // Projected retirement date
         let projHtml = '';
         if (usedKm < retKm) {
           const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - 56);
@@ -2830,7 +3144,6 @@ const Settings = {
             }
           }
         }
-
         retireHtml = `
           <div style="margin-top:8px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
@@ -2841,23 +3154,43 @@ const Settings = {
           </div>`;
       }
 
-      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
+      const actionButtons = isRetired
+        ? `<button class="btn-secondary btn-sm" onclick="Settings.activateShoe('${nameEsc}')">Aktiver</button>
+           <button class="btn-secondary btn-sm" onclick="Settings.deleteshoe('${nameEsc}')">Fjern</button>`
+        : `<button class="btn-secondary btn-sm" onclick="Settings.retireShoe('${nameEsc}')">Pensjonér</button>
+           <button class="btn-secondary btn-sm" onclick="Settings.toggleShoeEdit('${safeId}')" style="font-size:11px">Rediger</button>
+           <button class="btn-secondary btn-sm" onclick="Settings.deleteshoe('${nameEsc}')">Fjern</button>`;
+
+      const cardStyle = isRetired
+        ? 'background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;opacity:0.6'
+        : 'background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px';
+
+      return `<div style="${cardStyle}">
         <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-size:18px">👟</span>
+          <span style="font-size:18px">${isRetired ? '📦' : '👟'}</span>
           <span style="flex:1;font-size:13px;font-weight:500">${name}</span>
           <span style="font-size:12px;color:var(--muted)">${usedKm.toFixed(0)} km</span>
-          <button class="btn-secondary btn-sm" onclick="Settings.toggleShoeEdit('${safeId}')" style="font-size:11px">Rediger</button>
-          <button class="btn-secondary btn-sm" onclick="Settings.deleteshoe('${name.replace(/'/g,"\\'")}')">Fjern</button>
+          ${actionButtons}
         </div>
         ${retireHtml}
-        <div id="shoe-edit-${safeId}" style="display:none;margin-top:10px;display:none;gap:8px;flex-wrap:wrap;align-items:center">
+        ${isRetired ? '' : `<div id="shoe-edit-${safeId}" style="display:none;margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
           <input type="number" id="shoe-ret-${safeId}" placeholder="Utløpsgrense km" value="${retKm || ''}" min="1"
             style="width:160px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px">
-          <button class="btn-primary btn-sm" onclick="Settings.saveShoeRetirement('${name.replace(/'/g,"\\'")}', '${safeId}')">Lagre</button>
+          <button class="btn-primary btn-sm" onclick="Settings.saveShoeRetirement('${nameEsc}', '${safeId}')">Lagre</button>
           <button class="btn-secondary btn-sm" onclick="Settings.toggleShoeEdit('${safeId}')">Avbryt</button>
-        </div>
+        </div>`}
       </div>`;
-    }).join('');
+    };
+
+    const activePart  = active.map(s => renderShoeCard(s, false)).join('');
+    const retiredPart = retired.length
+      ? `<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+           <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Pensjonerte sko</div>
+           <div style="display:flex;flex-direction:column;gap:8px">${retired.map(s => renderShoeCard(s, true)).join('')}</div>
+         </div>`
+      : '';
+
+    list.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${activePart}</div>${retiredPart}`;
   },
 
   toggleShoeEdit(safeId) {
@@ -2877,6 +3210,18 @@ const Settings = {
     if (!confirm(`Fjerne "${name}" fra listen?`)) return;
     Store.data.shoes = Store.data.shoes.filter(s => s.name !== name);
     FileIO.save();
+    Form.refreshShoeDropdown();
+    this.renderShoeList();
+  },
+
+  retireShoe(name) {
+    Store.updateShoe(name, { retired: true });
+    Form.refreshShoeDropdown();
+    this.renderShoeList();
+  },
+
+  activateShoe(name) {
+    Store.updateShoe(name, { retired: false });
     Form.refreshShoeDropdown();
     this.renderShoeList();
   },
@@ -2912,15 +3257,28 @@ const Settings = {
     if (!date || !title) return;
     const evt = { id: genId(), date, type, title };
     if (endDate && endDate > date) evt.endDate = endDate;
+    if (type === 'plan') {
+      const kmT  = parseFloat(document.getElementById('newEvtKmTarget').value)  || null;
+      const runT = parseFloat(document.getElementById('newEvtRunTarget').value) || null;
+      if (kmT)  evt.targetKmPerWeek   = kmT;
+      if (runT) evt.targetRunsPerWeek = runT;
+    }
     Store.addEvent(evt);
     document.getElementById('newEvtDate').value = '';
     document.getElementById('newEvtEndDate').value = '';
     document.getElementById('newEvtTitle').value = '';
+    document.getElementById('newEvtKmTarget').value = '';
+    document.getElementById('newEvtRunTarget').value = '';
+    document.getElementById('evtPlanTargets').style.display = 'none';
+    document.getElementById('newEvtType').value = 'plan';
     this.renderEventList();
     if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
   },
 
   deleteEvent(id) {
+    const evt = (Store.data.events || []).find(e => e.id === id);
+    const label = evt ? (evt.label || fmtDate(evt.date)) : 'denne hendelsen';
+    if (!confirm(`Slette "${label}"?`)) return;
     Store.deleteEvent(id);
     this.renderEventList();
     if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
@@ -3090,7 +3448,11 @@ document.addEventListener('DOMContentLoaded', () => {
   Import.init();
   Settings.init();
 
-  // Heatmap: click to open session
+  // DetailPanel close
+  document.getElementById('btnDetailClose').addEventListener('click', () => DetailPanel.close());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') DetailPanel.close(); });
+
+  // Heatmap: click to open session detail
   document.getElementById('heatmapContainer').addEventListener('click', e => {
     const cell = e.target.closest('[data-date]');
     if (!cell || !cell.dataset.tip) return;
@@ -3098,12 +3460,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const daySessions = Store.data.sessions.filter(s => s.dato === date);
     if (!daySessions.length) return;
     if (daySessions.length === 1) {
-      Form.editSession(daySessions[0].id);
+      DetailPanel.openSession(daySessions[0].id);
     } else {
-      document.getElementById('fFilterFra').value = date;
-      document.getElementById('fFilterTil').value = date;
-      switchTab('log');
-      Log.render();
+      DetailPanel.openWeek(isoWeek(date), Store.data.sessions);
     }
   });
 

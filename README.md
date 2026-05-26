@@ -14,11 +14,13 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 - **Rekorder** — best pace, longest session (time + distance), best avg km/h, total distance and time, best week, longest streak; plus distance PRs for 5 km, 10 km, half marathon, and marathon
 - **Innsikter** — auto-generated insight tiles: km milestones, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month
 - **Treningsrytme** — consistency score 0–100 over the last 12 weeks (active-week rate, volume threshold weeks, streak bonus); configurable km/run-count thresholds in Settings; monthly active-weeks trend chart
+- **Treningsblokker** — auto-generated training block cards from Plan events; each block shows total km, runs, km/week, consistency %; click opens a full detail panel with analytics (pace, HR, indoor/outdoor split, shoes, optional target tracking)
 - **Treningsbelastning per uke** — weekly training load scored by zone intensity (Z1=1 … Z5=5 points/min), color-coded bars with 4-week rolling average
 - **Treningsstatus (PMC)** — Performance Management Chart: Fitness (CTL, 42-day), Fatigue (ATL, 7-day), and Form (TSB = CTL−ATL) over the last 365 days
 - **Ukentlig distanse** — km per week, last 20 weeks
 - **Tempo per uke** — weighted average pace per week
 - **Aerob effektivitet** — aerobic efficiency trend for Easy outdoor sessions (speed ÷ heart rate), with rolling average and personal average reference line; treadmill sessions excluded automatically
+- **Interactive charts** — hover any weekly chart for a full week summary (km, løp, tid, tempo, HR); click a bar/point to open a drill-down detail panel for that week; click a shoe bar to open shoe detail; click a heatmap day to open session or week detail
 - **Ute vs inne** — weekly stacked bar splitting km between outdoor (🏃) and treadmill (⚙️); hidden until first treadmill session is logged
 - **Pulssoner** — stacked minutes per zone per week or month (toggle)
 - **Årssammenligning** — cumulative km by week number, one line per year
@@ -33,16 +35,16 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), ye
 - Edit or delete any row
 
 ### Import
-- Import from `.xlsx` or `.csv` via SheetJS — preview before confirming
-- Duplicates skipped automatically (matched on date + distance + duration)
+- Import from `.xlsx` or `.csv` via SheetJS — available under **⚙️ Innstillinger → Datafil**
+- Preview before confirming; duplicates skipped automatically (matched on date + distance + duration)
 - Maps all Norwegian column headers from the original Excel workbook
 
 ### Settings (Innstillinger)
 - **Yearly goals** — set a km target per year; tracked on the dashboard
 - **Profil & Puls** — max HR, resting HR, 5 zone boundaries; auto-calculate zones from max HR
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
-- **Sko** — manage shoe list with km totals; used in the log filter and form dropdown
-- **Datafil** — open, create, download, or clear all data
+- **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
+- **Datafil** — open, create, download, import Excel/CSV, or clear all data
 
 ---
 
