@@ -67,6 +67,32 @@ Open `løpelogger.html` in your browser — no install needed.
 2. Select your `.xlsx` or `.csv` file — a preview is shown before anything is saved
 3. Duplicates are skipped automatically (matched on date + distance + duration)
 
+#### Expected column headers
+
+The first row must contain column headers. Header matching is case-insensitive. Only `dato` and `distanse` are required — all other columns are optional.
+
+| Field | Accepted column names |
+|---|---|
+| Date *(required)* | `dato`, `date` |
+| Distance km *(required)* | `distanse`, `distanse (km)`, `distance`, `km` |
+| Session name | `øktnavn`, `oktnavn`, `session name` |
+| Session type | `økt-type`, `okttype`, `type` |
+| Training plan | `treningsplan`, `trenignsplan`, `training plan`, `plan` |
+| Duration | `varighet`, `duration` |
+| Avg HR | `gj.snittspuls`, `gjsnittspuls`, `avg hr`, `avg heart rate` |
+| Max HR | `toppuls`, `max hr`, `max heart rate` |
+| Zone 1–5 time | `sone1`–`sone5`, `sone1 (min)`–`sone5 (min)`, `zone1`–`zone5` |
+| Calories | `kalorier`, `calories` |
+| Pace (min/km) | `tempo`, `tempo (min/km)`, `pace` |
+| Avg km/h | `snittkmh`, `snitt km/t`, `avg km/h` |
+| Incline % | `stigning`, `stigning (%)`, `elevation` |
+| Shoe | `sko`, `shoes` |
+| Sleep | `søvn`, `sovn`, `sleep` |
+| Week | `uke` |
+
+**Date formats accepted:** ISO (`2025-05-26`), US (`05/26/2025`), Excel serial number.  
+**Time formats accepted:** `H:MM:SS`, `MM:SS`, Excel fractional day.
+
 ---
 
 ## Firefox
