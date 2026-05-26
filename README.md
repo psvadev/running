@@ -13,6 +13,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 - **Yearly goal card** — progress bar with km done, km remaining, year-end projection, and required weekly km to stay on track
 - **Rekorder** — best pace, longest session (time + distance), best avg km/h, total distance and time, best week, longest streak; plus distance PRs for 5 km, 10 km, half marathon, and marathon
 - **Innsikter** — auto-generated insight tiles: km milestones, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month
+- **Treningsrytme** — consistency score 0–100 over the last 12 weeks (active-week rate, volume threshold weeks, streak bonus); configurable km/run-count thresholds in Settings; monthly active-weeks trend chart
 - **Treningsbelastning per uke** — weekly training load scored by zone intensity (Z1=1 … Z5=5 points/min), color-coded bars with 4-week rolling average
 - **Treningsstatus (PMC)** — Performance Management Chart: Fitness (CTL, 42-day), Fatigue (ATL, 7-day), and Form (TSB = CTL−ATL) over the last 365 days
 - **Ukentlig distanse** — km per week, last 20 weeks
@@ -39,6 +40,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), ye
 ### Settings (Innstillinger)
 - **Yearly goals** — set a km target per year; tracked on the dashboard
 - **Profil & Puls** — max HR, resting HR, 5 zone boundaries; auto-calculate zones from max HR
+- **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
 - **Sko** — manage shoe list with km totals; used in the log filter and form dropdown
 - **Datafil** — open, create, download, or clear all data
 

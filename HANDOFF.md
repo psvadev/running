@@ -61,6 +61,10 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   "goals": {
     "2026": 705                    // yearly km goal; keyed by year string
   },
+  "consistencySettings": {
+    "kmThreshold": 15,             // km/week threshold for Treningsrytme score
+    "runThreshold": 2              // runs/week threshold for Treningsrytme score
+  },
   "settings": {
     "maxHR": 195,
     "restHR": 55,
@@ -88,14 +92,15 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   - **Pulssoner** (5-col zone-grid): Sone 1–5
   - **Trailing row** (4-col, 2 rows): Kalorier, Mål distanse, Tempo, Snitt km/t → Stigning, Sko, Søvn, (empty)
 - Auto-calculated (readonly, shown in accent blue): Varighet (sum of zones), Tempo, Snitt km/t
-- Stigning: `step="0.5"` — spinner moves in 0.5% increments
+- Løpetype defaults to **Tredemølle** on new/clear sessions
+- Stigning: `step="0.5"` — spinner moves in 0.5% increments; **hidden (display:none) when Utendørs is selected** — field and label disappear, value cleared; re-appears when switching back to Tredemølle
 - Shoe dropdown has a `+` button that navigates to Innstillinger tab
 - Edit mode: clicking a row in the log pre-fills the form; edit banner shown; "Oppdater økt" replaces "Lagre økt"
 
 ### 📊 Oversikt (dashboard tab — full width)
 - Filter bar at top: økt-type dropdown, treningsplan dropdown, **løpetype radios** (Alle / 🏃 Ute / ⚙️ Inne), year pills (toggle individual years), Nullstill button. Løpetype filter is part of `DashFilter` and affects all charts.
 - **Yearly goal card** (full-width, hidden if no goal set): progress bar, km løpt, km igjen, Prognose (year-end projection), km/uke nødvendig. Green if on track, warning if projected to fall short.
-- Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → **Innsikter** → PMC → Belastning → Ukentlig distanse + Tempo → **Plan vs faktisk** → Treningskalender → **Ute vs inne** → Årssammenligning → Aerob effektivitet → Pulssoner → **Sko oversikt** + Ukentlig oversikt
+- Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → **Innsikter** → **Treningsrytme** → PMC → Belastning → Ukentlig distanse + Tempo → **Plan vs faktisk** → Treningskalender → **Ute vs inne** → Årssammenligning → Aerob effektivitet → Pulssoner → **Sko oversikt** + Ukentlig oversikt
   - **Rekorder** — general records (best pace, longest dist/time, best km/h, total dist/time, best week, longest streak) + **Distanse-PR** sub-section (5 km, 10 km, Halvmaraton, Maraton — fastest session per bracket)
   - **Treningsstatus (PMC)** — line chart, last 365 days; three lines: Kondisjon/CTL (42-day exp. avg, blue), Tretthet/ATL (7-day exp. avg, red), Form/TSB (CTL−ATL, green). Always uses `allSessions` regardless of dashboard filter — CTL/ATL require full history to be meaningful (full-width)
   - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width). Supports event marker lines.
@@ -107,6 +112,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`); responds to type/plan filters
   - **Aerob effektivitet (Easy-økter)** — line chart; per-session score = `snittkmh / gjsnittspuls × 100` for Easy sessions only; **treadmill sessions auto-excluded** (treadmill pace is machine-controlled, not effort-based); individual points + 4-session rolling average (green) + personal average reference line (dashed amber). Tooltip shows session name, speed, and HR. Responds to dashboard filter
   - **Pulssoner** — stacked bar, time per zone per week, last 20 weeks; Y-axis and tooltips display in `tt:mm` (h:mm) format via `minsToHm()`; **Uke/Måned toggle** switches grouping
+  - **Treningsrytme** — consistency score card (span2, after Innsikter). Score 0–100 from 3 components: active-week rate (×50), volume consistency weeks above km threshold (×30), current streak bonus (×20, maxes at 4+ weeks). Labels: Svært jevn rytme (≥85) / God rytme (≥70) / Jevn (≥55) / Litt ujevn (≥40) / Ujevn trening (<40). 4 stat tiles: aktive uker, uker over km-grense, uker med N+ løp, nåværende streak. Bar chart below: active weeks per month, last 12 months. Thresholds (km-grense, løp-grense) configured in ⚙️ Innstillinger → Treningsrytme; persisted as `consistencySettings` in JSON. Card id: `rhythmCard`.
   - **Innsikter** — auto-generated insight tiles (span2, after Rekorder). Up to 6 tiles, each with icon + bold value + muted sub-label. Generators: km-milepæl (total distance passed a round number), mest brukte sko (by km), tyngste 4-ukers blokk (rolling zone-weighted load, labelled `S1=1 → S5=5 pkt/min`), raskeste Easy-økt (best pace on Easy sessions), mest aktive måned (session count). Responds to DashFilter. Streak and best-week tiles intentionally omitted — both already shown in Rekorder.
   - **Sko oversikt** — horizontal bar per shoe showing total km + ⚠️/🔴 retirement warning. Below each bar: chip row with `X løp`, `X:XX /km` (avg pace), `HR X` (avg HR, omitted if no HR data), `sist DD.MM.YYYY` (last run date). Shoes separated by subtle divider lines.
   - Weekly summary table (scrollable)
@@ -125,6 +131,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 
 ### ⚙️ Innstillinger (settings tab — max 1200px)
 - **Profil & Puls**: max HR, resting HR, 5 zone BPM boundaries, "Auto-beregn" button (fills zones at 50/60/70/80/90% of max HR)
+- **Treningsrytme**: km-grense per uke (default 15) and løp-grense per uke (default 2); saved to `Store.data.consistencySettings`; triggers `renderDashboard()` on save so score updates immediately
 - **Datafil**: open file, new file, download/export, "Tøm alle data" danger button
 
 ---
@@ -149,6 +156,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | `Import` | SheetJS parse, Norwegian column mapping, preview modal, `mergeSessions` dedup |
 | `renderDashboard()` | Rebuilds all chart panels and goal card; calls `buildYearPills()`, `renderInsights()`; hides `yearCompCard` when single year selected |
 | `renderInsights(sessions)` | Generates up to 6 auto-insight tiles into `#insightContent`. Each tile: `{ icon, val, sub }`. Generators: km milestone, most-used shoe, highest 4-week load block, fastest Easy pace, most active month. |
+| `renderConsistency(sessions)` | Renders the Treningsrytme card: computes score (0–100) from active-week rate, volume consistency, and streak bonus over last 12 weeks; reads thresholds from `Store.data.consistencySettings`; renders stat tiles + monthly active-weeks bar chart into `#rhythmCard`. |
 | `renderPMCChart(allSessions)` | PMC chart — walks every calendar day from first session to today, accumulating CTL and ATL via exponential decay; displays last 365 days. Always called with `allSessions` (not filtered). |
 | `renderEfficiencyChart(sessions)` | Aerobic efficiency chart — filters to Easy **outdoor** sessions with HR+speed data (treadmill excluded), computes score = `snittkmh/gjsnittspuls×100`, renders points + 4-session rolling avg + personal average reference line |
 | `renderVenueChart(sessions)` | Stacked bar chart (last 20 weeks): outdoor km (green) vs treadmill km (blue). Hidden when no treadmill sessions. |

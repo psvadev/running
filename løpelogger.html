@@ -97,6 +97,12 @@
 
   /* Shoe extra stats line */
   .shoe-meta { display:flex; flex-wrap:wrap; gap:4px; margin-top:9px; margin-bottom:2px; }
+  .cs-score  { font-size:52px; font-weight:700; color:var(--accent); line-height:1; }
+  .cs-label  { font-size:14px; font-weight:600; color:var(--text); margin-top:4px; }
+  .cs-period { font-size:11px; color:var(--muted); margin-top:2px; }
+  .cs-stat   { display:flex; flex-direction:column; min-width:110px; }
+  .cs-stat .csv { font-size:18px; font-weight:600; color:var(--text); }
+  .cs-stat .css { font-size:11px; color:var(--muted); margin-top:2px; }
   .shoe-stat { display:inline-flex; gap:3px; align-items:baseline; background:rgba(255,255,255,.04); border-radius:4px; padding:2px 7px; font-size:10px; }
   .shoe-stat .sl { color:var(--muted); }
   .shoe-stat .sv { color:var(--text); font-weight:500; }
@@ -263,9 +269,9 @@
       </div>
       <div class="form-group">
         <label>Løpetype</label>
-        <select id="fLopetype">
+        <select id="fLopetype" onchange="const isTM=this.value==='treadmill'; document.getElementById('stigningGroup').style.display=isTM?'':'none'; if(!isTM) document.getElementById('fStigning').value='';">
           <option value="utendors">Utendørs</option>
-          <option value="treadmill">Tredemølle</option>
+          <option value="treadmill" selected>Tredemølle</option>
         </select>
       </div>
     </div>
@@ -337,7 +343,7 @@
         <label>Snitt km/t <span style="color:var(--accent);font-size:10px">auto</span></label>
         <input type="text" id="fSnittkmh" placeholder="–" readonly>
       </div>
-      <div class="form-group">
+      <div class="form-group" id="stigningGroup">
         <label>Stigning (%)</label>
         <input type="number" id="fStigning" step="0.5" min="0" placeholder="1.0">
       </div>
@@ -413,6 +419,11 @@
     <div class="card span2" id="insightCard">
       <div class="card-title">Innsikter</div>
       <div id="insightContent"></div>
+    </div>
+    <div class="card span2" id="rhythmCard">
+      <div class="card-title">Treningsrytme — siste 12 uker</div>
+      <div id="consistencyContent" style="margin-top:12px"></div>
+      <div class="chart-wrap" style="height:110px;margin-top:16px"><canvas id="chartConsistency"></canvas></div>
     </div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
@@ -670,6 +681,24 @@
     </div>
   </div>
 
+  <!-- Treningsrytme -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Treningsrytme</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:-6px;margin-bottom:14px">Grenseverdier brukt i konsistens-scoren på dashbordet.</div>
+    <div class="form-grid" style="margin-bottom:14px">
+      <div class="form-group">
+        <label>Km-grense per uke</label>
+        <input type="number" id="csKmThreshold" min="1" max="200" placeholder="15">
+      </div>
+      <div class="form-group">
+        <label>Løp-grense per uke</label>
+        <input type="number" id="csRunThreshold" min="1" max="14" placeholder="2">
+      </div>
+    </div>
+    <button class="btn-primary btn-sm" id="btnSaveConsistency">💾 Lagre</button>
+    <span id="consistencyMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
+  </div>
+
   <!-- Datafil -->
   <div class="card">
     <div class="card-title">Datafil</div>
@@ -808,7 +837,7 @@ function parseSovn(val) {
 // DATA STORE
 // ═══════════════════════════════════════════════════════
 const Store = {
-  data: { sessions: [], shoes: [{ name: 'ASICS Novablast 5' }, { name: 'Saucony Ride 18' }, { name: 'Adidas trainers' }], goals: {}, events: [], lastUpdated: null },
+  data: { sessions: [], shoes: [{ name: 'ASICS Novablast 5' }, { name: 'Saucony Ride 18' }, { name: 'Adidas trainers' }], goals: {}, events: [], consistencySettings: { kmThreshold: 15, runThreshold: 2 }, lastUpdated: null },
 
   load(json) {
     try {
@@ -1256,8 +1285,10 @@ const Form = {
     document.getElementById('fMalDistanse').value = s.malDistanse || '';
     document.getElementById('fTempo').value = s.tempo ? secsToMmSs(s.tempo) : '';
     document.getElementById('fSnittkmh').value = s.snittkmh || '';
-    document.getElementById('fStigning').value = s.stigning ?? '';
     document.getElementById('fLopetype').value = s.løpetype || 'utendors';
+    const isTM = (s.løpetype || 'utendors') === 'treadmill';
+    document.getElementById('stigningGroup').style.display = isTM ? '' : 'none';
+    document.getElementById('fStigning').value = isTM ? (s.stigning ?? '') : '';
     document.getElementById('fSovn').value = s.sovn ? hoursToHHMM(s.sovn) : '';
     this.refreshShoeDropdown(s.sko);
   },
@@ -1313,7 +1344,8 @@ const Form = {
      'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fSovn'].forEach(id => {
       document.getElementById(id).value = '';
     });
-    document.getElementById('fLopetype').value = 'utendors';
+    document.getElementById('fLopetype').value = 'treadmill';
+    document.getElementById('stigningGroup').style.display = '';
   }
 };
 
@@ -1947,6 +1979,106 @@ function renderInsights(sessions) {
   ).join('');
 }
 
+function renderConsistency(sessions) {
+  const el = document.getElementById('consistencyContent');
+  if (!el) return;
+
+  const cs    = Store.data.consistencySettings || { kmThreshold: 15, runThreshold: 2 };
+  const kmThr = cs.kmThreshold  || 15;
+  const runThr = cs.runThreshold || 2;
+
+  if (!sessions.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px">Ingen data</div>';
+    destroyChart('consistency');
+    return;
+  }
+
+  const absWeek = d => Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000));
+  const nowAbs  = absWeek(new Date().toISOString().slice(0,10));
+  const PERIOD  = 12;
+  const minAbs  = nowAbs - PERIOD + 1;
+
+  const weekMap = {};
+  sessions.forEach(s => {
+    if (!s.dato) return;
+    const w = absWeek(s.dato);
+    if (w < minAbs || w > nowAbs) return;
+    if (!weekMap[w]) weekMap[w] = { km: 0, runs: 0 };
+    weekMap[w].km   += s.distanse || 0;
+    weekMap[w].runs += 1;
+  });
+
+  const activeWeeks = Object.keys(weekMap).length;
+  const kmWeeks     = Object.values(weekMap).filter(w => w.km   >= kmThr).length;
+  const runWeeks    = Object.values(weekMap).filter(w => w.runs >= runThr).length;
+
+  let currentStreak = 0;
+  for (let w = nowAbs; w >= minAbs; w--) {
+    if (weekMap[w]) currentStreak++;
+    else break;
+  }
+
+  const scoreA = (activeWeeks / PERIOD) * 50;
+  const scoreB = (kmWeeks / Math.max(activeWeeks, 1)) * 30;
+  const scoreC = Math.min(currentStreak / 4, 1) * 20;
+  const score  = Math.round(scoreA + scoreB + scoreC);
+
+  const label = score >= 85 ? 'Svært jevn rytme'
+              : score >= 70 ? 'God rytme'
+              : score >= 55 ? 'Jevn'
+              : score >= 40 ? 'Litt ujevn'
+              : 'Ujevn trening';
+
+  const stats = [
+    { val: `${activeWeeks} / ${PERIOD}`, sub: 'aktive uker' },
+    { val: `${kmWeeks} uker`,            sub: `over ${kmThr} km` },
+    { val: `${runWeeks} uker`,           sub: `${runThr}+ løp/uke` },
+    { val: `${currentStreak} uker`,      sub: 'nåværende streak' },
+  ];
+
+  el.innerHTML = `
+    <div style="display:flex;gap:28px;align-items:center;flex-wrap:wrap">
+      <div>
+        <div class="cs-score">${score}</div>
+        <div class="cs-label">${label}</div>
+        <div class="cs-period">siste ${PERIOD} uker</div>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        ${stats.map(s => `<div class="cs-stat"><div class="csv">${s.val}</div><div class="css">${s.sub}</div></div>`).join('')}
+      </div>
+    </div>`;
+
+  destroyChart('consistency');
+  const chartEl = document.getElementById('chartConsistency');
+  if (!chartEl) return;
+
+  const monthActives = {};
+  sessions.forEach(s => {
+    if (!s.dato) return;
+    const m = s.dato.slice(0,7);
+    if (!monthActives[m]) monthActives[m] = new Set();
+    monthActives[m].add(isoWeek(s.dato));
+  });
+  const months = Object.keys(monthActives).sort().slice(-12);
+  const mNames = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+
+  Charts.consistency = new Chart(chartEl, {
+    type: 'bar',
+    data: {
+      labels: months.map(m => { const [,mo]=m.split('-'); return mNames[+mo-1]; }),
+      datasets: [{ data: months.map(m => monthActives[m].size), backgroundColor: 'rgba(108,143,255,.7)', borderRadius: 3 }]
+    },
+    options: {
+      plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: ctx => `${ctx.raw} aktive uker` } } },
+      scales: {
+        x: { grid:{display:false}, ticks:{color:'#7880a0'} },
+        y: { grid:{color:'#2e3248'}, ticks:{color:'#7880a0',stepSize:1}, min:0, title:{display:true,text:'aktive uker',color:'#7880a0',font:{size:10}} }
+      },
+      responsive:true, maintainAspectRatio:false
+    }
+  });
+}
+
 function renderVenueChart(sessions) {
   destroyChart('venue');
   const el = document.getElementById('chartVenue');
@@ -2278,6 +2410,7 @@ function renderDashboard() {
 
   renderHeatmap(sessions);
   renderInsights(sessions);
+  renderConsistency(sessions);
 
   // Shoe bar chart
   const shoeMap = {};
@@ -2566,6 +2699,9 @@ const Settings = {
     document.getElementById('btnSaveProfile').addEventListener('click', () => this.saveProfile());
     document.getElementById('btnAutoZones').addEventListener('click', () => this.autoZones());
 
+    // Treningsrytme thresholds
+    document.getElementById('btnSaveConsistency').addEventListener('click', () => this.saveConsistency());
+
     // File controls
     document.getElementById('btnOpen').addEventListener('click', async () => {
       const ok = await FileIO.open();
@@ -2591,6 +2727,7 @@ const Settings = {
     this.renderShoeList();
     this.renderZoneEditor();
     this.loadProfileFields();
+    this.loadConsistencyFields();
     this.renderEventList();
     // Pre-fill goal year with current year if empty
     const yr = document.getElementById('newGoalYear');
@@ -2820,6 +2957,24 @@ const Settings = {
     if (s.restHR) document.getElementById('sRestHR').value = s.restHR;
   },
 
+  loadConsistencyFields() {
+    const cs = Store.data.consistencySettings || { kmThreshold: 15, runThreshold: 2 };
+    document.getElementById('csKmThreshold').value  = cs.kmThreshold;
+    document.getElementById('csRunThreshold').value = cs.runThreshold;
+  },
+
+  saveConsistency() {
+    Store.data.consistencySettings = {
+      kmThreshold:  parseInt(document.getElementById('csKmThreshold').value)  || 15,
+      runThreshold: parseInt(document.getElementById('csRunThreshold').value) || 2,
+    };
+    FileIO.save();
+    renderDashboard();
+    const msg = document.getElementById('consistencyMsg');
+    msg.textContent = 'Lagret!';
+    setTimeout(() => { msg.textContent = ''; }, 2000);
+  },
+
   saveProfile() {
     if (!Store.data.settings) Store.data.settings = {};
     Store.data.settings.maxHR  = parseInt(document.getElementById('sMaxHR').value)  || null;
@@ -2887,6 +3042,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('fFilterSko').value = '';
     Log.render();
   });
+
 
   // Firefox fallback: fileInput change fires when user picks a file via the hidden input
   document.getElementById('fileInput').addEventListener('change', async e => {
