@@ -94,7 +94,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 ### 📊 Oversikt (dashboard tab — full width)
 - Filter bar at top: økt-type dropdown, treningsplan dropdown, year pills (toggle individual years), Nullstill button
 - **Yearly goal card** (full-width, hidden if no goal set): progress bar, km løpt, km igjen, Prognose (year-end projection), km/uke nødvendig. Green if on track, warning if projected to fall short.
-- Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → PMC → Belastning → Ukentlig distanse + Tempo → **Plan vs faktisk** → Treningskalender → Årssammenligning → Aerob effektivitet → Pulssoner → Sko-km + Ukentlig oversikt
+- Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → **Innsikter** → PMC → Belastning → Ukentlig distanse + Tempo → **Plan vs faktisk** → Treningskalender → Årssammenligning → Aerob effektivitet → Pulssoner → **Sko oversikt** + Ukentlig oversikt
   - **Rekorder** — general records (best pace, longest dist/time, best km/h, total dist/time, best week, longest streak) + **Distanse-PR** sub-section (5 km, 10 km, Halvmaraton, Maraton — fastest session per bracket)
   - **Treningsstatus (PMC)** — line chart, last 365 days; three lines: Kondisjon/CTL (42-day exp. avg, blue), Tretthet/ATL (7-day exp. avg, red), Form/TSB (CTL−ATL, green). Always uses `allSessions` regardless of dashboard filter — CTL/ATL require full history to be meaningful (full-width)
   - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width). Supports event marker lines.
@@ -105,7 +105,8 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
   - **Årssammenligning** — cumulative km by week number, one line per year (full-width); **hidden when exactly one year is selected** (card id: `yearCompCard`); responds to type/plan filters
   - **Aerob effektivitet (Easy-økter)** — line chart; per-session score = `snittkmh / gjsnittspuls × 100` for Easy sessions only; individual points + 4-session rolling average (green) + personal average reference line (dashed amber). Tooltip shows session name, speed, and HR. Responds to dashboard filter
   - **Pulssoner** — stacked bar, time per zone per week, last 20 weeks; Y-axis and tooltips display in `tt:mm` (h:mm) format via `minsToHm()`; **Uke/Måned toggle** switches grouping
-  - Shoe km horizontal bars. Shows ⚠️/🔴 warning when approaching/exceeding retirement km.
+  - **Innsikter** — auto-generated insight tiles (span2, after Rekorder). Up to 6 tiles, each with icon + bold value + muted sub-label. Generators: km-milepæl (total distance passed a round number), mest brukte sko (by km), tyngste 4-ukers blokk (rolling zone-weighted load, labelled `S1=1 → S5=5 pkt/min`), raskeste Easy-økt (best pace on Easy sessions), mest aktive måned (session count). Responds to DashFilter. Streak and best-week tiles intentionally omitted — both already shown in Rekorder.
+  - **Sko oversikt** — horizontal bar per shoe showing total km + ⚠️/🔴 retirement warning. Below each bar: chip row with `X løp`, `X:XX /km` (avg pace), `HR X` (avg HR, omitted if no HR data), `sist DD.MM.YYYY` (last run date). Shoes separated by subtle divider lines.
   - Weekly summary table (scrollable)
 
 ### 📋 Treningslogg (log tab — full width)
@@ -143,7 +144,8 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 | `DashFilter` | Dashboard filter state (years Set, type, plan); `get(sessions)` returns filtered array |
 | `Settings` | Shoe management, goal management, zone editor, profile save, file controls |
 | `Import` | SheetJS parse, Norwegian column mapping, preview modal, `mergeSessions` dedup |
-| `renderDashboard()` | Rebuilds all chart panels and goal card; calls `buildYearPills()`; hides `yearCompCard` when single year selected |
+| `renderDashboard()` | Rebuilds all chart panels and goal card; calls `buildYearPills()`, `renderInsights()`; hides `yearCompCard` when single year selected |
+| `renderInsights(sessions)` | Generates up to 6 auto-insight tiles into `#insightContent`. Each tile: `{ icon, val, sub }`. Generators: km milestone, most-used shoe, highest 4-week load block, fastest Easy pace, most active month. |
 | `renderPMCChart(allSessions)` | PMC chart — walks every calendar day from first session to today, accumulating CTL and ATL via exponential decay; displays last 365 days. Always called with `allSessions` (not filtered). |
 | `renderEfficiencyChart(sessions)` | Aerobic efficiency chart — filters to Easy sessions with HR+speed data, computes score = `snittkmh/gjsnittspuls×100`, renders points + 4-session rolling avg + personal average reference line |
 | `renderHeatmap(sessions)` | Training calendar heatmap — GitHub-style grid, 4 modes: distance (blue intensity), belastning (zone-load intensity), økttype (coloured by dominant type), pulssone (coloured by dominant HR zone). `dailyData` entries carry `zones:[0,0,0,0,0]` and `ids:[]` for zone mode and click navigation. Click handler and custom tooltip registered once in `DOMContentLoaded` via delegation on `#heatmapContainer`. Stats bar (`#heatmapStats`) shows active days, total km, current/longest streak for the visible period. Uses DashFilter year for range. Reads `input[name="heatmetric"]` radio for mode. |

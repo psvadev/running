@@ -87,6 +87,20 @@
   .year-pill { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface2); color: var(--muted); transition: all .15s; user-select: none; }
   .year-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+  /* Insight cards */
+  #insightContent { display:flex; flex-wrap:wrap; gap:10px; }
+  .insight-item { display:flex; align-items:center; gap:10px; background:var(--surface2); border-radius:8px; padding:10px 14px; min-width:180px; flex:1; }
+  .insight-item .i-icon { font-size:20px; flex-shrink:0; }
+  .insight-item .i-body { display:flex; flex-direction:column; }
+  .insight-item .i-val  { font-size:13px; font-weight:600; color:var(--text); }
+  .insight-item .i-sub  { font-size:11px; color:var(--muted); margin-top:2px; }
+
+  /* Shoe extra stats line */
+  .shoe-meta { display:flex; flex-wrap:wrap; gap:4px; margin-top:9px; margin-bottom:2px; }
+  .shoe-stat { display:inline-flex; gap:3px; align-items:baseline; background:rgba(255,255,255,.04); border-radius:4px; padding:2px 7px; font-size:10px; }
+  .shoe-stat .sl { color:var(--muted); }
+  .shoe-stat .sv { color:var(--text); font-weight:500; }
+
   /* ── Dashboard grid ── */
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .dash-grid .span2 { grid-column: span 2; }
@@ -144,7 +158,10 @@
   .gap-8 { gap: 8px; }
   .align-center { align-items: center; }
   .chart-wrap { position: relative; height: 220px; }
-  .shoe-bar-wrap { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+  .shoe-bar-wrap { display: flex; flex-direction: column; gap: 0; margin-top: 8px; }
+  .shoe-bar-wrap > div { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .shoe-bar-wrap > div:first-child { padding-top: 0; }
+  .shoe-bar-wrap > div:last-child { border-bottom: none; padding-bottom: 0; }
   .shoe-bar-row { display: grid; grid-template-columns: 160px 1fr 50px; gap: 8px; align-items: center; font-size: 13px; }
   .shoe-bar-bg { background: var(--surface2); border-radius: 4px; height: 10px; overflow: hidden; }
   .shoe-bar-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width .4s; }
@@ -376,6 +393,10 @@
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Distanse-PR</div>
       <div class="records-grid" id="distPRGrid"></div>
     </div>
+    <div class="card span2" id="insightCard">
+      <div class="card-title">Innsikter</div>
+      <div id="insightContent"></div>
+    </div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">Treningsstatus (PMC)</div>
@@ -449,7 +470,7 @@
       <div class="chart-wrap" style="height:260px"><canvas id="chartZones"></canvas></div>
     </div>
     <div class="card">
-      <div class="card-title">Sko-kilometer</div>
+      <div class="card-title">Sko oversikt</div>
       <div id="shoeBarChart"></div>
     </div>
     <div class="card">
@@ -1816,6 +1837,64 @@ function renderEfficiencyChart(sessions) {
   });
 }
 
+function renderInsights(sessions) {
+  const el = document.getElementById('insightContent');
+  if (!el) return;
+  if (!sessions.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">Ingen data</div>'; return; }
+
+  const insights = [];
+
+
+
+  // Total distance milestone
+  const totalKm = sessions.reduce((s,x)=>s+(x.distanse||0),0);
+  const passed = [100,250,500,750,1000,1500,2000,3000,5000].filter(m=>totalKm>=m);
+  if (passed.length) insights.push({ icon:'🎯', val:`${passed[passed.length-1]} km`, sub:`totalt passert (${totalKm.toFixed(0)} km totalt)` });
+
+  // Most used shoe by km
+  const shoeKm = {};
+  sessions.forEach(s=>{ if(s.sko) shoeKm[s.sko]=(shoeKm[s.sko]||0)+(s.distanse||0); });
+  const topShoe = Object.entries(shoeKm).sort((a,b)=>b[1]-a[1])[0];
+  if (topShoe) insights.push({ icon:'👟', val:topShoe[0], sub:`${(+topShoe[1]).toFixed(0)} km – mest brukte` });
+
+  // Highest 4-week rolling training load
+  const loadByWeek = {};
+  sessions.forEach(s=>{
+    if (!s.soner) return;
+    const w = s.uke||isoWeek(s.dato);
+    const ZONE_WEIGHTS=[1,2,3,4,5];
+    loadByWeek[w]=(loadByWeek[w]||0)+s.soner.reduce((sum,secs,i)=>sum+(secs||0)*ZONE_WEIGHTS[i],0)/60;
+  });
+  const sortedWks = Object.keys(loadByWeek).sort();
+  let maxBlock=0;
+  for (let i=0; i+3<sortedWks.length; i++) {
+    const block4=[0,1,2,3].reduce((s,j)=>s+(loadByWeek[sortedWks[i+j]]||0),0);
+    if (block4>maxBlock) maxBlock=block4;
+  }
+  if (maxBlock>0) insights.push({ icon:'⚡', val:`${Math.round(maxBlock)} pkt`, sub:'tyngste 4-ukers blokk · S1=1 → S5=5 pkt/min' });
+
+  // Fastest Easy run
+  const easyWithPace = sessions.filter(s=>s.okttype==='Easy'&&s.tempo>0);
+  if (easyWithPace.length) {
+    const fastest = easyWithPace.reduce((a,s)=>s.tempo<a.tempo?s:a);
+    insights.push({ icon:'💨', val:secsToMmSs(fastest.tempo)+' /km', sub:`raskeste Easy (${fmtDate(fastest.dato)})` });
+  }
+
+  // Most active month (session count)
+  const monthCount = {};
+  sessions.forEach(s=>{ if(s.dato){ const m=s.dato.slice(0,7); monthCount[m]=(monthCount[m]||0)+1; } });
+  const topMonth = Object.entries(monthCount).sort((a,b)=>b[1]-a[1])[0];
+  if (topMonth && topMonth[1]>1) {
+    const [y,m] = topMonth[0].split('-');
+    const mNames=['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+    insights.push({ icon:'📅', val:`${mNames[+m-1]} ${y}`, sub:`${topMonth[1]} økter – mest aktive måned` });
+  }
+
+  el.innerHTML = insights.slice(0,6).map(ins =>
+    `<div class="insight-item"><span class="i-icon">${ins.icon}</span><div class="i-body"><div class="i-val">${ins.val}</div><div class="i-sub">${ins.sub}</div></div></div>`
+  ).join('');
+}
+
 function renderDashboard() {
   const allSessions = Store.data.sessions;
   buildYearPills(allSessions);
@@ -2106,6 +2185,7 @@ function renderDashboard() {
   });
 
   renderHeatmap(sessions);
+  renderInsights(sessions);
 
   // Shoe bar chart
   const shoeMap = {};
@@ -2113,17 +2193,36 @@ function renderDashboard() {
   const shoeEntries = Object.entries(shoeMap).sort((a,b)=>b[1]-a[1]);
   const maxKm = shoeEntries[0]?.[1] || 1;
   const shoeObjects = Store.data.shoes;
+  const shoeStats = {};
+  sessions.forEach(s => {
+    if (!s.sko) return;
+    if (!shoeStats[s.sko]) shoeStats[s.sko] = { count:0, paceSum:0, paceCount:0, hrSum:0, hrCount:0, lastDate:'' };
+    const st = shoeStats[s.sko];
+    st.count++;
+    if (s.tempo > 0) { st.paceSum += s.tempo; st.paceCount++; }
+    if (s.gjsnittspuls > 0) { st.hrSum += s.gjsnittspuls; st.hrCount++; }
+    if (s.dato > st.lastDate) st.lastDate = s.dato;
+  });
   document.getElementById('shoeBarChart').innerHTML = `<div class="shoe-bar-wrap">${
     shoeEntries.map(([name, km]) => {
       const shoe = shoeObjects.find(s => s.name === name);
       const retKm = shoe?.retirementKm;
       const pct = retKm ? km / retKm : null;
       const warn = pct != null && pct >= 0.9 ? (pct >= 1 ? ' 🔴' : ' ⚠️') : '';
+      const st = shoeStats[name] || {};
+      const chips = [];
+      if (st.count)     chips.push(`<span class="shoe-stat"><span class="sv">${st.count}</span><span class="sl">løp</span></span>`);
+      if (st.paceCount) chips.push(`<span class="shoe-stat"><span class="sv">${secsToMmSs(Math.round(st.paceSum/st.paceCount))}</span><span class="sl">/km</span></span>`);
+      if (st.hrCount)   chips.push(`<span class="shoe-stat"><span class="sl">HR</span><span class="sv">${Math.round(st.hrSum/st.hrCount)}</span></span>`);
+      if (st.lastDate)  chips.push(`<span class="shoe-stat"><span class="sl">sist</span><span class="sv">${fmtDate(st.lastDate)}</span></span>`);
+      const metaLine = chips.length ? `<div class="shoe-meta">${chips.join('')}</div>` : '';
       return `
-      <div class="shoe-bar-row">
-        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}</span>
-        <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>
-        <span style="text-align:right">${km.toFixed(0)} km${warn}</span>
+      <div>
+        <div class="shoe-bar-row">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}</span>
+          <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>
+          <span style="text-align:right">${km.toFixed(0)} km${warn}</span>
+        </div>${metaLine}
       </div>`;
     }).join('')
   }</div>`;
@@ -2749,7 +2848,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!daySessions.length) return;
     if (daySessions.length === 1) {
       Form.editSession(daySessions[0].id);
-      switchTab('add');
     } else {
       document.getElementById('fFilterFra').value = date;
       document.getElementById('fFilterTil').value = date;
