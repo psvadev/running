@@ -129,6 +129,8 @@
   .badge-tempo { background: #3a2a1a; color: var(--yellow); }
   .badge-intervaller { background: #3a1a1a; color: var(--zone5); }
   .badge-test { background: #1a3030; color: var(--zone1); }
+  .badge-indoor  { background: rgba(99,179,237,.12); color: #63b3ed; margin-left:4px; }
+  .badge-outdoor { background: rgba(75,190,120,.12); color: #4cbe88; margin-left:4px; }
 
   /* ── Filters ── */
   .filter-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: flex-end; }
@@ -259,6 +261,13 @@
           <option>Runna</option>
         </select>
       </div>
+      <div class="form-group">
+        <label>Løpetype</label>
+        <select id="fLopetype">
+          <option value="utendors">Utendørs</option>
+          <option value="treadmill">Tredemølle</option>
+        </select>
+      </div>
     </div>
   </div>
 
@@ -372,6 +381,14 @@
         <option>Egentrening</option><option>Runna</option>
       </select>
     </div>
+    <div class="form-group">
+      <label>Løpetype</label>
+      <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted);padding-top:6px">
+        <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="" checked> Alle</label>
+        <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="utendors"> 🏃 Ute</label>
+        <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="treadmill"> ⚙️ Inne</label>
+      </div>
+    </div>
     <div class="form-group" style="flex:1;min-width:180px">
       <label>År (velg ett eller flere)</label>
       <div id="dfYearPills" style="display:flex;flex-wrap:wrap;gap:6px;padding-top:2px"></div>
@@ -445,9 +462,19 @@
           <label style="cursor:pointer"><input type="radio" name="heatmetric" value="zones" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Pulssone</label>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Mørkere = mer trening. Hover for detaljer · klikk for å åpne økt.</div>
+      <div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted);margin-top:6px">
+        <label style="cursor:pointer"><input type="radio" name="heatscope" value="all" checked onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Alle</label>
+        <label style="cursor:pointer"><input type="radio" name="heatscope" value="utendors" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Utendørs</label>
+        <label style="cursor:pointer"><input type="radio" name="heatscope" value="treadmill" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Tredemølle</label>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;margin-top:8px">Mørkere = mer trening. Hover for detaljer · klikk for å åpne økt.</div>
       <div id="heatmapContainer"></div>
       <div id="heatmapStats" style="margin-top:10px;font-size:11px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap"></div>
+    </div>
+    <div class="card span2" id="venueCard">
+      <div class="card-title">Ute vs inne — ukentlig distanse (km)</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Siste 20 uker. 🏃 Utendørs · ⚙️ Tredemølle</div>
+      <div class="chart-wrap"><canvas id="chartVenue"></canvas></div>
     </div>
     <div class="card span2" id="yearCompCard">
       <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
@@ -514,6 +541,14 @@
         <select id="fFilterPlan" style="padding:6px 8px;font-size:12px">
           <option value="">Alle</option>
           <option>Egentrening</option><option>Runna</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Løpetype</label>
+        <select id="fFilterLopetype" style="padding:6px 8px;font-size:12px">
+          <option value="">Alle</option>
+          <option value="utendors">🏃 Utendørs</option>
+          <option value="treadmill">⚙️ Tredemølle</option>
         </select>
       </div>
       <div class="form-group">
@@ -1104,6 +1139,7 @@ const FileIO = {
 // ═══════════════════════════════════════════════════════
 const Form = {
   editId: null,
+  returnTab: null,
 
   init() {
     document.getElementById('fDato').valueAsDate = new Date();
@@ -1196,6 +1232,7 @@ const Form = {
       snittkmh: parseFloat(document.getElementById('fSnittkmh').value) || null,  // set by autoCalcPace
       stigning: parseFloat(document.getElementById('fStigning').value) || null,
       sko: document.getElementById('fSko').value,
+      løpetype: document.getElementById('fLopetype').value || 'utendors',
       sovn: hhmmToHours(document.getElementById('fSovn').value),
     };
   },
@@ -1220,6 +1257,7 @@ const Form = {
     document.getElementById('fTempo').value = s.tempo ? secsToMmSs(s.tempo) : '';
     document.getElementById('fSnittkmh').value = s.snittkmh || '';
     document.getElementById('fStigning').value = s.stigning ?? '';
+    document.getElementById('fLopetype').value = s.løpetype || 'utendors';
     document.getElementById('fSovn').value = s.sovn ? hoursToHHMM(s.sovn) : '';
     this.refreshShoeDropdown(s.sko);
   },
@@ -1228,6 +1266,7 @@ const Form = {
     const s = Store.data.sessions.find(x => x.id === id);
     if (!s) return;
     this.editId = id;
+    this.returnTab = document.querySelector('.panel.active')?.id?.replace('panel-', '') || null;
     this.populate(s);
     document.getElementById('editBanner').classList.remove('hidden');
     document.getElementById('editLabel').textContent = s.oktnavn || fmtDate(s.dato);
@@ -1237,10 +1276,13 @@ const Form = {
   },
 
   cancelEdit() {
+    const ret = this.returnTab;
     this.editId = null;
+    this.returnTab = null;
     this.clear();
     document.getElementById('editBanner').classList.add('hidden');
     document.getElementById('btnSaveSession').textContent = '💾 Lagre økt';
+    if (ret) switchTab(ret);
   },
 
   save() {
@@ -1271,6 +1313,7 @@ const Form = {
      'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fSovn'].forEach(id => {
       document.getElementById(id).value = '';
     });
+    document.getElementById('fLopetype').value = 'utendors';
   }
 };
 
@@ -1293,6 +1336,7 @@ const Log = {
     const type = document.getElementById('fFilterType').value;
     const plan = document.getElementById('fFilterPlan').value;
     const sko = document.getElementById('fFilterSko').value;
+    const lopetype = document.getElementById('fFilterLopetype').value;
 
     let sessions = [...Store.data.sessions];
 
@@ -1301,6 +1345,7 @@ const Log = {
     if (type) sessions = sessions.filter(s => s.okttype === type);
     if (plan) sessions = sessions.filter(s => s.treningsplan === plan);
     if (sko) sessions = sessions.filter(s => s.sko === sko);
+    if (lopetype) sessions = sessions.filter(s => (s.løpetype || 'utendors') === lopetype);
 
     sessions.sort((a, b) => {
       let va = a[this.sortCol], vb = b[this.sortCol];
@@ -1332,10 +1377,13 @@ const Log = {
 
     tbody.innerHTML = sessions.map(s => {
       const badge = `<span class="badge badge-${(s.okttype||'').toLowerCase()}">${s.okttype||'–'}</span>`;
+      const venueBadge = (s.løpetype || 'utendors') === 'treadmill'
+        ? `<span class="badge badge-indoor" title="Tredemølle">⚙️</span>`
+        : `<span class="badge badge-outdoor" title="Utendørs">🏃</span>`;
       return `<tr>
         <td>${fmtDate(s.dato)}</td>
         <td style="color:var(--muted)">${s.uke||''}</td>
-        <td>${badge}</td>
+        <td>${badge}${venueBadge}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${s.oktnavn||''}</td>
         <td style="color:var(--muted);font-size:11px">${s.treningsplan||''}</td>
         <td>${fmtDist(s.distanse)}</td>
@@ -1390,6 +1438,7 @@ const DashFilter = {
   years: new Set(),   // empty = all
   type: '',
   plan: '',
+  løpetype: '',
 
   get(allSessions) {
     return allSessions.filter(s => {
@@ -1397,6 +1446,7 @@ const DashFilter = {
       if (this.years.size && !this.years.has(year)) return false;
       if (this.type && s.okttype !== this.type) return false;
       if (this.plan && s.treningsplan !== this.plan) return false;
+      if (this.løpetype && (s.løpetype || 'utendors') !== this.løpetype) return false;
       return true;
     });
   }
@@ -1551,6 +1601,8 @@ function renderHeatmap(sessions) {
   const container = document.getElementById('heatmapContainer');
   if (!container) return;
 
+  const scope = document.querySelector('input[name="heatscope"]:checked')?.value || 'all';
+  if (scope !== 'all') sessions = sessions.filter(s => (s.løpetype || 'utendors') === scope);
   const metric = document.querySelector('input[name="heatmetric"]:checked')?.value || 'distance';
   const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
   const TYPE_HUE = {
@@ -1787,7 +1839,7 @@ function renderPMCChart(allSessions) {
 
 function renderEfficiencyChart(sessions) {
   const easySessions = sessions
-    .filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.snittkmh > 0)
+    .filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.snittkmh > 0 && (s.løpetype || 'utendors') !== 'treadmill')
     .sort((a, b) => a.dato.localeCompare(b.dato));
 
   destroyChart('efficiency');
@@ -1893,6 +1945,43 @@ function renderInsights(sessions) {
   el.innerHTML = insights.slice(0,6).map(ins =>
     `<div class="insight-item"><span class="i-icon">${ins.icon}</span><div class="i-body"><div class="i-val">${ins.val}</div><div class="i-sub">${ins.sub}</div></div></div>`
   ).join('');
+}
+
+function renderVenueChart(sessions) {
+  destroyChart('venue');
+  const el = document.getElementById('chartVenue');
+  if (!el) return;
+
+  const weekKm = {};
+  sessions.forEach(s => {
+    if (!s.dato || !s.distanse) return;
+    const w = isoWeek(s.dato);
+    const venue = (s.løpetype || 'utendors') === 'treadmill' ? 'inne' : 'ute';
+    if (!weekKm[w]) weekKm[w] = { ute: 0, inne: 0 };
+    weekKm[w][venue] += s.distanse;
+  });
+
+  const weeks = Object.keys(weekKm).sort().slice(-20);
+  if (!weeks.length) return;
+
+  Charts.venue = new Chart(el, {
+    type: 'bar',
+    data: {
+      labels: weeks,
+      datasets: [
+        { label: '🏃 Utendørs', data: weeks.map(w => +(weekKm[w]?.ute || 0).toFixed(2)), backgroundColor: 'rgba(75,190,120,.75)', stack: 'venue' },
+        { label: '⚙️ Tredemølle', data: weeks.map(w => +(weekKm[w]?.inne || 0).toFixed(2)), backgroundColor: 'rgba(99,179,237,.75)', stack: 'venue' }
+      ]
+    },
+    options: {
+      plugins: { legend: { display: true, labels: { color: '#e8eaf0', boxWidth: 14, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
+        y: { stacked: true, grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'km', color: '#7880a0' } }
+      },
+      responsive: true, maintainAspectRatio: false
+    }
+  });
 }
 
 function renderDashboard() {
@@ -2124,6 +2213,9 @@ function renderDashboard() {
   }
 
   renderEfficiencyChart(sessions);
+  renderVenueChart(sessions);
+  const hasTreadmill = sessions.some(s => s.løpetype === 'treadmill');
+  document.getElementById('venueCard').style.display = hasTreadmill ? '' : 'none';
 
   // HR Zone stacked bar
   renderZoneChart(sessions);
@@ -2784,13 +2876,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Filters
-  ['fFra','fTil','fFilterType','fFilterPlan','fFilterSko'].forEach(id => {
+  ['fFra','fTil','fFilterType','fFilterPlan','fFilterLopetype','fFilterSko'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => Log.render());
   });
   document.getElementById('btnClearFilters').addEventListener('click', () => {
     ['fFra','fTil'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('fFilterType').value = '';
     document.getElementById('fFilterPlan').value = '';
+    document.getElementById('fFilterLopetype').value = '';
     document.getElementById('fFilterSko').value = '';
     Log.render();
   });
@@ -2824,10 +2917,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('dfType').addEventListener('change', e => { DashFilter.type = e.target.value; renderDashboard(); });
   document.getElementById('dfPlan').addEventListener('change', e => { DashFilter.plan = e.target.value; renderDashboard(); });
   document.getElementById('chkEvents').addEventListener('change', e => { showEventMarkers = e.target.checked; renderDashboard(); });
+  document.querySelectorAll('input[name="dfLopetype"]').forEach(r => r.addEventListener('change', e => { DashFilter.løpetype = e.target.value; renderDashboard(); }));
   document.getElementById('btnDashReset').addEventListener('click', () => {
-    DashFilter.years.clear(); DashFilter.type = ''; DashFilter.plan = '';
+    DashFilter.years.clear(); DashFilter.type = ''; DashFilter.plan = ''; DashFilter.løpetype = '';
     document.getElementById('dfType').value = '';
     document.getElementById('dfPlan').value = '';
+    document.querySelector('input[name="dfLopetype"][value=""]').checked = true;
     renderDashboard();
   });
 

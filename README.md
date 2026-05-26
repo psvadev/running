@@ -5,7 +5,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 ## Features
 
 ### Logging
-- Log runs with date, session type, training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline, shoe, and sleep
+- Log runs with date, session type, training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline, shoe, sleep, and **run type** (outdoor / treadmill)
 - Auto-calculated fields: duration (summed from zones), pace, avg km/h
 - Edit any past session by clicking it in the log
 
@@ -17,17 +17,18 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 - **Treningsstatus (PMC)** — Performance Management Chart: Fitness (CTL, 42-day), Fatigue (ATL, 7-day), and Form (TSB = CTL−ATL) over the last 365 days
 - **Ukentlig distanse** — km per week, last 20 weeks
 - **Tempo per uke** — weighted average pace per week
-- **Aerob effektivitet** — aerobic efficiency trend for Easy sessions (speed ÷ heart rate), with rolling average and personal average reference line
+- **Aerob effektivitet** — aerobic efficiency trend for Easy outdoor sessions (speed ÷ heart rate), with rolling average and personal average reference line; treadmill sessions excluded automatically
+- **Ute vs inne** — weekly stacked bar splitting km between outdoor (🏃) and treadmill (⚙️); hidden until first treadmill session is logged
 - **Pulssoner** — stacked minutes per zone per week or month (toggle)
 - **Årssammenligning** — cumulative km by week number, one line per year
 - **Sko oversikt** — total km per shoe pair + per-shoe stats: run count, avg pace, avg HR, last used date
 - **Ukentlig oversikt** — scrollable summary table (sessions, distance, time, avg pace per week)
 
-Dashboard filters: session type, training plan, year pills — all charts update live.
+Dashboard filters: session type, training plan, run type (outdoor/treadmill), year pills — all charts update live.
 
 ### Session log (Treningslogg)
 - Full sortable table — click any column header to sort
-- Filter by date range, session type, and shoe
+- Filter by date range, session type, run type (outdoor/treadmill), and shoe
 - Edit or delete any row
 
 ### Import
