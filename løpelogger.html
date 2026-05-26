@@ -164,6 +164,19 @@
   .heatmap-cell[data-level="2"] { background:rgba(108,143,255,.45); }
   .heatmap-cell[data-level="3"] { background:rgba(108,143,255,.7); }
   .heatmap-cell[data-level="4"] { background:rgba(108,143,255,1); }
+  .heatmap-cell[data-zone="1"] { background:rgba(75,190,120,.85); }
+  .heatmap-cell[data-zone="2"] { background:rgba(108,143,255,.85); }
+  .heatmap-cell[data-zone="3"] { background:rgba(240,192,80,.85); }
+  .heatmap-cell[data-zone="4"] { background:rgba(240,150,60,.85); }
+  .heatmap-cell[data-zone="5"] { background:rgba(224,85,85,.85); }
+  .heatmap-cell[data-date] { cursor:default; }
+  .heatmap-cell[data-date][data-tip] { cursor:pointer; }
+  #hmTooltip {
+    position:fixed; background:var(--surface2); border:1px solid rgba(255,255,255,.1);
+    border-radius:6px; padding:6px 10px; font-size:11px; color:var(--text);
+    pointer-events:none; z-index:1000; display:none; max-width:240px;
+    white-space:pre-line; line-height:1.5; box-shadow:0 4px 12px rgba(0,0,0,.4);
+  }
 
   /* ── Shoe retirement progress bar ── */
   .shoe-retire-bar-bg { background:var(--surface2); border-radius:4px; height:6px; overflow:hidden; flex:1; }
@@ -408,10 +421,12 @@
           <label style="cursor:pointer"><input type="radio" name="heatmetric" value="distance" checked onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Distanse</label>
           <label style="cursor:pointer"><input type="radio" name="heatmetric" value="load" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Belastning</label>
           <label style="cursor:pointer"><input type="radio" name="heatmetric" value="type" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Økttype</label>
+          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="zones" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Pulssone</label>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Mørkere = mer trening. Hover for detaljer.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Mørkere = mer trening. Hover for detaljer · klikk for å åpne økt.</div>
       <div id="heatmapContainer"></div>
+      <div id="heatmapStats" style="margin-top:10px;font-size:11px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap"></div>
     </div>
     <div class="card span2" id="yearCompCard">
       <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
@@ -1522,6 +1537,8 @@ function renderHeatmap(sessions) {
     Long: 'rgba(75,190,120,.85)', Tempo: 'rgba(240,150,60,.85)',
     Intervaller: 'rgba(224,85,85,.85)', Test: 'rgba(180,120,220,.85)'
   };
+  const ZONE_COLORS = ['rgba(75,190,120,.85)','rgba(108,143,255,.85)','rgba(240,192,80,.85)','rgba(240,150,60,.85)','rgba(224,85,85,.85)'];
+  const ZONE_LABELS = ['Z1','Z2','Z3','Z4','Z5'];
 
   // Date range
   const todayD = new Date(); todayD.setHours(12, 0, 0, 0);
@@ -1541,12 +1558,14 @@ function renderHeatmap(sessions) {
   const dailyData = {};
   sessions.forEach(s => {
     if (!s.dato) return;
-    if (!dailyData[s.dato]) dailyData[s.dato] = { distance: 0, load: 0, types: {}, names: [] };
+    if (!dailyData[s.dato]) dailyData[s.dato] = { distance: 0, load: 0, types: {}, names: [], zones: [0,0,0,0,0], ids: [] };
     dailyData[s.dato].distance += s.distanse || 0;
     const load = s.soner ? s.soner.reduce((sum, secs, i) => sum + (secs||0) * [1,2,3,4,5][i], 0) / 60 : 0;
     dailyData[s.dato].load += load;
     if (s.okttype) dailyData[s.dato].types[s.okttype] = (dailyData[s.dato].types[s.okttype] || 0) + (s.distanse || 0);
     if (s.oktnavn) dailyData[s.dato].names.push(s.oktnavn);
+    if (s.soner) s.soner.forEach((secs, i) => { dailyData[s.dato].zones[i] += secs || 0; });
+    dailyData[s.dato].ids.push(s.id);
   });
 
   // Quartile thresholds for intensity levels
@@ -1604,20 +1623,24 @@ function renderHeatmap(sessions) {
     html += `<div class="heatmap-col"><div class="heatmap-month-label">${week.monthLabel}</div>`;
     week.cells.forEach(cell => {
       if (!cell.inRange) { html += '<div class="heatmap-cell"></div>'; return; }
-      let levelAttr = '', styleAttr = '', title = cell.key;
+      let attrs = `data-date="${cell.key}"`;
       if (cell.data) {
         const d2 = cell.data;
         const typeNames = Object.keys(d2.types).join(', ');
-        title = `${cell.key}: ${d2.distance.toFixed(1)} km${typeNames ? ' · ' + typeNames : ''}${d2.names.length ? ' (' + d2.names.join(', ') + ')' : ''}`;
-        if (metric === 'type') {
+        const tipText = `${cell.key}\n${d2.distance.toFixed(1)} km${typeNames ? ' · ' + typeNames : ''}${d2.names.length ? '\n' + d2.names.join(', ') : ''}`;
+        attrs += ` data-tip="${tipText.replace(/"/g, '&quot;')}"`;
+        if (metric === 'zones') {
+          const domZone = d2.zones.reduce((best, v, i) => v > d2.zones[best] ? i : best, 0);
+          if (d2.zones[domZone] > 0) attrs += ` data-zone="${domZone + 1}"`;
+        } else if (metric === 'type') {
           const dominant = Object.entries(d2.types).sort((a, b) => b[1] - a[1])[0]?.[0];
-          if (dominant) styleAttr = ` style="background:${TYPE_HUE[dominant] || 'rgba(160,160,180,.85)'}"`;
+          if (dominant) attrs += ` style="background:${TYPE_HUE[dominant] || 'rgba(160,160,180,.85)'}"`;
         } else {
           const lv = metric === 'load' ? getLevel(d2.load, loadQ) : getLevel(d2.distance, distQ);
-          if (lv > 0) levelAttr = ` data-level="${lv}"`;
+          if (lv > 0) attrs += ` data-level="${lv}"`;
         }
       }
-      html += `<div class="heatmap-cell"${levelAttr}${styleAttr} title="${title}"></div>`;
+      html += `<div class="heatmap-cell" ${attrs}></div>`;
     });
     html += '</div>';
   });
@@ -1637,7 +1660,52 @@ function renderHeatmap(sessions) {
     }
   }
 
+  // Legend for zone mode
+  if (metric === 'zones') {
+    const zonesUsed = Object.values(dailyData).some(d => d.zones.some(v => v > 0));
+    if (zonesUsed) {
+      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--muted)">';
+      ZONE_LABELS.forEach((lbl, i) => {
+        html += `<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:${ZONE_COLORS[i]};display:inline-block"></span>${lbl}</span>`;
+      });
+      html += '</div>';
+    }
+  }
+
   container.innerHTML = html;
+
+  // Stats bar
+  const statsEl = document.getElementById('heatmapStats');
+  if (statsEl) {
+    const activeDays = Object.keys(dailyData).filter(k => {
+      const d2 = new Date(k + 'T12:00:00');
+      return d2 >= rangeStart && d2 <= rangeEnd;
+    });
+    const totalKm = activeDays.reduce((s, k) => s + dailyData[k].distance, 0);
+
+    let curStreak = 0, maxStreak = 0, run = 0, stillCurrent = true;
+    const periodEnd = rangeEnd < todayD ? rangeEnd : todayD;
+    for (let d2 = new Date(periodEnd); d2 >= rangeStart; d2.setDate(d2.getDate() - 1)) {
+      const key = d2.toISOString().slice(0, 10);
+      if (dailyData[key]) {
+        run++;
+        if (stillCurrent) curStreak = run;
+        if (run > maxStreak) maxStreak = run;
+      } else {
+        stillCurrent = false;
+        if (run > maxStreak) maxStreak = run;
+        run = 0;
+      }
+    }
+
+    const stats = [
+      `Aktive dager: ${activeDays.length}`,
+      `Totalt: ${totalKm.toFixed(1)} km`,
+      `Nåværende streak: ${curStreak} dag${curStreak !== 1 ? 'er' : ''}`,
+      `Lengste streak: ${maxStreak} dag${maxStreak !== 1 ? 'er' : ''}`
+    ];
+    statsEl.innerHTML = stats.map(s => `<span>${s}</span>`).join('');
+  }
 }
 
 function renderPMCChart(allSessions) {
@@ -2672,10 +2740,46 @@ document.addEventListener('DOMContentLoaded', () => {
   Import.init();
   Settings.init();
 
+  // Heatmap: click to open session
+  document.getElementById('heatmapContainer').addEventListener('click', e => {
+    const cell = e.target.closest('[data-date]');
+    if (!cell || !cell.dataset.tip) return;
+    const date = cell.dataset.date;
+    const daySessions = Store.data.sessions.filter(s => s.dato === date);
+    if (!daySessions.length) return;
+    if (daySessions.length === 1) {
+      Form.editSession(daySessions[0].id);
+      switchTab('add');
+    } else {
+      document.getElementById('fFilterFra').value = date;
+      document.getElementById('fFilterTil').value = date;
+      switchTab('log');
+      Log.render();
+    }
+  });
+
+  // Heatmap: custom tooltip
+  const hmTip = document.getElementById('hmTooltip');
+  document.getElementById('heatmapContainer').addEventListener('mouseover', e => {
+    const cell = e.target.closest('[data-tip]');
+    if (!cell) { hmTip.style.display = 'none'; return; }
+    hmTip.textContent = cell.dataset.tip;
+    hmTip.style.display = 'block';
+  });
+  document.getElementById('heatmapContainer').addEventListener('mouseleave', () => {
+    hmTip.style.display = 'none';
+  });
+  document.getElementById('heatmapContainer').addEventListener('mousemove', e => {
+    if (hmTip.style.display === 'none') return;
+    hmTip.style.left = Math.min(e.clientX + 12, window.innerWidth - 250) + 'px';
+    hmTip.style.top = (e.clientY + 12) + 'px';
+  });
+
   // Load from cache immediately, then try to silently reattach the file handle
   if (FileIO.loadCache()) refreshAll();
   FileIO.restoreHandle();
 });
 </script>
+<div id="hmTooltip"></div>
 </body>
 </html>
