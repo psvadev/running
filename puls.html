@@ -504,8 +504,15 @@
       <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
     </div>
     <div class="card span2">
-      <div class="card-title">Aerob effektivitet (Easy-økter)</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Høyere = mer fart per hjerteslag. Stigende trend betyr bedre kondisjon.</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+        <div class="card-title" style="margin-bottom:0">Aerob effektivitet (Easy-økter)</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="aeToggleAlle">Alle</span>
+          <span class="year-pill" id="aeToggleUte">Utendørs</span>
+          <span class="year-pill" id="aeToggleInn">Tredemølle</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Høyere = mer fart per hjerteslag. Stigende trend betyr bedre kondisjon.</div>
       <div class="chart-wrap"><canvas id="chartEfficiency"></canvas></div>
     </div>
     <div class="card span2">
@@ -1532,6 +1539,7 @@ function buildYearPills(allSessions) {
 }
 
 let zoneGroupBy = 'week';
+let aeVenueFilter = 'all';
 
 function renderZoneChart(sessions) {
   const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
@@ -1895,9 +1903,16 @@ function renderPMCChart(allSessions) {
   });
 }
 
-function renderEfficiencyChart(sessions) {
+function renderEfficiencyChart(sessions, venueFilter) {
+  const vf = venueFilter || aeVenueFilter || 'all';
   const easySessions = sessions
-    .filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && (s.løpetype || 'utendors') !== 'treadmill')
+    .filter(s => {
+      if (s.okttype !== 'Easy' || s.gjsnittspuls <= 0) return false;
+      const isIndoor = (s.løpetype || 'utendors') === 'treadmill';
+      if (vf === 'outdoor' && isIndoor) return false;
+      if (vf === 'indoor' && !isIndoor) return false;
+      return true;
+    })
     .map(s => ({ ...s, snittkmh: s.snittkmh || (s.distanse && s.varighet > 0 ? +(s.distanse / (s.varighet / 3600)).toFixed(2) : null) }))
     .filter(s => s.snittkmh > 0)
     .sort((a, b) => a.dato.localeCompare(b.dato));
@@ -3663,6 +3678,16 @@ document.addEventListener('DOMContentLoaded', () => {
     FileIO.updateStatus(file.name + ' (Firefox-modus – bruk Last ned for å lagre)');
     refreshAll();
     Settings.render();
+  });
+
+  // Aerobic efficiency venue toggle
+  [['aeToggleAlle','all'],['aeToggleUte','outdoor'],['aeToggleInn','indoor']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      aeVenueFilter = val;
+      document.querySelectorAll('#aeToggleAlle,#aeToggleUte,#aeToggleInn').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderEfficiencyChart(DashFilter.get(Store.data.sessions));
+    });
   });
 
   // Zone chart week/month toggle
