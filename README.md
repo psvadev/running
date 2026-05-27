@@ -1,4 +1,4 @@
-# Løpelogger
+# Puls
 
 A self-contained single-file running tracker that replaces a multi-tab Excel workbook. Norwegian UI throughout.
 
@@ -50,19 +50,19 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), ye
 
 ## Getting started
 
-Open `løpelogger.html` in your browser — no install needed.
+Open `puls.html` in your browser — no install needed.
 
 ### First time (no existing data)
 
 1. Go to **⚙️ Innstillinger** → click **✨ Ny fil**
 2. Add a session in **➕ Legg til økt**, then click **💾 Lagre** in the header
-3. A save dialog appears — pick a folder and name (default: `løpelogger.json`)
+3. A save dialog appears — pick a folder and name (default: `puls.json`)
 4. All future saves happen automatically in the background
 
 ### Loading an existing JSON file
 
 1. Go to **⚙️ Innstillinger** → click **📂 Åpne fil**
-2. Select your `løpelogger.json` — data loads immediately across all tabs
+2. Select your `puls.json` — data loads immediately across all tabs
 3. The app remembers the file; next time you open it a one-click prompt restores access without re-picking
 
 ### Importing from Excel or CSV

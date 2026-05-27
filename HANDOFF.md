@@ -1,12 +1,12 @@
-# Løpelogger — Project Handoff
+# Puls — Project Handoff
 
 ## What this is
-A self-contained single-file running tracker web app (`løpelogger.html`) that replaces the user's multi-tab Excel workbook. Norwegian UI throughout.
+A self-contained single-file running tracker web app (`puls.html`) that replaces the user's multi-tab Excel workbook. Norwegian UI throughout.
 
 ## File locations
-- **App:** `c:\temp\GitHub\running\løpelogger.html`
+- **App:** `c:\temp\GitHub\running\puls.html`
 - **Repo:** `https://github.com/psvadev/running` (private)
-- **Data:** wherever the user saves their `løpelogger.json` (opened via File System Access API in Edge/Chrome)
+- **Data:** wherever the user saves their `puls.json` (opened via File System Access API in Edge/Chrome)
 
 ---
 
@@ -22,7 +22,7 @@ A self-contained single-file running tracker web app (`løpelogger.html`) that r
 
 ---
 
-## Data model (`løpelogger.json`)
+## Data model (`puls.json`)
 
 > **Note on shoes:** Stored as objects (`{ name, retirementKm?, retired?, startDate? }`). `retired: true` hides the shoe from the session form dropdown but keeps it visible in the log filter and shoe overview. Old files with string arrays are migrated automatically by `Store._migrate()`.
 
@@ -261,7 +261,7 @@ Global state:
 ## Roadmap / future plans
 
 ### Phase 2 — Google Drive sync
-- Replace local JSON with a single `løpelogger.json` in Google Drive
+- Replace local JSON with a single `puls.json` in Google Drive
 - OAuth 2.0 PKCE flow (no backend needed), `drive.file` scope
 - Needs a **new** Google Cloud project (not shared with other apps)
 - `FileIO` is designed as a thin wrapper — swap `open()`/`save()` implementations only
@@ -280,15 +280,15 @@ Global state:
 ---
 
 ## How to open and test
-1. Open `løpelogger.html` in **Edge** or **Chrome**
-2. Go to **⚙️ Innstillinger** → click **📂 Åpne fil** → select your `løpelogger.json`
+1. Open `puls.html` in **Edge** or **Chrome**
+2. Go to **⚙️ Innstillinger** → click **📂 Åpne fil** → select your `puls.json`
 3. Data loads; all tabs refresh automatically
 4. On subsequent loads the app will attempt to reattach the file handle automatically
 5. In **Firefox**: same, but use "⬇️ Last ned" to save changes (no auto-save)
 
 ## Saving a new file (Edge/Chrome)
 - Click **✨ Ny fil** → enter some data → click **💾 Lagre** in the header (or save a session)
-- Browser shows a "Save As" dialog on the first save; pick folder and filename (default: `løpelogger.json`)
+- Browser shows a "Save As" dialog on the first save; pick folder and filename (default: `puls.json`)
 - All future saves are automatic; handle persists across page reloads via IndexedDB
 
 ## Re-importing Excel data

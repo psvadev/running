@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Løpelogger</title>
+<title>Puls</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
@@ -222,7 +222,7 @@
 <body>
 
 <header>
-  <h1>🏃 Løpelogger</h1>
+  <h1>🏃 Puls</h1>
   <div class="spacer"></div>
   <div class="file-status" id="fileStatus">Ingen fil åpen</div>
   <button class="btn-secondary btn-sm" id="btnHeaderSave" style="margin-left:12px">💾 Lagre</button>
@@ -871,7 +871,7 @@ const Store = {
       if (!this.data.shoes) this.data.shoes = [];
       this._migrate();
     } catch(e) {
-      alert('Kunne ikke lese filen. Sjekk at det er en gyldig løpelogger JSON-fil.');
+      alert('Kunne ikke lese filen. Sjekk at det er en gyldig puls JSON-fil.');
     }
   },
 
@@ -1069,7 +1069,7 @@ const FileIO = {
       if (!this.handle) {
         try {
           this.handle = await window.showSaveFilePicker({
-            suggestedName: 'løpelogger.json',
+            suggestedName: 'puls.json',
             types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
           });
           await HandleDB.set(this.handle);
@@ -1099,7 +1099,7 @@ const FileIO = {
   download() {
     const blob = new Blob([Store.toJSON()], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'løpelogger.json'; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = 'puls.json'; a.click();
     URL.revokeObjectURL(url);
   },
 
@@ -1154,7 +1154,7 @@ const FileIO = {
         this.updateStatus(file.name);
         refreshAll();
       } else if (perm === 'prompt') {
-        const name = localStorage.getItem('lpl_handle_name') || 'løpelogger.json';
+        const name = localStorage.getItem('lpl_handle_name') || 'puls.json';
         const el = document.getElementById('fileStatus');
         el.textContent = `📂 Klikk for å gjenåpne ${name}`;
         el.className = 'file-status';
