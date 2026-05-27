@@ -2481,21 +2481,22 @@ const DetailPanel = {
       const pct  = Math.round((d.km / maxWkKm) * 100);
       const best = d.km >= maxWkKm - 0.01;
       const pace = d.paceCount ? ` · ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km` : '';
-      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">
+      return `<div class="dp-session-row" onclick="DetailPanel.openWeek('${wk}', Store.data.sessions)" style="gap:8px;padding:5px 4px">
         <span style="min-width:56px;color:var(--muted);font-size:11px">${fmtWeekLabel(wk)}</span>
         <div style="flex:1;background:var(--border);border-radius:3px;height:6px;overflow:hidden">
           <div style="width:${pct}%;height:100%;background:${best?'var(--accent)':'color-mix(in srgb,var(--accent) 55%,transparent)'};border-radius:3px"></div>
         </div>
         <span style="min-width:38px;text-align:right;font-weight:${best?'600':'400'};color:${best?'var(--text)':'var(--muted)'}">${d.km.toFixed(1)}</span>
         <span style="min-width:80px;color:var(--muted);font-size:11px">${d.runs} løp${pace}</span>
+        <span style="color:var(--muted);font-size:11px">›</span>
       </div>`;
     }).join('');
 
     const hl = [];
     const bestWkKey = weekKeys.find(w => weekMap[w].km >= maxWkKm - 0.01);
-    if (bestWkKey) hl.push(`Beste uke: ${maxWkKm.toFixed(1)} km (${fmtWeekLabel(bestWkKey)})`);
+    if (bestWkKey) hl.push(`Beste uke: ${maxWkKm.toFixed(1)} km (<span onclick="DetailPanel.openWeek('${bestWkKey}', Store.data.sessions)" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px">${fmtWeekLabel(bestWkKey)} ›</span>)`);
     const longestSession = blockSessions.reduce((a,s)=>(!a||s.distanse>a.distanse)?s:a, null);
-    if (longestSession?.distanse) hl.push(`Lengste løp: ${longestSession.distanse.toFixed(1)} km — ${fmtDate(longestSession.dato)}`);
+    if (longestSession?.distanse) hl.push(`Lengste løp: <span onclick="DetailPanel.openSession('${longestSession.id}')" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px">${longestSession.distanse.toFixed(1)} km — ${fmtDate(longestSession.dato)} ›</span>`);
     if (maxStreak >= 3) hl.push(`${maxStreak} uker på rad med løping`);
     const paceWeeks = weekKeys.filter(w => weekMap[w].paceCount > 0);
     if (paceWeeks.length >= 4) {
