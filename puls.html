@@ -32,6 +32,8 @@
 
   /* ── Header ── */
   header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; display: flex; align-items: center; gap: 16px; height: 56px; }
+  body:not(.is-dash) header { position: sticky; top: 0; z-index: 102; }
+  body:not(.is-dash) .tabs { position: sticky; top: 56px; z-index: 101; }
   header h1 { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: -0.3px; }
   .file-controls { display: flex; gap: 8px; align-items: center; }
   .file-status { font-size: 12px; color: var(--muted); }
@@ -83,7 +85,7 @@
   .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin-bottom: 14px; }
 
   /* ── Dashboard filter bar ── */
-  .dash-filter-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; }
+  .dash-filter-bar { position: sticky; top: 0; z-index: 99; display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; }
   .year-pill { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface2); color: var(--muted); transition: all .15s; user-select: none; }
   .year-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
@@ -404,6 +406,13 @@
         <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="" checked> Alle</label>
         <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="utendors"> 🏃 Ute</label>
         <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="treadmill"> ⚙️ Inne</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Tempo-enhet</label>
+      <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted);padding-top:6px">
+        <label style="cursor:pointer"><input type="radio" name="dfPaceUnit" value="pace" checked> min/km</label>
+        <label style="cursor:pointer"><input type="radio" name="dfPaceUnit" value="kmh"> km/t</label>
       </div>
     </div>
     <div class="form-group" style="flex:1;min-width:180px">
@@ -1681,6 +1690,7 @@ let aeVenueFilter = 'all';
 let sleepHrTypeFilter = 'Easy';
 let paceHrTypeFilter = 'Easy';
 let z2PaceTypeFilter = 'alle';
+let paceUnit = 'pace';     // 'pace' | 'kmh' — global unit for all pace charts
 let cachedBlocks = [];
 
 function renderZoneChart(sessions) {
@@ -2151,10 +2161,12 @@ function renderZ2PaceChart(sessions) {
     return;
   }
 
-  const paces = filtered.map(s => s.tempo);
-  const rollingAvg = paces.map((_, i) => {
-    const slice = paces.slice(Math.max(0, i - 3), i + 1);
-    return Math.round(slice.reduce((sum, v) => sum + v, 0) / slice.length);
+  const useKmh = paceUnit === 'kmh';
+  const values = filtered.map(s => useKmh ? parseFloat((3600 / s.tempo).toFixed(2)) : s.tempo);
+  const rollingAvg = values.map((_, i) => {
+    const slice = values.slice(Math.max(0, i - 3), i + 1);
+    const avg = slice.reduce((sum, v) => sum + v, 0) / slice.length;
+    return useKmh ? parseFloat(avg.toFixed(2)) : Math.round(avg);
   });
 
   Charts.z2Pace = new Chart(el, {
@@ -2163,8 +2175,8 @@ function renderZ2PaceChart(sessions) {
       labels: filtered.map(s => s.dato),
       datasets: [
         {
-          label: 'Tempo',
-          data: paces,
+          label: useKmh ? 'Fart' : 'Tempo',
+          data: values,
           borderColor: 'rgba(108,143,255,.5)',
           backgroundColor: 'rgba(108,143,255,.1)',
           pointRadius: 3,
@@ -2197,7 +2209,9 @@ function renderZ2PaceChart(sessions) {
             label: ctx => {
               if (ctx.datasetIndex !== 0) return null;
               const s = filtered[ctx.dataIndex];
-              const lines = [`Tempo: ${secsToMmSs(s.tempo)}/km`];
+              const lines = useKmh
+                ? [`Fart: ${(3600 / s.tempo).toFixed(1)} km/t`]
+                : [`Tempo: ${secsToMmSs(s.tempo)}/km`];
               if (s.gjsnittspuls) lines.push(`Puls: ${s.gjsnittspuls} bpm`);
               if (s.snittkmh != null) lines.push(`Snitt km/t: ${s.snittkmh.toFixed(1)}`);
               return lines;
@@ -2207,10 +2221,10 @@ function renderZ2PaceChart(sessions) {
       },
       scales: {
         y: {
-          reverse: true,
+          reverse: !useKmh,
           grid: { color: '#2e3248' },
-          ticks: { color: '#7880a0', callback: v => secsToMmSs(v) },
-          title: { display: true, text: 'Tempo (min/km)', color: '#7880a0' },
+          ticks: { color: '#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(v) },
+          title: { display: true, text: useKmh ? 'Fart (km/t)' : 'Tempo (min/km)', color: '#7880a0' },
         },
         x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45, maxTicksLimit: 12 } },
       },
@@ -2388,7 +2402,8 @@ function renderPaceHrChart(sessions) {
     return;
   }
 
-  const pts = filtered.map(s => ({ x: s.gjsnittspuls, y: s.tempo, s }));
+  const useKmh = paceUnit === 'kmh';
+  const pts = filtered.map(s => ({ x: s.gjsnittspuls, y: useKmh ? parseFloat((3600 / s.tempo).toFixed(2)) : s.tempo, s }));
 
   const n = pts.length;
   const sumX = pts.reduce((a, p) => a + p.x, 0);
@@ -2471,7 +2486,11 @@ function renderPaceHrChart(sessions) {
               const s = p.s;
               const lines = [];
               if (s.okttype) lines.push(`Type: ${s.okttype}`);
-              lines.push(`Tempo: ${secsToMmSs(s.tempo)}/km`);
+              if (useKmh) {
+                lines.push(`Fart: ${(3600 / s.tempo).toFixed(1)} km/t`);
+              } else {
+                lines.push(`Tempo: ${secsToMmSs(s.tempo)}/km`);
+              }
               lines.push(`Puls: ${s.gjsnittspuls} bpm`);
               if (s.snittkmh != null) lines.push(`Snitt km/t: ${s.snittkmh.toFixed(1)}`);
               return lines;
@@ -2486,10 +2505,10 @@ function renderPaceHrChart(sessions) {
           title: { display: true, text: 'Gj.snittspuls (bpm)', color: '#7880a0' },
         },
         y: {
-          reverse: true,
+          reverse: !useKmh,
           grid: { color: '#2e3248' },
-          ticks: { color: '#7880a0', callback: v => secsToMmSs(v) },
-          title: { display: true, text: 'Tempo (min/km)', color: '#7880a0' },
+          ticks: { color: '#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(v) },
+          title: { display: true, text: useKmh ? 'Fart (km/t)' : 'Tempo (min/km)', color: '#7880a0' },
         },
       },
       responsive: true,
@@ -4124,6 +4143,7 @@ const Settings = {
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-'+name));
+  document.body.classList.toggle('is-dash', name === 'dash');
   if (name === 'dash') renderDashboard();
   if (name === 'log') Log.render();
   if (name === 'plan') Settings.render();
@@ -4261,6 +4281,16 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('#phrToggleAlle,#phrToggleEasy,#phrToggleLang').forEach(el => el.classList.remove('active'));
       document.getElementById(id).classList.add('active');
       renderPaceHrChart(DashFilter.get(Store.data.sessions));
+    });
+  });
+
+  // Global pace unit toggle — affects all pace charts
+  document.querySelectorAll('input[name="dfPaceUnit"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      paceUnit = radio.value;
+      const s = DashFilter.get(Store.data.sessions);
+      renderZ2PaceChart(s);
+      renderPaceHrChart(s);
     });
   });
 
