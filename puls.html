@@ -1897,11 +1897,28 @@ function renderPMCChart(allSessions) {
 
 function renderEfficiencyChart(sessions) {
   const easySessions = sessions
-    .filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.snittkmh > 0 && (s.løpetype || 'utendors') !== 'treadmill')
+    .filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && (s.løpetype || 'utendors') !== 'treadmill')
+    .map(s => ({ ...s, snittkmh: s.snittkmh || (s.distanse && s.varighet > 0 ? +(s.distanse / (s.varighet / 3600)).toFixed(2) : null) }))
+    .filter(s => s.snittkmh > 0)
     .sort((a, b) => a.dato.localeCompare(b.dato));
 
   destroyChart('efficiency');
-  if (easySessions.length < 2) return;
+  const el = document.getElementById('chartEfficiency');
+  if (easySessions.length < 2) {
+    if (el) el.style.display = 'none';
+    const wrap = el?.closest('.chart-wrap');
+    if (wrap && !wrap.querySelector('.ae-empty')) {
+      const msg = document.createElement('div');
+      msg.className = 'ae-empty';
+      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
+      msg.textContent = 'Trenger minst 2 Easy-økter utendørs med pulsmåling.';
+      wrap.appendChild(msg);
+    }
+    return;
+  }
+  if (el) el.style.display = '';
+  const existing = el?.closest('.chart-wrap')?.querySelector('.ae-empty');
+  if (existing) existing.remove();
 
   const scores = easySessions.map(s => +(s.snittkmh / s.gjsnittspuls * 100).toFixed(2));
   const avg = +(scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(2);
