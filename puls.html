@@ -789,6 +789,15 @@ function isoWeek(dateStr) {
   const week = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
   return `${d.getFullYear()}-${String(week).padStart(2, '0')}`;
 }
+function absWeekNum(d) { return Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000)); }
+function avgPaceHR(sessions) {
+  const pa = sessions.filter(s=>s.tempo), ha = sessions.filter(s=>s.gjsnittspuls);
+  return {
+    avgPace: pa.length ? Math.round(pa.reduce((s,x)=>s+x.tempo,0)/pa.length) : null,
+    avgHR:   ha.length ? Math.round(ha.reduce((s,x)=>s+x.gjsnittspuls,0)/ha.length) : null,
+  };
+}
+function toSafeAttr(obj) { return JSON.stringify(obj).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 
 function fmtWeekLabel(wk) {
   const [yr, wn] = wk.split('-');
@@ -1540,6 +1549,7 @@ function buildYearPills(allSessions) {
 
 let zoneGroupBy = 'week';
 let aeVenueFilter = 'all';
+let cachedBlocks = [];
 
 function renderZoneChart(sessions) {
   const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
@@ -1903,8 +1913,8 @@ function renderPMCChart(allSessions) {
   });
 }
 
-function renderEfficiencyChart(sessions, venueFilter) {
-  const vf = venueFilter || aeVenueFilter || 'all';
+function renderEfficiencyChart(sessions) {
+  const vf = aeVenueFilter;
   const easySessions = sessions
     .filter(s => {
       if (s.okttype !== 'Easy' || s.gjsnittspuls <= 0) return false;
@@ -1919,21 +1929,23 @@ function renderEfficiencyChart(sessions, venueFilter) {
 
   destroyChart('efficiency');
   const el = document.getElementById('chartEfficiency');
+  const wrap = el?.closest('.chart-wrap');
+  const existing = wrap?.querySelector('.ae-empty');
+  if (existing) existing.remove();
+  if (el) el.style.display = '';
+
   if (easySessions.length < 2) {
     if (el) el.style.display = 'none';
-    const wrap = el?.closest('.chart-wrap');
-    if (wrap && !wrap.querySelector('.ae-empty')) {
+    if (wrap) {
       const msg = document.createElement('div');
       msg.className = 'ae-empty';
       msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
-      msg.textContent = 'Trenger minst 2 Easy-økter utendørs med pulsmåling.';
+      const venueLabel = vf === 'outdoor' ? ' utendørs' : vf === 'indoor' ? ' på tredemølle' : '';
+      msg.textContent = `Trenger minst 2 Easy-økter${venueLabel} med pulsmåling.`;
       wrap.appendChild(msg);
     }
     return;
   }
-  if (el) el.style.display = '';
-  const existing = el?.closest('.chart-wrap')?.querySelector('.ae-empty');
-  if (existing) existing.remove();
 
   const scores = easySessions.map(s => +(s.snittkmh / s.gjsnittspuls * 100).toFixed(2));
   const avg = +(scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(2);
@@ -1986,20 +1998,15 @@ function renderInsights(sessions) {
 
   const insights = [];
 
-
-
-  // Total distance milestone
   const totalKm = sessions.reduce((s,x)=>s+(x.distanse||0),0);
   const passed = [100,250,500,750,1000,1500,2000,3000,5000].filter(m=>totalKm>=m);
   if (passed.length) insights.push({ icon:'🎯', val:`${passed[passed.length-1]} km`, sub:`totalt passert (${totalKm.toFixed(0)} km totalt)` });
 
-  // Most used shoe by km
   const shoeKm = {};
   sessions.forEach(s=>{ if(s.sko) shoeKm[s.sko]=(shoeKm[s.sko]||0)+(s.distanse||0); });
   const topShoe = Object.entries(shoeKm).sort((a,b)=>b[1]-a[1])[0];
   if (topShoe) insights.push({ icon:'👟', val:topShoe[0], sub:`${(+topShoe[1]).toFixed(0)} km – mest brukte` });
 
-  // Highest 4-week rolling training load
   const loadByWeek = {};
   sessions.forEach(s=>{
     if (!s.soner) return;
@@ -2015,14 +2022,12 @@ function renderInsights(sessions) {
   }
   if (maxBlock>0) insights.push({ icon:'⚡', val:`${Math.round(maxBlock)} pkt`, sub:'tyngste 4-ukers blokk · S1=1 → S5=5 pkt/min' });
 
-  // Fastest Easy run
   const easyWithPace = sessions.filter(s=>s.okttype==='Easy'&&s.tempo>0);
   if (easyWithPace.length) {
     const fastest = easyWithPace.reduce((a,s)=>s.tempo<a.tempo?s:a);
     insights.push({ icon:'💨', val:secsToMmSs(fastest.tempo)+' /km', sub:`raskeste Easy (${fmtDate(fastest.dato)})` });
   }
 
-  // Most active month (session count)
   const monthCount = {};
   sessions.forEach(s=>{ if(s.dato){ const m=s.dato.slice(0,7); monthCount[m]=(monthCount[m]||0)+1; } });
   const topMonth = Object.entries(monthCount).sort((a,b)=>b[1]-a[1])[0];
@@ -2051,15 +2056,14 @@ function renderConsistency(sessions) {
     return;
   }
 
-  const absWeek = d => Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000));
-  const nowAbs  = absWeek(new Date().toISOString().slice(0,10));
+  const nowAbs  = absWeekNum(new Date().toISOString().slice(0,10));
   const PERIOD  = 12;
   const minAbs  = nowAbs - PERIOD + 1;
 
   const weekMap = {};
   sessions.forEach(s => {
     if (!s.dato) return;
-    const w = absWeek(s.dato);
+    const w = absWeekNum(s.dato);
     if (w < minAbs || w > nowAbs) return;
     if (!weekMap[w]) weekMap[w] = { km: 0, runs: 0 };
     weekMap[w].km   += s.distanse || 0;
@@ -2159,8 +2163,7 @@ function computeBlocks(allSessions) {
     .sort((a,b) => a.date.localeCompare(b.date));
   if (!planEvents.length) return [];
 
-  const today   = new Date().toISOString().slice(0,10);
-  const absWeekFn = d => Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000));
+  const today = new Date().toISOString().slice(0,10);
 
   return planEvents.map((evt, i) => {
     const startDate     = evt.date;
@@ -2171,10 +2174,7 @@ function computeBlocks(allSessions) {
     const totalKm   = blockSessions.reduce((s,x) => s+(x.distanse||0), 0);
     const totalSecs = blockSessions.reduce((s,x) => s+(x.varighet||0), 0);
     const runs      = blockSessions.length;
-    const paceArr   = blockSessions.filter(s=>s.tempo);
-    const hrArr     = blockSessions.filter(s=>s.gjsnittspuls);
-    const avgPace   = paceArr.length ? Math.round(paceArr.reduce((s,x)=>s+x.tempo,0)/paceArr.length) : null;
-    const avgHR     = hrArr.length   ? Math.round(hrArr.reduce((s,x)=>s+x.gjsnittspuls,0)/hrArr.length) : null;
+    const { avgPace, avgHR } = avgPaceHR(blockSessions);
 
     const weekKm  = {}, weekRuns = {};
     blockSessions.forEach(s => {
@@ -2185,9 +2185,9 @@ function computeBlocks(allSessions) {
     const bestWeekKm = Object.values(weekKm).reduce((m,v)=>v>m?v:m, 0) || null;
     const longestRun = blockSessions.reduce((m,s)=>s.distanse>m?s.distanse:m, 0) || null;
 
-    const startAbs        = absWeekFn(startDate);
-    const endAbs          = absWeekFn(endDate);
-    const activeAbsWeeks  = new Set(blockSessions.filter(s=>s.dato).map(s=>absWeekFn(s.dato)));
+    const startAbs        = absWeekNum(startDate);
+    const endAbs          = absWeekNum(endDate);
+    const activeAbsWeeks  = new Set(blockSessions.filter(s=>s.dato).map(s=>absWeekNum(s.dato)));
     const blockSpanWeeks  = Math.max(endAbs - startAbs + 1, 1);
     const consistencyScore = Math.round((activeAbsWeeks.size / blockSpanWeeks) * 100);
 
@@ -2235,7 +2235,7 @@ function consistencyMeta(score) {
 function renderBlocks() {
   const el = document.getElementById('blocksCard');
   if (!el) return;
-  const blocks = computeBlocks(Store.data.sessions);
+  const blocks = cachedBlocks;
   if (!blocks.length) { el.style.display = 'none'; return; }
   el.style.display = '';
 
@@ -2248,7 +2248,7 @@ function renderBlocks() {
   if (current) {
     const cm = consistencyMeta(current.consistencyScore);
     const consPct = Math.min(100, current.consistencyScore);
-    const safeBlock = JSON.stringify(current).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    const safeBlock = toSafeAttr(current);
     const statsRow = [
       { v: current.totalKm.toFixed(1)+' km', l: 'totalt' },
       { v: current.runs,                      l: 'løp' },
@@ -2286,7 +2286,7 @@ function renderBlocks() {
     const pastCards = past.map(b => {
       const cm = consistencyMeta(b.consistencyScore);
       const consPct = Math.min(100, b.consistencyScore);
-      const safeBlock = JSON.stringify(b).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+      const safeBlock = toSafeAttr(b);
       return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;flex:1;min-width:180px;max-width:300px"
               onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))" data-block="${safeBlock}">
         <div style="font-size:13px;font-weight:600;margin-bottom:4px">${b.title}</div>
@@ -2367,10 +2367,7 @@ const DetailPanel = {
     const [yr, wn] = isoWk.split('-');
     const totalKm   = weekSessions.reduce((s,x) => s+(x.distanse||0), 0);
     const totalSecs = weekSessions.reduce((s,x) => s+(x.varighet||0), 0);
-    const paceArr   = weekSessions.filter(s=>s.tempo);
-    const hrArr     = weekSessions.filter(s=>s.gjsnittspuls);
-    const avgPace   = paceArr.length ? Math.round(paceArr.reduce((s,x)=>s+x.tempo,0)/paceArr.length) : null;
-    const avgHR     = hrArr.length   ? Math.round(hrArr.reduce((s,x)=>s+x.gjsnittspuls,0)/hrArr.length) : null;
+    const { avgPace, avgHR } = avgPaceHR(weekSessions);
     const shoes     = [...new Set(weekSessions.map(s=>s.sko).filter(Boolean))];
     const stats = [
       { v: totalKm.toFixed(1)+' km', l: 'distanse' },
@@ -2422,10 +2419,7 @@ const DetailPanel = {
     const sessions = Store.data.sessions.filter(s=>s.sko===name);
     const shoe     = Store.data.shoes.find(s=>s.name===name);
     const totalKm  = sessions.reduce((s,x)=>s+(x.distanse||0),0);
-    const paceArr  = sessions.filter(s=>s.tempo);
-    const hrArr    = sessions.filter(s=>s.gjsnittspuls);
-    const avgPace  = paceArr.length ? Math.round(paceArr.reduce((s,x)=>s+x.tempo,0)/paceArr.length) : null;
-    const avgHR    = hrArr.length   ? Math.round(hrArr.reduce((s,x)=>s+x.gjsnittspuls,0)/hrArr.length) : null;
+    const { avgPace, avgHR } = avgPaceHR(sessions);
     const longest  = sessions.reduce((a,s)=>(!a||s.distanse>a.distanse)?s:a, null);
     const sorted   = sessions.slice().sort((a,b)=>a.dato.localeCompare(b.dato));
     const firstUsed = sorted[0]?.dato;
@@ -2486,8 +2480,7 @@ const DetailPanel = {
     const weekKeys = Object.keys(weekMap).sort();
     const maxWkKm  = Math.max(...weekKeys.map(w => weekMap[w].km), 1);
 
-    const absWeekFn    = d => Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000));
-    const activeAbsArr = [...new Set(blockSessions.map(s => absWeekFn(s.dato)))].sort((a,b)=>a-b);
+    const activeAbsArr = [...new Set(blockSessions.map(s => absWeekNum(s.dato)))].sort((a,b)=>a-b);
     let maxStreak = 0, curStreak = 0, prevW = null;
     activeAbsArr.forEach(w => {
       curStreak = (prevW !== null && w === prevW + 1) ? curStreak + 1 : 1;
@@ -2495,9 +2488,8 @@ const DetailPanel = {
       prevW = w;
     });
 
-    const allBlocks = computeBlocks(Store.data.sessions);
-    const blockIdx  = allBlocks.findIndex(b => b.id === id);
-    const prevBlock = blockIdx > 0 ? allBlocks[blockIdx - 1] : null;
+    const blockIdx  = cachedBlocks.findIndex(b => b.id === id);
+    const prevBlock = blockIdx > 0 ? cachedBlocks[blockIdx - 1] : null;
 
     const overviewStats = [
       { v: totalKm.toFixed(1)+' km',      l: 'total distanse' },
@@ -2985,6 +2977,7 @@ function renderDashboard() {
   renderHeatmap(sessions);
   renderInsights(sessions);
   renderConsistency(sessions);
+  cachedBlocks = computeBlocks(Store.data.sessions);
   renderBlocks();
 
   // Shoe bar chart
@@ -3070,7 +3063,7 @@ function computeRecords(sessions) {
     if (s.snittkmh && (!bestKmh || s.snittkmh > bestKmh.snittkmh)) bestKmh=s;
     const wk = s.uke || isoWeek(s.dato);
     weekKm[wk] = (weekKm[wk]||0) + (s.distanse||0);
-    if (s.dato) absWeekSet.add(Math.floor((new Date(s.dato).getTime() + 3*86400000) / (7*86400000)));
+    if (s.dato) absWeekSet.add(absWeekNum(s.dato));
   });
   // Best week by km
   let besteUke=null, besteUkeKm=0;
@@ -3690,18 +3683,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Zone chart week/month toggle
-  document.getElementById('zoneToggleWeek').addEventListener('click', () => {
-    zoneGroupBy = 'week';
-    document.getElementById('zoneToggleWeek').classList.add('active');
-    document.getElementById('zoneToggleMaaned').classList.remove('active');
-    renderZoneChart(DashFilter.get(Store.data.sessions));
-  });
-  document.getElementById('zoneToggleMaaned').addEventListener('click', () => {
-    zoneGroupBy = 'month';
-    document.getElementById('zoneToggleMaaned').classList.add('active');
-    document.getElementById('zoneToggleWeek').classList.remove('active');
-    renderZoneChart(DashFilter.get(Store.data.sessions));
+  [['zoneToggleWeek','week'],['zoneToggleMaaned','month']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      zoneGroupBy = val;
+      document.querySelectorAll('#zoneToggleWeek,#zoneToggleMaaned').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderZoneChart(DashFilter.get(Store.data.sessions));
+    });
   });
 
   // Dashboard filters
