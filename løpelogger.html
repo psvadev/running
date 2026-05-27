@@ -148,7 +148,11 @@
   .modal-backdrop.open { display: flex; }
   .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; max-width: 900px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; gap: 16px; box-shadow: var(--shadow); }
   .modal h2 { font-size: 16px; }
-  .modal-body { overflow-y: auto; flex: 1; }
+  .modal-body { overflow-y: auto; flex: 1; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .modal-body::-webkit-scrollbar { width: 4px; }
+  .modal-body::-webkit-scrollbar-track { background: transparent; }
+  .modal-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .modal-body::-webkit-scrollbar-thumb:hover { background: var(--muted); }
   .modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding-top: 12px; border-top: 1px solid var(--border); }
   .dp-stat-row { display:flex; gap:20px; flex-wrap:wrap; margin-bottom:14px; }
   .dp-stat { display:flex; flex-direction:column; min-width:80px; }
@@ -752,7 +756,7 @@
 
 <!-- ══════════════ DETAIL PANEL ══════════════ -->
 <div class="modal-backdrop" id="detailModal">
-  <div class="modal" style="max-width:640px">
+  <div class="modal" style="max-width:800px">
     <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--border)">
       <h2 id="detailTitle" style="font-size:15px;font-weight:600"></h2>
       <button class="btn-secondary btn-sm" id="btnDetailClose">✕</button>
@@ -2413,31 +2417,155 @@ const DetailPanel = {
   },
 
   openBlock(block) {
-    const { title, startDate, endDate, weeks, totalKm, totalSecs, runs, avgKmWeek, avgRunsWeek, avgPace, avgHR, bestWeekKm, longestRun, consistencyScore, indoorKm, outdoorKm, shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget } = block;
+    const { id, title, startDate, endDate, weeks, totalKm, totalSecs, runs,
+            avgKmWeek, avgPace, avgHR,
+            consistencyScore, indoorKm, outdoorKm, shoes,
+            targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget } = block;
     const isCurrent = endDate >= new Date().toISOString().slice(0,10);
-    const stats = [
-      { v: totalKm.toFixed(1)+' km',  l: 'total distanse' },
-      { v: runs,                        l: 'løp' },
-      { v: secsToHms(totalSecs),        l: 'total tid' },
-      { v: avgKmWeek.toFixed(1)+' km', l: 'km/uke' },
-      { v: avgRunsWeek.toFixed(1),      l: 'løp/uke' },
+
+    const blockSessions = Store.data.sessions
+      .filter(s => s.dato >= startDate && s.dato <= endDate)
+      .sort((a,b) => a.dato.localeCompare(b.dato));
+
+    const weekMap = {};
+    blockSessions.forEach(s => {
+      const wk = s.uke || isoWeek(s.dato);
+      if (!weekMap[wk]) weekMap[wk] = { km:0, runs:0, paceSum:0, paceCount:0 };
+      weekMap[wk].km   += s.distanse||0;
+      weekMap[wk].runs += 1;
+      if (s.tempo) { weekMap[wk].paceSum += s.tempo; weekMap[wk].paceCount++; }
+    });
+    const weekKeys = Object.keys(weekMap).sort();
+    const maxWkKm  = Math.max(...weekKeys.map(w => weekMap[w].km), 1);
+
+    const absWeekFn    = d => Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000));
+    const activeAbsArr = [...new Set(blockSessions.map(s => absWeekFn(s.dato)))].sort((a,b)=>a-b);
+    let maxStreak = 0, curStreak = 0, prevW = null;
+    activeAbsArr.forEach(w => {
+      curStreak = (prevW !== null && w === prevW + 1) ? curStreak + 1 : 1;
+      if (curStreak > maxStreak) maxStreak = curStreak;
+      prevW = w;
+    });
+
+    const allBlocks = computeBlocks(Store.data.sessions);
+    const blockIdx  = allBlocks.findIndex(b => b.id === id);
+    const prevBlock = blockIdx > 0 ? allBlocks[blockIdx - 1] : null;
+
+    const overviewStats = [
+      { v: totalKm.toFixed(1)+' km',      l: 'total distanse' },
+      { v: runs,                           l: 'løp' },
+      { v: secsToHms(totalSecs),           l: 'tid' },
+      { v: avgKmWeek.toFixed(1)+' km/uke', l: 'km per uke' },
       ...(avgPace ? [{ v: secsToMmSs(avgPace)+'/km', l: 'snitt tempo' }] : []),
       ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
-      { v: consistencyScore+'%',        l: 'konsistens' },
     ];
-    const targetHtml = (targetKmWeek||targetRunsWeek) ? `
-      <div class="dp-section-label">Mål vs faktisk</div>
-      ${targetKmWeek   ? `<div style="font-size:12px;margin-bottom:4px">${kmAboveTarget} / ${weeks} uker over ${targetKmWeek} km</div>` : ''}
-      ${targetRunsWeek ? `<div style="font-size:12px;margin-bottom:4px">${runsAboveTarget} / ${weeks} uker med ${targetRunsWeek}+ løp</div>` : ''}` : '';
-    const shoeHtml  = shoes.length ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Sko: ${shoes.join(', ')}</div>` : '';
-    const venueHtml = (indoorKm+outdoorKm) > 0 ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ute ${outdoorKm.toFixed(0)} km · Inne ${indoorKm.toFixed(0)} km</div>` : '';
+
+    const weeklyRows = weekKeys.map(wk => {
+      const d    = weekMap[wk];
+      const pct  = Math.round((d.km / maxWkKm) * 100);
+      const best = d.km >= maxWkKm - 0.01;
+      const pace = d.paceCount ? ` · ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km` : '';
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">
+        <span style="min-width:56px;color:var(--muted);font-size:11px">${fmtWeekLabel(wk)}</span>
+        <div style="flex:1;background:var(--border);border-radius:3px;height:6px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${best?'var(--accent)':'color-mix(in srgb,var(--accent) 55%,transparent)'};border-radius:3px"></div>
+        </div>
+        <span style="min-width:38px;text-align:right;font-weight:${best?'600':'400'};color:${best?'var(--text)':'var(--muted)'}">${d.km.toFixed(1)}</span>
+        <span style="min-width:80px;color:var(--muted);font-size:11px">${d.runs} løp${pace}</span>
+      </div>`;
+    }).join('');
+
+    const hl = [];
+    const bestWkKey = weekKeys.find(w => weekMap[w].km >= maxWkKm - 0.01);
+    if (bestWkKey) hl.push(`Beste uke: ${maxWkKm.toFixed(1)} km (${fmtWeekLabel(bestWkKey)})`);
+    const longestSession = blockSessions.reduce((a,s)=>(!a||s.distanse>a.distanse)?s:a, null);
+    if (longestSession?.distanse) hl.push(`Lengste løp: ${longestSession.distanse.toFixed(1)} km — ${fmtDate(longestSession.dato)}`);
+    if (maxStreak >= 3) hl.push(`${maxStreak} uker på rad med løping`);
+    const paceWeeks = weekKeys.filter(w => weekMap[w].paceCount > 0);
+    if (paceWeeks.length >= 4) {
+      const half     = Math.floor(paceWeeks.length / 2);
+      const avgFirst = paceWeeks.slice(0, half).reduce((s,w) => s+weekMap[w].paceSum/weekMap[w].paceCount, 0) / half;
+      const avgLast  = paceWeeks.slice(-half).reduce((s,w)  => s+weekMap[w].paceSum/weekMap[w].paceCount, 0) / half;
+      const diff     = Math.round(avgFirst - avgLast);
+      if (Math.abs(diff) >= 10)
+        hl.push(diff > 0
+          ? `Tempo forbedret ${secsToMmSs(diff)} per km fra start til slutt`
+          : `Tempo falt ${secsToMmSs(-diff)} per km mot slutten`);
+    }
+
+    const cm        = consistencyMeta(consistencyScore);
+    const consPct   = Math.min(100, consistencyScore);
+    const spanWeeks = Math.max(Math.round((new Date(endDate)-new Date(startDate))/(7*86400000)), 1);
+    const consLines = [
+      `${activeAbsArr.length}/${spanWeeks} uker med løping`,
+      maxStreak > 1 ? `Lengste streik: ${maxStreak} uker på rad` : null,
+      targetKmWeek   ? `${kmAboveTarget}/${weeks} uker over ${targetKmWeek} km` : null,
+      targetRunsWeek ? `${runsAboveTarget}/${weeks} uker med ${targetRunsWeek}+ løp` : null,
+    ].filter(Boolean);
+
+    let compHtml = '';
+    if (prevBlock) {
+      const kmDiff   = totalKm - prevBlock.totalKm;
+      const kmPct    = prevBlock.totalKm > 0 ? kmDiff/prevBlock.totalKm*100 : 0;
+      const kmColor  = kmDiff >= 0 ? '#22c55e' : '#ef4444';
+      const wkDiff   = avgKmWeek - prevBlock.avgKmWeek;
+      const paceDiff = (avgPace && prevBlock.avgPace) ? prevBlock.avgPace - avgPace : null;
+      const consDiff = consistencyScore - prevBlock.consistencyScore;
+      const pairs = [
+        { l:'distanse', v:(kmDiff>=0?'+':'')+kmDiff.toFixed(0)+' km', sub:(kmPct>=0?'+':'')+kmPct.toFixed(0)+'%', c:kmColor },
+        { l:'km/uke',   v:(wkDiff>=0?'+':'')+wkDiff.toFixed(1)+' km', c:kmColor },
+        ...(paceDiff !== null && Math.abs(paceDiff) >= 5
+          ? [{ l:'tempo', v:secsToMmSs(Math.abs(paceDiff))+'/km', sub:paceDiff>0?'raskere':'langsommere', c:paceDiff>0?'#22c55e':'#ef4444' }]
+          : []),
+        { l:'konsistens', v:(consDiff>=0?'+':'')+consDiff+'%', c:consDiff>=0?'#22c55e':'#ef4444' },
+      ];
+      compHtml = `<div class="dp-section-label">Sammenlignet med "${prevBlock.title}"</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+          ${pairs.map(p=>`<div class="dp-stat">
+            <div class="dpv" style="font-size:16px;color:${p.c}">${p.v}</div>
+            ${p.sub?`<div style="font-size:10px;color:${p.c};margin-bottom:2px">${p.sub}</div>`:''}
+            <div class="dpl">${p.l}</div>
+          </div>`).join('')}
+        </div>`;
+    }
+
+    const detailParts = [
+      shoes.length ? `Sko: ${shoes.join(', ')}` : '',
+      indoorKm > 0 ? `Ute ${outdoorKm.toFixed(0)} km · Inne ${indoorKm.toFixed(0)} km` : '',
+    ].filter(Boolean);
+
+    const runsHtml = blockSessions.slice().reverse().map(s =>
+      `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
+        <span style="min-width:76px;color:var(--muted)">${fmtDate(s.dato)}</span>
+        <span style="flex:1">${s.oktnavn||s.okttype||'–'}</span>
+        <span style="min-width:46px;text-align:right">${(s.distanse||0).toFixed(1)} km</span>
+        ${s.tempo?`<span style="min-width:60px;text-align:right;color:var(--muted)">${secsToMmSs(s.tempo)}/km</span>`:''}
+      </div>`
+    ).join('');
+
     this.open(title, `
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">${fmtDate(startDate)} – ${isCurrent?'nå':fmtDate(endDate)} · ${weeks} uker</div>
-      <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
-      ${shoeHtml}${venueHtml}
-      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Beste uke: ${bestWeekKm?.toFixed(1)||'–'} km · Lengste løp: ${longestRun?.toFixed(1)||'–'} km</div>
-      ${targetHtml}`
-    );
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
+        ${fmtDate(startDate)} – ${isCurrent?'nå':fmtDate(endDate)} · ${weeks} uker
+        ${isCurrent?'<span style="font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:1px 6px;margin-left:6px;font-weight:600">Pågår</span>':''}
+      </div>
+      <div class="dp-stat-row">${overviewStats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      ${weekKeys.length ? `<div class="dp-section-label">Ukentlig progresjon</div><div style="margin-bottom:12px">${weeklyRows}</div>` : ''}
+      ${hl.length ? `<div class="dp-section-label">Høydepunkter</div><div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px">${hl.map(h=>`<div style="font-size:12px;display:flex;gap:8px"><span style="color:var(--accent)">▸</span><span>${h}</span></div>`).join('')}</div>` : ''}
+      <div class="dp-section-label">Konsistens</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px">
+        <span style="color:var(--muted)">${cm.label}</span>
+        <span style="font-weight:600;color:${cm.color}">${consistencyScore}%</span>
+      </div>
+      <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden;margin-bottom:8px">
+        <div style="width:${consPct}%;height:100%;background:${cm.color};border-radius:4px"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:12px">
+        ${consLines.map(l=>`<div style="font-size:12px;color:var(--muted)">${l}</div>`).join('')}
+      </div>
+      ${compHtml}
+      ${detailParts.length ? `<div class="dp-section-label">Detaljer</div><div style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px;margin-bottom:12px">${detailParts.map(p=>`<div>${p}</div>`).join('')}</div>` : ''}
+      ${runsHtml ? `<div class="dp-section-label">Løp i blokken</div>${runsHtml}` : ''}
+    `);
   },
 };
 

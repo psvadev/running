@@ -14,7 +14,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 - **Rekorder** — best pace, longest session (time + distance), best avg km/h, total distance and time, best week, longest streak; plus distance PRs for 5 km, 10 km, half marathon, and marathon
 - **Innsikter** — auto-generated insight tiles: km milestones, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month
 - **Treningsrytme** — consistency score 0–100 over the last 12 weeks (active-week rate, volume threshold weeks, streak bonus); configurable km/run-count thresholds in Settings; monthly active-weeks trend chart
-- **Treningsblokker** — auto-generated training block cards from Plan events; active block is a full-width hero card with consistency progress bar and weekly km sparkline; past blocks shown as compact cards below; click any card for full analytics (pace, HR, indoor/outdoor split, shoes, optional target tracking)
+- **Treningsblokker** — auto-generated training block cards from Plan events; active block is a full-width hero card with consistency progress bar and weekly km sparkline; past blocks shown as compact cards below; click any card for a rich drill-down: weekly progression bars, auto-generated highlights (best week, longest run, streak, pace trend), consistency breakdown, comparison vs previous block, and full run list
 - **Treningsbelastning per uke** — weekly training load scored by zone intensity (Z1=1 … Z5=5 points/min), color-coded bars with 4-week rolling average
 - **Treningsstatus (PMC)** — Performance Management Chart: Fitness (CTL, 42-day), Fatigue (ATL, 7-day), and Form (TSB = CTL−ATL) over the last 365 days
 - **Ukentlig distanse** — km per week, last 20 weeks
