@@ -2062,6 +2062,12 @@ function renderConsistency(sessions) {
     { val: `${currentStreak} uker`,      sub: 'nåværende streak' },
   ];
 
+  const breakdown = [
+    { label: 'Aktive uker',  pts: Math.round(scoreA), max: 50 },
+    { label: 'Km-kvalitet',  pts: Math.round(scoreB), max: 30 },
+    { label: 'Streak-bonus', pts: Math.round(scoreC), max: 20 },
+  ];
+
   el.innerHTML = `
     <div style="display:flex;gap:28px;align-items:center;flex-wrap:wrap">
       <div>
@@ -2072,6 +2078,16 @@ function renderConsistency(sessions) {
       <div style="display:flex;gap:20px;flex-wrap:wrap">
         ${stats.map(s => `<div class="cs-stat"><div class="csv">${s.val}</div><div class="css">${s.sub}</div></div>`).join('')}
       </div>
+    </div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;display:flex;flex-direction:column;gap:7px">
+      ${breakdown.map(b => `
+        <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+          <span style="min-width:100px;color:var(--muted)">${b.label}</span>
+          <div style="flex:1;background:var(--border);border-radius:3px;height:5px;overflow:hidden">
+            <div style="width:${Math.round(b.pts/b.max*100)}%;height:100%;background:var(--accent);border-radius:3px"></div>
+          </div>
+          <span style="min-width:42px;text-align:right;color:var(--muted)">${b.pts} / ${b.max}</span>
+        </div>`).join('')}
     </div>`;
 
   destroyChart('consistency');
