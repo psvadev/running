@@ -48,7 +48,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Profil & Puls** — max HR, resting HR, 5 zone boundaries; auto-calculate zones from max HR
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
 - **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
-- **Datafil** — open, create, download, import Excel/CSV, or clear all data
+- **Datafil** — open, create, download, import Excel/CSV, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore
 
 ---
 

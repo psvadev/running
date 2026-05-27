@@ -157,6 +157,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 |---|---|
 | `Store` | In-memory data; `addSession`, `updateSession`, `deleteSession`, `mergeSessions`, `_migrate()` |
 | `HandleDB` | IndexedDB wrapper; `get()`, `set(handle)`, `clear()` — persists `FileSystemFileHandle` across page loads |
+| `BackupDB` | IndexedDB wrapper (`lpl_backups` db); `save(json, count)`, `getAll()`, `restore(date)` — daily snapshots, last 7 kept; hooked into `Store.load()` |
 | `FileIO` | File System Access API wrapper; `open()`, `save()`, `download()`, `loadCache()`, `restoreHandle()` |
 | `Form` | Form read/write; `read()`, `populate()`, `save()`, `editSession()`, `autoCalcVarighet()`, `autoCalcPace()`. `editSession()` stores `returnTab` so save/cancel navigates back to the originating tab. |
 | `Log` | Session table render + sort/filter; `lastFiltered` holds the current filtered+sorted session array (set on each render; read by export) |
