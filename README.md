@@ -33,6 +33,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), ye
 - Full sortable table — click any column header to sort
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe
 - Edit or delete any row
+- **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; TSV format matches the original Excel export (tab-separated, Norwegian headers, same column order and formatting)
 
 ### Import
 - Import from `.xlsx` or `.csv` via SheetJS — available under **⚙️ Innstillinger → Datafil**

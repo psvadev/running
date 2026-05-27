@@ -591,10 +591,18 @@
     </div>
   </div>
 
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <button class="btn-secondary btn-sm" id="btnCopySelected" disabled>Kopier valgte</button>
+    <button class="btn-secondary btn-sm" id="btnCopyAll">Kopier alle filtrerte</button>
+    <button class="btn-secondary btn-sm" id="btnDownloadTsv">Last ned TSV</button>
+    <span id="logCopyFeedback" style="font-size:11px;color:var(--accent);opacity:0;transition:opacity .4s">Kopiert!</span>
+  </div>
+
   <div class="table-wrap">
     <table id="logTable">
       <thead>
         <tr>
+          <th style="width:28px"><input type="checkbox" id="chkSelectAll" title="Velg alle"></th>
           <th data-col="dato">Dato <span class="sort-indicator">↕</span></th>
           <th data-col="uke">Uke <span class="sort-indicator">↕</span></th>
           <th data-col="okttype">Type <span class="sort-indicator">↕</span></th>
@@ -852,6 +860,59 @@ function hoursToHHMM(h) {
   const hrs = Math.floor(h);
   const mins = Math.round((h - hrs) * 60);
   return `${hrs}:${String(mins).padStart(2, '0')}`;
+}
+
+function tsvIsoWeek(dateStr) {
+  const d = new Date(dateStr);
+  const thu = new Date(d); thu.setDate(d.getDate() - (d.getDay() + 6) % 7 + 3);
+  const yr = thu.getFullYear();
+  const wk = Math.ceil(((thu - new Date(yr, 0, 4)) / 86400000 + (new Date(yr, 0, 4).getDay() + 6) % 7 + 1) / 7);
+  return `${yr}-${String(wk).padStart(2,'0')}`;
+}
+
+function formatSessionTsv(sessions) {
+  const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
+    'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
+    'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
+    'Snitt km/t','Stigning (%)','Sko','Søvn'];
+  const rows = sessions.map(s => {
+    const soner = s.soner || [0,0,0,0,0];
+    const [y,m,d] = s.dato.split('-');
+    return [
+      `${parseInt(m)}/${parseInt(d)}/${y}`,
+      tsvIsoWeek(s.dato),
+      s.oktnavn || '',
+      s.okttype || '',
+      s.treningsplan || '',
+      s.varighet ? secsToHms(s.varighet) : '',
+      s.distanse != null ? s.distanse.toFixed(2) : '',
+      s.gjsnittspuls || '',
+      s.toppuls || '',
+      secsToHms(soner[0]||0), secsToHms(soner[1]||0), secsToHms(soner[2]||0),
+      secsToHms(soner[3]||0), secsToHms(soner[4]||0),
+      s.kalorier || '',
+      s.tempo ? secsToMmSs(s.tempo) : '',
+      s.snittkmh != null ? s.snittkmh.toFixed(1) : '',
+      s.stigning != null ? s.stigning : '',
+      s.sko || '',
+      s.sovn != null ? hoursToHHMM(s.sovn) : '',
+    ].join('\t');
+  });
+  return [HDR.join('\t'), ...rows].join('\n');
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  }
 }
 
 function hhmmToHours(str) {
@@ -1439,6 +1500,12 @@ const Log = {
       return `<span style="color:${color}">${s.malDistanse.toFixed(1)}</span>`;
     };
 
+    Log.lastFiltered = sessions;
+    LogExport.selectedIds.clear();
+    LogExport.update();
+    const chkAll = document.getElementById('chkSelectAll');
+    if (chkAll) chkAll.checked = false;
+
     const tbody = document.getElementById('logBody');
     if (sessions.length === 0) {
       tbody.innerHTML = '';
@@ -1455,6 +1522,7 @@ const Log = {
         ? `<span class="badge badge-indoor" title="Tredemølle">⚙️</span>`
         : `<span class="badge badge-outdoor" title="Utendørs">🏃</span>`;
       return `<tr>
+        <td><input type="checkbox" class="log-row-chk" data-id="${s.id}"></td>
         <td>${fmtDate(s.dato)}</td>
         <td style="color:var(--muted)">${s.uke||''}</td>
         <td>${badge}${venueBadge}</td>
@@ -1491,6 +1559,31 @@ const Log = {
     Store.deleteSession(id);
     refreshAll();
   }
+};
+
+const LogExport = {
+  selectedIds: new Set(),
+
+  update() {
+    const btn = document.getElementById('btnCopySelected');
+    if (!btn) return;
+    const n = this.selectedIds.size;
+    btn.disabled = n === 0;
+    btn.textContent = n > 0 ? `Kopier valgte (${n})` : 'Kopier valgte';
+  },
+
+  flash() {
+    const fb = document.getElementById('logCopyFeedback');
+    if (!fb) return;
+    fb.style.opacity = '1';
+    setTimeout(() => fb.style.opacity = '0', 1800);
+  },
+
+  getSelected() {
+    return Store.data.sessions
+      .filter(s => this.selectedIds.has(s.id))
+      .sort((a,b) => a.dato.localeCompare(b.dato));
+  },
 };
 
 // ═══════════════════════════════════════════════════════
@@ -3661,6 +3754,47 @@ document.addEventListener('DOMContentLoaded', () => {
     Log.render();
   });
 
+  // Log export: checkbox delegation
+  document.getElementById('logBody').addEventListener('change', e => {
+    if (!e.target.classList.contains('log-row-chk')) return;
+    const id = e.target.dataset.id;
+    if (e.target.checked) LogExport.selectedIds.add(id);
+    else LogExport.selectedIds.delete(id);
+    LogExport.update();
+    const all = [...document.querySelectorAll('.log-row-chk')];
+    document.getElementById('chkSelectAll').checked = all.length > 0 && all.every(c => c.checked);
+  });
+
+  document.getElementById('chkSelectAll').addEventListener('change', e => {
+    document.querySelectorAll('.log-row-chk').forEach(c => {
+      c.checked = e.target.checked;
+      if (e.target.checked) LogExport.selectedIds.add(c.dataset.id);
+      else LogExport.selectedIds.delete(c.dataset.id);
+    });
+    LogExport.update();
+  });
+
+  document.getElementById('btnCopySelected').addEventListener('click', async () => {
+    const tsv = formatSessionTsv(LogExport.getSelected());
+    await copyToClipboard(tsv);
+    LogExport.flash();
+  });
+
+  document.getElementById('btnCopyAll').addEventListener('click', async () => {
+    const sessions = Log.lastFiltered || Store.data.sessions;
+    const tsv = formatSessionTsv([...sessions].sort((a,b) => a.dato.localeCompare(b.dato)));
+    await copyToClipboard(tsv);
+    LogExport.flash();
+  });
+
+  document.getElementById('btnDownloadTsv').addEventListener('click', () => {
+    const sessions = Log.lastFiltered || Store.data.sessions;
+    const tsv = formatSessionTsv([...sessions].sort((a,b) => a.dato.localeCompare(b.dato)));
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'løpelogg.tsv'; a.click();
+    URL.revokeObjectURL(url);
+  });
 
   // Firefox fallback: fileInput change fires when user picks a file via the hidden input
   document.getElementById('fileInput').addEventListener('change', async e => {

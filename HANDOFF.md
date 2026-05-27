@@ -124,6 +124,13 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 - Filters: fra/til dato, økt-type, **treningsplan (Plan)**, **løpetype** (Alle / 🏃 Utendørs / ⚙️ Tredemølle), sko — all wired to `fFilterPlan`, `fFilterLopetype` etc.; Nullstill clears all
 - Each row shows a 🏃/⚙️ venue badge next to the session type badge (all sessions; untagged = outdoor)
 - Row actions: ✏️ edit (goes to form tab, **returns to log on save/cancel**), 🗑️ delete (with confirm)
+- **Export toolbar** (above the table):
+  - **Kopier valgte (N)** — checkbox column on each row; button enables when ≥1 row checked; copies tab-separated table (header + selected rows) to clipboard; shows "Kopiert!" feedback for 1.8 s
+  - **Kopier alle filtrerte** — copies all currently visible rows (respecting all active filters) to clipboard
+  - **Last ned TSV** — downloads all currently filtered rows as `løpelogg.tsv`
+  - Select-all checkbox in header toggles all visible rows; unchecking any row desyncs the select-all
+  - Checkboxes and button state reset automatically on every filter change / re-render
+  - TSV format matches the original Excel export: 20 columns, Dato as `M/D/YYYY`, Uke as `YYYY-WW`, durations as `H:MM:SS`, zones as `H:MM:SS`, pace as `MM:SS`, sleep as `H:MM`, decimals as dot
 - **"Importer Excel/CSV"** button → SheetJS modal with preview before confirming
 
 ### 📅 Planlegging (planning tab — max 1200px)
@@ -152,7 +159,8 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 | `HandleDB` | IndexedDB wrapper; `get()`, `set(handle)`, `clear()` — persists `FileSystemFileHandle` across page loads |
 | `FileIO` | File System Access API wrapper; `open()`, `save()`, `download()`, `loadCache()`, `restoreHandle()` |
 | `Form` | Form read/write; `read()`, `populate()`, `save()`, `editSession()`, `autoCalcVarighet()`, `autoCalcPace()`. `editSession()` stores `returnTab` so save/cancel navigates back to the originating tab. |
-| `Log` | Session table render + sort/filter |
+| `Log` | Session table render + sort/filter; `lastFiltered` holds the current filtered+sorted session array (set on each render; read by export) |
+| `LogExport` | Export state object: `selectedIds` (Set of checked session IDs), `update()` (sync button label/enable state), `flash()` (show "Kopiert!" feedback), `getSelected()` (returns sorted sessions for checked IDs) |
 | `DashFilter` | Dashboard filter state (years Set, type, plan, løpetype); `get(sessions)` returns filtered array |
 | `Settings` | Shoe management, goal management, zone editor, profile save, file controls |
 | `Import` | SheetJS parse, Norwegian column mapping, preview modal, `mergeSessions` dedup |
@@ -175,6 +183,9 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 | `absWeekNum(d)` | Monday-aligned epoch week integer — `Math.floor((Date+3days)/7days)`; used for consecutive-week streak and consistency calculations across `renderConsistency`, `computeBlocks`, `DetailPanel.openBlock`, `computeRecords` |
 | `avgPaceHR(sessions)` | Returns `{ avgPace, avgHR }` (rounded seconds/km and bpm, or null) — shared helper used in `computeBlocks`, `openWeek`, `openShoe` |
 | `toSafeAttr(obj)` | JSON-serializes an object and escapes `&` and `"` for safe embedding in HTML attributes — used by `renderBlocks` for `data-block` |
+| `formatSessionTsv(sessions)` | Returns a TSV string (header + one row per session) in Excel-compatible format: Dato `M/D/YYYY`, Uke `YYYY-WW`, Varighet/zones as `H:MM:SS`, Tempo as `MM:SS`, Søvn as `H:MM`, decimals as dot. 20 columns matching the original Excel log. |
+| `tsvIsoWeek(dateStr)` | Computes ISO week as `YYYY-WW` string (e.g. `2026-20`) from a `YYYY-MM-DD` date. Used by `formatSessionTsv` — separate from `isoWeek()` which returns a display label. |
+| `copyToClipboard(text)` | Async: tries `navigator.clipboard.writeText`; falls back to `execCommand('copy')` via a hidden textarea. Returns `true` on success. |
 | `malCell(s)` | Returns colour-coded HTML for the log table "Mål km" cell; blue ≥105%, green ≥100%, amber ≥80%, red <80% of target; empty string if `malDistanse` is null |
 | `minsToHm(m)` | Formats decimal minutes as `h:mm` (e.g. `90.5` → `"1:30"`); used in Pulssoner chart ticks and tooltips |
 | `refreshAll()` | Called after any data change; re-renders log, shoe list, dashboard if visible |
