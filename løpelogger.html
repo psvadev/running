@@ -2151,8 +2151,33 @@ function computeBlocks(allSessions) {
     return { id:evt.id, title:evt.title, startDate, endDate, weeks, totalKm, totalSecs, runs,
              avgKmWeek: totalKm/weeks, avgRunsWeek: runs/weeks, avgPace, avgHR,
              bestWeekKm, longestRun, consistencyScore, indoorKm, outdoorKm,
-             shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget };
+             shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget,
+             weeklyKm: Object.keys(weekKm).sort().map(w => weekKm[w]) };
   });
+}
+
+function blockSparkline(weeklyKm) {
+  if (!weeklyKm || weeklyKm.length < 2) return '';
+  const W = 300, H = 40, pad = 3;
+  const max = Math.max(...weeklyKm, 1);
+  const pts = weeklyKm.map((v, i) => {
+    const x = pad + (i / (weeklyKm.length - 1)) * (W - pad * 2);
+    const y = (H - pad) - (v / max) * (H - pad * 2);
+    return [x.toFixed(1), y.toFixed(1)];
+  });
+  const line = pts.map(([x,y]) => `${x},${y}`).join(' ');
+  const fill = `${pts[0][0]},${H-pad} ${line} ${pts[pts.length-1][0]},${H-pad}`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:40px;display:block;margin-top:8px;overflow:visible" preserveAspectRatio="none">
+    <polygon points="${fill}" fill="var(--accent)" opacity="0.12"/>
+    <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function consistencyMeta(score) {
+  if (score >= 85) return { label: 'Fremragende', color: '#22c55e' };
+  if (score >= 70) return { label: 'God konsistens', color: '#84cc16' };
+  if (score >= 50) return { label: 'Moderat', color: '#f59e0b' };
+  return { label: 'Ujevn', color: '#ef4444' };
 }
 
 function renderBlocks() {
@@ -2163,27 +2188,76 @@ function renderBlocks() {
   el.style.display = '';
 
   const today = new Date().toISOString().slice(0,10);
-  const cards = blocks.slice().reverse().map(b => {
-    const isCurrent = b.endDate >= today;
-    const safeBlock = JSON.stringify(b).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;cursor:pointer;flex:1;min-width:180px;max-width:300px" onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))" data-block="${safeBlock}">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600;flex:1">${b.title}</span>
-        ${isCurrent ? '<span style="font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:1px 6px">Pågår</span>' : ''}
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${fmtDate(b.startDate)} – ${isCurrent?'nå':fmtDate(b.endDate)} · ${b.weeks} uker</div>
-      <div style="display:flex;gap:14px;flex-wrap:wrap">
-        <div class="dp-stat"><div class="dpv">${b.totalKm.toFixed(0)} km</div><div class="dpl">totalt</div></div>
-        <div class="dp-stat"><div class="dpv">${b.runs}</div><div class="dpl">løp</div></div>
-        <div class="dp-stat"><div class="dpv">${b.avgKmWeek.toFixed(1)}</div><div class="dpl">km/uke</div></div>
-        <div class="dp-stat"><div class="dpv">${b.consistencyScore}%</div><div class="dpl">konsistens</div></div>
-      </div>
-    </div>`;
-  }).join('');
+  const sorted = blocks.slice().reverse();
+  const current = sorted.find(b => b.endDate >= today);
+  const past    = sorted.filter(b => b.endDate < today);
+
+  let heroHtml = '';
+  if (current) {
+    const cm = consistencyMeta(current.consistencyScore);
+    const consPct = Math.min(100, current.consistencyScore);
+    const safeBlock = JSON.stringify(current).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    const statsRow = [
+      { v: current.totalKm.toFixed(1)+' km', l: 'totalt' },
+      { v: current.runs,                      l: 'løp' },
+      { v: current.avgKmWeek.toFixed(1)+' km/uke', l: 'snitt per uke' },
+      ...(current.avgPace ? [{ v: secsToMmSs(current.avgPace)+'/km', l: 'snitt tempo' }] : []),
+      ...(current.avgHR   ? [{ v: current.avgHR,                      l: 'snitt HR'   }] : []),
+    ];
+    heroHtml = `
+      <div style="background:var(--surface2);border:1px solid var(--accent);border-radius:10px;padding:20px 24px;margin-bottom:16px;cursor:pointer"
+           onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))" data-block="${safeBlock}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:16px;font-weight:700;flex:1">${current.title}</span>
+          <span style="font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:2px 8px;font-weight:600">Pågår</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${fmtDate(current.startDate)} – nå · ${current.weeks} uker</div>
+        <div class="dp-stat-row" style="margin-bottom:16px">
+          ${statsRow.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}
+        </div>
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:12px">
+            <span style="color:var(--muted)">Konsistens</span>
+            <span style="font-weight:600;color:${cm.color}">${current.consistencyScore}% · ${cm.label}</span>
+          </div>
+          <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+            <div style="width:${consPct}%;height:100%;background:${cm.color};border-radius:4px;transition:width .3s"></div>
+          </div>
+        </div>
+        ${blockSparkline(current.weeklyKm)}
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">Ukentlig distanse</div>
+      </div>`;
+  }
+
+  let pastHtml = '';
+  if (past.length) {
+    const pastCards = past.map(b => {
+      const cm = consistencyMeta(b.consistencyScore);
+      const consPct = Math.min(100, b.consistencyScore);
+      const safeBlock = JSON.stringify(b).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;flex:1;min-width:180px;max-width:300px"
+              onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))" data-block="${safeBlock}">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">${b.title}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${fmtDate(b.startDate)} – ${fmtDate(b.endDate)} · ${b.weeks} uker</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+          <div class="dp-stat"><div class="dpv" style="font-size:15px">${b.totalKm.toFixed(0)} km</div><div class="dpl">totalt</div></div>
+          <div class="dp-stat"><div class="dpv" style="font-size:15px">${b.runs}</div><div class="dpl">løp</div></div>
+          <div class="dp-stat"><div class="dpv" style="font-size:15px">${b.avgKmWeek.toFixed(1)}</div><div class="dpl">km/uke</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;background:var(--border);border-radius:3px;height:4px;overflow:hidden">
+            <div style="width:${consPct}%;height:100%;background:${cm.color};border-radius:3px"></div>
+          </div>
+          <span style="font-size:11px;color:${cm.color};min-width:30px;text-align:right">${b.consistencyScore}%</span>
+        </div>
+      </div>`;
+    }).join('');
+    pastHtml = `<div style="display:flex;gap:12px;flex-wrap:wrap">${pastCards}</div>`;
+  }
 
   el.innerHTML = `<div class="card-title">Treningsblokker</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Generert fra Plan-hendelser. Klikk for detaljer.</div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap">${cards}</div>`;
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Generert fra Plan-hendelser. Klikk for detaljer.</div>
+    ${heroHtml}${pastHtml}`;
 }
 
 function renderVenueChart(sessions) {
