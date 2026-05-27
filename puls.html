@@ -516,6 +516,18 @@
       <div class="chart-wrap"><canvas id="chartEfficiency"></canvas></div>
     </div>
     <div class="card span2">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+        <div class="card-title" style="margin-bottom:0">Søvn vs puls</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill" id="shrToggleAlle">Alle</span>
+          <span class="year-pill active" id="shrToggleEasy">Easy</span>
+          <span class="year-pill" id="shrToggleLang">Langtur</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Hvert punkt er én økt. Se om søvnmengde påvirker puls og tempo — mønster kan avdekke restitusjonstrender.</div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chartSleepHr"></canvas></div>
+    </div>
+    <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">Pulssoner (tt:mm)</div>
         <div style="display:flex;gap:6px">
@@ -1642,6 +1654,7 @@ function buildYearPills(allSessions) {
 
 let zoneGroupBy = 'week';
 let aeVenueFilter = 'all';
+let sleepHrTypeFilter = 'Easy';
 let cachedBlocks = [];
 
 function renderZoneChart(sessions) {
@@ -2081,6 +2094,145 @@ function renderEfficiencyChart(sessions) {
       },
       responsive: true, maintainAspectRatio: false
     }
+  });
+}
+
+function renderSleepHrChart(sessions) {
+  const typeFilter = sleepHrTypeFilter;
+  const filtered = sessions.filter(s => {
+    if (s.sovn == null || s.sovn <= 0) return false;
+    if (!s.gjsnittspuls || s.gjsnittspuls <= 0) return false;
+    if (typeFilter !== 'alle' && s.okttype !== typeFilter) return false;
+    return true;
+  }).sort((a, b) => a.dato.localeCompare(b.dato));
+
+  destroyChart('sleepHr');
+  const el = document.getElementById('chartSleepHr');
+  const wrap = el?.closest('.chart-wrap');
+  const existing = wrap?.querySelector('.shr-empty');
+  if (existing) existing.remove();
+  if (el) el.style.display = '';
+
+  if (filtered.length < 2) {
+    if (el) el.style.display = 'none';
+    if (wrap) {
+      const msg = document.createElement('div');
+      msg.className = 'shr-empty';
+      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
+      const lbl = typeFilter === 'alle' ? '' : ` (${typeFilter})`;
+      msg.textContent = `Trenger minst 2 økter${lbl} med både søvn og pulsmåling.`;
+      wrap.appendChild(msg);
+    }
+    return;
+  }
+
+  const pts = filtered.map(s => ({ x: s.sovn, y: s.gjsnittspuls, s }));
+
+  const n = pts.length;
+  const sumX = pts.reduce((a, p) => a + p.x, 0);
+  const sumY = pts.reduce((a, p) => a + p.y, 0);
+  const sumXY = pts.reduce((a, p) => a + p.x * p.y, 0);
+  const sumX2 = pts.reduce((a, p) => a + p.x * p.x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  let regLine = [];
+  if (denom) {
+    const m = (n * sumXY - sumX * sumY) / denom;
+    const b = (sumY - m * sumX) / n;
+    const xVals = pts.map(p => p.x);
+    const xMin = Math.min(...xVals), xMax = Math.max(...xVals);
+    regLine = [{ x: xMin, y: +(m * xMin + b).toFixed(1) }, { x: xMax, y: +(m * xMax + b).toFixed(1) }];
+  }
+
+  const TYPE_COLORS = {
+    'Easy':      'rgba(75,190,120,.7)',
+    'Langtur':   'rgba(108,143,255,.7)',
+    'Tempo':     'rgba(255,160,80,.7)',
+    'Intervall': 'rgba(255,80,80,.7)',
+    'Terskel':   'rgba(220,120,255,.7)',
+  };
+  const DEFAULT_COLOR = 'rgba(140,150,180,.6)';
+
+  let scatterDatasets;
+  if (typeFilter === 'alle') {
+    const byType = {};
+    pts.forEach(p => { const t = p.s.okttype || 'Annet'; (byType[t] = byType[t] || []).push(p); });
+    scatterDatasets = Object.entries(byType).map(([type, typePts]) => ({
+      label: type,
+      data: typePts,
+      backgroundColor: TYPE_COLORS[type] || DEFAULT_COLOR,
+      pointRadius: 5,
+      pointHoverRadius: 7,
+    }));
+  } else {
+    scatterDatasets = [{
+      label: typeFilter,
+      data: pts,
+      backgroundColor: TYPE_COLORS[typeFilter] || DEFAULT_COLOR,
+      pointRadius: 5,
+      pointHoverRadius: 7,
+    }];
+  }
+
+  Charts.sleepHr = new Chart(el, {
+    type: 'scatter',
+    data: {
+      datasets: [
+        ...scatterDatasets,
+        {
+          label: 'Trend',
+          data: regLine,
+          type: 'line',
+          borderColor: 'rgba(240,192,80,.8)',
+          borderDash: [5, 3],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0,
+        },
+      ],
+    },
+    options: {
+      plugins: {
+        legend: {
+          display: typeFilter === 'alle',
+          labels: { color: '#e8eaf0', boxWidth: 10, font: { size: 11 }, filter: item => item.text !== 'Trend' },
+        },
+        tooltip: {
+          callbacks: {
+            title: ctx => {
+              const p = ctx[0]?.raw;
+              if (!p?.s) return '';
+              return p.s.oktnavn ? `${p.s.dato} · ${p.s.oktnavn}` : p.s.dato;
+            },
+            label: ctx => {
+              const p = ctx.raw;
+              if (!p?.s) return '';
+              const s = p.s;
+              const lines = [];
+              if (s.okttype) lines.push(`Type: ${s.okttype}`);
+              lines.push(`Søvn: ${hoursToHHMM(s.sovn)}`);
+              lines.push(`Puls: ${s.gjsnittspuls} bpm`);
+              if (s.snittkmh != null) lines.push(`Snitt km/t: ${s.snittkmh.toFixed(1)}`);
+              else if (s.tempo) lines.push(`Tempo: ${secsToMmSs(s.tempo)}/km`);
+              return lines;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: '#2e3248' },
+          ticks: { color: '#7880a0' },
+          title: { display: true, text: 'Søvn (timer)', color: '#7880a0' },
+        },
+        y: {
+          grid: { color: '#2e3248' },
+          ticks: { color: '#7880a0' },
+          title: { display: true, text: 'Gj.snittspuls (bpm)', color: '#7880a0' },
+        },
+      },
+      responsive: true,
+      maintainAspectRatio: false,
+    },
   });
 }
 
@@ -3004,6 +3156,7 @@ function renderDashboard() {
   }
 
   renderEfficiencyChart(sessions);
+  renderSleepHrChart(sessions);
   renderVenueChart(sessions);
   const hasTreadmill = sessions.some(s => s.løpetype === 'treadmill');
   document.getElementById('venueCard').style.display = hasTreadmill ? '' : 'none';
@@ -3814,6 +3967,16 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('#aeToggleAlle,#aeToggleUte,#aeToggleInn').forEach(el => el.classList.remove('active'));
       document.getElementById(id).classList.add('active');
       renderEfficiencyChart(DashFilter.get(Store.data.sessions));
+    });
+  });
+
+  // Sleep vs HR type toggle
+  [['shrToggleAlle','alle'],['shrToggleEasy','Easy'],['shrToggleLang','Langtur']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      sleepHrTypeFilter = val;
+      document.querySelectorAll('#shrToggleAlle,#shrToggleEasy,#shrToggleLang').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderSleepHrChart(DashFilter.get(Store.data.sessions));
     });
   });
 
