@@ -2212,6 +2212,31 @@ function renderBlocks() {
   const current = sorted.find(b => b.endDate >= today);
   const past    = sorted.filter(b => b.endDate < today);
 
+  const allBlocksList = [current, ...past].filter(Boolean);
+  const records = {};
+  if (allBlocksList.length >= 2) {
+    records.km   = allBlocksList.reduce((a,b) => b.totalKm > a.totalKm ? b : a).id;
+    const withWk = allBlocksList.filter(b => b.bestWeekKm);
+    if (withWk.length) records.wkKm = withWk.reduce((a,b) => b.bestWeekKm > a.bestWeekKm ? b : a).id;
+    const withLong = allBlocksList.filter(b => b.longestRun);
+    if (withLong.length) records.long = withLong.reduce((a,b) => b.longestRun > a.longestRun ? b : a).id;
+    const withPace = allBlocksList.filter(b => b.avgPace);
+    if (withPace.length) records.pace = withPace.reduce((a,b) => b.avgPace < a.avgPace ? b : a).id;
+    records.cons = allBlocksList.reduce((a,b) => b.consistencyScore > a.consistencyScore ? b : a).id;
+  }
+  const getBadges = b => {
+    const pills = [];
+    if (b.id === records.wkKm) pills.push('Beste uke');
+    if (b.id === records.long) pills.push('Lengste løp');
+    if (b.id === records.pace) pills.push('Raskest');
+    if (b.id === records.km)   pills.push('Mest km');
+    if (b.id === records.cons) pills.push('Mest konsistent');
+    return pills;
+  };
+  const pillHtml = pills => pills.map(p =>
+    `<span style="font-size:10px;background:rgba(255,255,255,.06);color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:2px 7px;white-space:nowrap">${p}</span>`
+  ).join('');
+
   let heroHtml = '';
   if (current) {
     const cm = consistencyMeta(current.consistencyScore);
@@ -2231,6 +2256,7 @@ function renderBlocks() {
           <span style="font-size:16px;font-weight:700;flex:1">${current.title}</span>
           <span style="font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:2px 8px;font-weight:600">Pågår</span>
         </div>
+        ${(b=>{ const p=pillHtml(getBadges(b)); return p ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${p}</div>` : ''; })(current)}
         <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${fmtDate(current.startDate)} – nå · ${current.weeks} uker</div>
         <div class="dp-stat-row" style="margin-bottom:16px">
           ${statsRow.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}
@@ -2258,6 +2284,7 @@ function renderBlocks() {
       return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;flex:1;min-width:180px;max-width:300px"
               onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))" data-block="${safeBlock}">
         <div style="font-size:13px;font-weight:600;margin-bottom:4px">${b.title}</div>
+        ${(pills=>pills ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">${pills}</div>` : '')(pillHtml(getBadges(b)))}
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${fmtDate(b.startDate)} – ${fmtDate(b.endDate)} · ${b.weeks} uker</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
           <div class="dp-stat"><div class="dpv" style="font-size:15px">${b.totalKm.toFixed(0)} km</div><div class="dpl">totalt</div></div>
