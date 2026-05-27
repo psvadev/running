@@ -20,6 +20,9 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 - **Ukentlig distanse** — km per week, last 20 weeks
 - **Tempo per uke** — weighted average pace per week
 - **Aerob effektivitet** — aerobic efficiency trend for Easy sessions (speed ÷ heart rate), with rolling average and personal average reference line; venue toggle (Alle / Utendørs / Tredemølle) to slice by run type
+- **Tempo i sone 2** — pace trend over time for Easy + Langtur sessions, with 4-session rolling average; Y-axis inverted so improving pace trends upward; toggle to isolate Easy or Langtur
+- **Søvn vs puls** — scatter plot of sleep duration vs avg HR per session; linear regression trend line; per-type color coding in Alle mode; default filter: Easy
+- **Tempo vs puls** — scatter plot of avg HR vs pace per session; shows whether pace improves at the same or lower HR; same color coding and filter toggle as Søvn vs puls
 - **Interactive charts** — hover any weekly chart for a full week summary (km, løp, tid, tempo, HR); click a bar/point to open a drill-down detail panel for that week; click a shoe bar to open shoe detail; click a heatmap day to open session or week detail
 - **Ute vs inne** — weekly stacked bar splitting km between outdoor (🏃) and treadmill (⚙️); hidden until first treadmill session is logged
 - **Pulssoner** — stacked minutes per zone per week or month (toggle)

@@ -517,6 +517,18 @@
     </div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+        <div class="card-title" style="margin-bottom:0">Tempo i sone 2</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="z2ToggleAlle">Easy + Langtur</span>
+          <span class="year-pill" id="z2ToggleEasy">Easy</span>
+          <span class="year-pill" id="z2ToggleLang">Langtur</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Tempo på rolige økter over tid. Raskere tempo ved samme innsats betyr bedre aerob base.</div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chartZ2Pace"></canvas></div>
+    </div>
+    <div class="card span2">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
         <div class="card-title" style="margin-bottom:0">Søvn vs puls</div>
         <div style="display:flex;gap:6px">
           <span class="year-pill" id="shrToggleAlle">Alle</span>
@@ -526,6 +538,18 @@
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Hvert punkt er én økt. Se om søvnmengde påvirker puls og tempo — mønster kan avdekke restitusjonstrender.</div>
       <div class="chart-wrap" style="height:220px"><canvas id="chartSleepHr"></canvas></div>
+    </div>
+    <div class="card span2">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+        <div class="card-title" style="margin-bottom:0">Tempo vs puls</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill" id="phrToggleAlle">Alle</span>
+          <span class="year-pill active" id="phrToggleEasy">Easy</span>
+          <span class="year-pill" id="phrToggleLang">Langtur</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Hvert punkt er én økt. Lavere puls ved samme tempo — eller raskere ved samme puls — tyder på bedre form.</div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chartPaceHr"></canvas></div>
     </div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -1655,6 +1679,8 @@ function buildYearPills(allSessions) {
 let zoneGroupBy = 'week';
 let aeVenueFilter = 'all';
 let sleepHrTypeFilter = 'Easy';
+let paceHrTypeFilter = 'Easy';
+let z2PaceTypeFilter = 'alle';
 let cachedBlocks = [];
 
 function renderZoneChart(sessions) {
@@ -2097,6 +2123,103 @@ function renderEfficiencyChart(sessions) {
   });
 }
 
+function renderZ2PaceChart(sessions) {
+  const typeFilter = z2PaceTypeFilter;
+  const filtered = sessions.filter(s => {
+    if (!s.tempo || s.tempo <= 0) return false;
+    if (typeFilter === 'alle') return s.okttype === 'Easy' || s.okttype === 'Langtur';
+    return s.okttype === typeFilter;
+  }).sort((a, b) => a.dato.localeCompare(b.dato));
+
+  destroyChart('z2Pace');
+  const el = document.getElementById('chartZ2Pace');
+  const wrap = el?.closest('.chart-wrap');
+  const existing = wrap?.querySelector('.z2p-empty');
+  if (existing) existing.remove();
+  if (el) el.style.display = '';
+
+  if (filtered.length < 2) {
+    if (el) el.style.display = 'none';
+    if (wrap) {
+      const msg = document.createElement('div');
+      msg.className = 'z2p-empty';
+      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
+      const lbl = typeFilter === 'alle' ? 'Easy eller Langtur' : typeFilter;
+      msg.textContent = `Trenger minst 2 ${lbl}-økter med tempodata.`;
+      wrap.appendChild(msg);
+    }
+    return;
+  }
+
+  const paces = filtered.map(s => s.tempo);
+  const rollingAvg = paces.map((_, i) => {
+    const slice = paces.slice(Math.max(0, i - 3), i + 1);
+    return Math.round(slice.reduce((sum, v) => sum + v, 0) / slice.length);
+  });
+
+  Charts.z2Pace = new Chart(el, {
+    type: 'line',
+    data: {
+      labels: filtered.map(s => s.dato),
+      datasets: [
+        {
+          label: 'Tempo',
+          data: paces,
+          borderColor: 'rgba(108,143,255,.5)',
+          backgroundColor: 'rgba(108,143,255,.1)',
+          pointRadius: 3,
+          borderWidth: 1,
+          tension: 0,
+          fill: true,
+        },
+        {
+          label: '4-økt snitt',
+          data: rollingAvg,
+          borderColor: 'rgba(75,190,120,.9)',
+          pointRadius: 0,
+          borderWidth: 2,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      plugins: {
+        legend: { display: true, labels: { color: '#e8eaf0', boxWidth: 20, font: { size: 11 } } },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          filter: item => item.datasetIndex < 1,
+          callbacks: {
+            title: ctx => {
+              const s = filtered[ctx[0].dataIndex];
+              return s.oktnavn ? `${s.dato} · ${s.oktnavn}` : `${s.dato} · ${s.okttype}`;
+            },
+            label: ctx => {
+              if (ctx.datasetIndex !== 0) return null;
+              const s = filtered[ctx.dataIndex];
+              const lines = [`Tempo: ${secsToMmSs(s.tempo)}/km`];
+              if (s.gjsnittspuls) lines.push(`Puls: ${s.gjsnittspuls} bpm`);
+              if (s.snittkmh != null) lines.push(`Snitt km/t: ${s.snittkmh.toFixed(1)}`);
+              return lines;
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          reverse: true,
+          grid: { color: '#2e3248' },
+          ticks: { color: '#7880a0', callback: v => secsToMmSs(v) },
+          title: { display: true, text: 'Tempo (min/km)', color: '#7880a0' },
+        },
+        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45, maxTicksLimit: 12 } },
+      },
+      responsive: true,
+      maintainAspectRatio: false,
+    },
+  });
+}
+
 function renderSleepHrChart(sessions) {
   const typeFilter = sleepHrTypeFilter;
   const filtered = sessions.filter(s => {
@@ -2228,6 +2351,145 @@ function renderSleepHrChart(sessions) {
           grid: { color: '#2e3248' },
           ticks: { color: '#7880a0' },
           title: { display: true, text: 'Gj.snittspuls (bpm)', color: '#7880a0' },
+        },
+      },
+      responsive: true,
+      maintainAspectRatio: false,
+    },
+  });
+}
+
+function renderPaceHrChart(sessions) {
+  const typeFilter = paceHrTypeFilter;
+  const filtered = sessions.filter(s => {
+    if (!s.tempo || s.tempo <= 0) return false;
+    if (!s.gjsnittspuls || s.gjsnittspuls <= 0) return false;
+    if (typeFilter !== 'alle' && s.okttype !== typeFilter) return false;
+    return true;
+  }).sort((a, b) => a.dato.localeCompare(b.dato));
+
+  destroyChart('paceHr');
+  const el = document.getElementById('chartPaceHr');
+  const wrap = el?.closest('.chart-wrap');
+  const existing = wrap?.querySelector('.phr-empty');
+  if (existing) existing.remove();
+  if (el) el.style.display = '';
+
+  if (filtered.length < 2) {
+    if (el) el.style.display = 'none';
+    if (wrap) {
+      const msg = document.createElement('div');
+      msg.className = 'phr-empty';
+      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
+      const lbl = typeFilter === 'alle' ? '' : ` (${typeFilter})`;
+      msg.textContent = `Trenger minst 2 økter${lbl} med tempo og pulsmåling.`;
+      wrap.appendChild(msg);
+    }
+    return;
+  }
+
+  const pts = filtered.map(s => ({ x: s.gjsnittspuls, y: s.tempo, s }));
+
+  const n = pts.length;
+  const sumX = pts.reduce((a, p) => a + p.x, 0);
+  const sumY = pts.reduce((a, p) => a + p.y, 0);
+  const sumXY = pts.reduce((a, p) => a + p.x * p.y, 0);
+  const sumX2 = pts.reduce((a, p) => a + p.x * p.x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  let regLine = [];
+  if (denom) {
+    const m = (n * sumXY - sumX * sumY) / denom;
+    const b = (sumY - m * sumX) / n;
+    const xVals = pts.map(p => p.x);
+    const xMin = Math.min(...xVals), xMax = Math.max(...xVals);
+    regLine = [{ x: xMin, y: +(m * xMin + b).toFixed(1) }, { x: xMax, y: +(m * xMax + b).toFixed(1) }];
+  }
+
+  const TYPE_COLORS = {
+    'Easy':      'rgba(75,190,120,.7)',
+    'Langtur':   'rgba(108,143,255,.7)',
+    'Tempo':     'rgba(255,160,80,.7)',
+    'Intervall': 'rgba(255,80,80,.7)',
+    'Terskel':   'rgba(220,120,255,.7)',
+  };
+  const DEFAULT_COLOR = 'rgba(140,150,180,.6)';
+
+  let scatterDatasets;
+  if (typeFilter === 'alle') {
+    const byType = {};
+    pts.forEach(p => { const t = p.s.okttype || 'Annet'; (byType[t] = byType[t] || []).push(p); });
+    scatterDatasets = Object.entries(byType).map(([type, typePts]) => ({
+      label: type,
+      data: typePts,
+      backgroundColor: TYPE_COLORS[type] || DEFAULT_COLOR,
+      pointRadius: 5,
+      pointHoverRadius: 7,
+    }));
+  } else {
+    scatterDatasets = [{
+      label: typeFilter,
+      data: pts,
+      backgroundColor: TYPE_COLORS[typeFilter] || DEFAULT_COLOR,
+      pointRadius: 5,
+      pointHoverRadius: 7,
+    }];
+  }
+
+  Charts.paceHr = new Chart(el, {
+    type: 'scatter',
+    data: {
+      datasets: [
+        ...scatterDatasets,
+        {
+          label: 'Trend',
+          data: regLine,
+          type: 'line',
+          borderColor: 'rgba(240,192,80,.8)',
+          borderDash: [5, 3],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0,
+        },
+      ],
+    },
+    options: {
+      plugins: {
+        legend: {
+          display: typeFilter === 'alle',
+          labels: { color: '#e8eaf0', boxWidth: 10, font: { size: 11 }, filter: item => item.text !== 'Trend' },
+        },
+        tooltip: {
+          callbacks: {
+            title: ctx => {
+              const p = ctx[0]?.raw;
+              if (!p?.s) return '';
+              return p.s.oktnavn ? `${p.s.dato} · ${p.s.oktnavn}` : p.s.dato;
+            },
+            label: ctx => {
+              const p = ctx.raw;
+              if (!p?.s) return '';
+              const s = p.s;
+              const lines = [];
+              if (s.okttype) lines.push(`Type: ${s.okttype}`);
+              lines.push(`Tempo: ${secsToMmSs(s.tempo)}/km`);
+              lines.push(`Puls: ${s.gjsnittspuls} bpm`);
+              if (s.snittkmh != null) lines.push(`Snitt km/t: ${s.snittkmh.toFixed(1)}`);
+              return lines;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: '#2e3248' },
+          ticks: { color: '#7880a0' },
+          title: { display: true, text: 'Gj.snittspuls (bpm)', color: '#7880a0' },
+        },
+        y: {
+          reverse: true,
+          grid: { color: '#2e3248' },
+          ticks: { color: '#7880a0', callback: v => secsToMmSs(v) },
+          title: { display: true, text: 'Tempo (min/km)', color: '#7880a0' },
         },
       },
       responsive: true,
@@ -3156,7 +3418,9 @@ function renderDashboard() {
   }
 
   renderEfficiencyChart(sessions);
+  renderZ2PaceChart(sessions);
   renderSleepHrChart(sessions);
+  renderPaceHrChart(sessions);
   renderVenueChart(sessions);
   const hasTreadmill = sessions.some(s => s.løpetype === 'treadmill');
   document.getElementById('venueCard').style.display = hasTreadmill ? '' : 'none';
@@ -3977,6 +4241,26 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('#shrToggleAlle,#shrToggleEasy,#shrToggleLang').forEach(el => el.classList.remove('active'));
       document.getElementById(id).classList.add('active');
       renderSleepHrChart(DashFilter.get(Store.data.sessions));
+    });
+  });
+
+  // Zone 2 pace type toggle
+  [['z2ToggleAlle','alle'],['z2ToggleEasy','Easy'],['z2ToggleLang','Langtur']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      z2PaceTypeFilter = val;
+      document.querySelectorAll('#z2ToggleAlle,#z2ToggleEasy,#z2ToggleLang').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderZ2PaceChart(DashFilter.get(Store.data.sessions));
+    });
+  });
+
+  // Pace vs HR type toggle
+  [['phrToggleAlle','alle'],['phrToggleEasy','Easy'],['phrToggleLang','Langtur']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      paceHrTypeFilter = val;
+      document.querySelectorAll('#phrToggleAlle,#phrToggleEasy,#phrToggleLang').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderPaceHrChart(DashFilter.get(Store.data.sessions));
     });
   });
 
