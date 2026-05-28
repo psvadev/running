@@ -114,6 +114,19 @@
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .dash-grid .span2 { grid-column: span 2; }
   @media (max-width: 768px) { .dash-grid { grid-template-columns: 1fr; } .dash-grid .span2 { grid-column: span 1; } }
+  @media (max-width: 600px) {
+    header { padding: 0 12px; gap: 8px; }
+    header h1 { font-size: 16px; }
+    .file-controls { gap: 6px; }
+    .tabs { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; padding: 0 12px; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { padding: 10px 12px; font-size: 13px; }
+    .panel { padding: 16px 12px; }
+    .dash-filter-bar { padding: 10px 12px; gap: 8px; }
+    .shoe-bar-row { grid-template-columns: 110px 1fr 44px; }
+    .zone-grid { grid-template-columns: repeat(3, 1fr); }
+    .records-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  }
 
   /* ── Records ── */
   .records-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
@@ -3187,8 +3200,8 @@ const DetailPanel = {
     }
 
     const detailParts = [
-      shoes.length ? `Sko: ${shoes.join(', ')}` : '',
-      indoorKm > 0 ? `Ute ${outdoorKm.toFixed(0)} km · Inne ${indoorKm.toFixed(0)} km` : '',
+      (shoes?.length) ? `Sko: ${shoes.join(', ')}` : '',
+      (indoorKm||0) > 0 ? `Ute ${(outdoorKm||0).toFixed(0)} km · Inne ${(indoorKm||0).toFixed(0)} km` : '',
     ].filter(Boolean);
 
     const runsHtml = blockSessions.slice().reverse().map(s =>
@@ -3370,31 +3383,42 @@ function renderDashboard() {
   });
   const weeks = Object.keys(weekMap).sort().slice(-20);
   destroyChart('weeklyDist');
-  Charts.weeklyDist = new Chart(document.getElementById('chartWeeklyDist'), {
-    type:'bar',
-    data:{
-      _rawLabels: weeks,
-      labels: weeks.map(fmtWeekLabel),
-      datasets:[{ data: weeks.map(w => weekMap[w].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
-    },
-    options:{
-      plugins:{ legend:{display:false}, tooltip:{ callbacks:{
-        title: items => fmtWeekLabel(weeks[items[0].dataIndex]),
-        label: () => null,
-        afterBody: items => {
-          const d = weekDetails[weeks[items[0].dataIndex]];
-          if (!d) return [];
-          const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
-          if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
-          if (d.hrCount)   lines.push(`HR: ${Math.round(d.hrSum/d.hrCount)}`);
-          return lines;
+  { const _el = document.getElementById('chartWeeklyDist'), _wrap = _el?.closest('.chart-wrap');
+    _wrap?.querySelector('.chart-no-data')?.remove();
+    if (!weeks.length) {
+      if (_el) _el.style.display = 'none';
+      const m = document.createElement('div'); m.className = 'chart-no-data';
+      m.style.cssText = 'color:var(--muted);font-size:12px;padding:20px 0;text-align:center';
+      m.textContent = 'Ingen data å vise'; _wrap?.appendChild(m);
+    } else {
+      if (_el) _el.style.display = '';
+      Charts.weeklyDist = new Chart(_el, {
+        type:'bar',
+        data:{
+          _rawLabels: weeks,
+          labels: weeks.map(fmtWeekLabel),
+          datasets:[{ data: weeks.map(w => weekMap[w].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
+        },
+        options:{
+          plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+            title: items => fmtWeekLabel(weeks[items[0].dataIndex]),
+            label: () => null,
+            afterBody: items => {
+              const d = weekDetails[weeks[items[0].dataIndex]];
+              if (!d) return [];
+              const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+              if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
+              if (d.hrCount)   lines.push(`HR: ${Math.round(d.hrSum/d.hrCount)}`);
+              return lines;
+            }
+          }}},
+          scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} },
+          onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(weeks[elements[0].index], Store.data.sessions); },
+          responsive:true, maintainAspectRatio:false
         }
-      }}},
-      scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} },
-      onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(weeks[elements[0].index], Store.data.sessions); },
-      responsive:true, maintainAspectRatio:false
+      });
     }
-  });
+  }
 
   // Pace per week (weighted average: total time / total distance)
   const paceWeekMap = {};
@@ -3414,33 +3438,44 @@ function renderDashboard() {
   const paceWeeks = Object.keys(paceWeekMap).sort().slice(-20);
   destroyChart('pace');
   const useKmh = paceUnit === 'kmh';
-  Charts.pace = new Chart(document.getElementById('chartPace'), {
-    type:'line',
-    data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(fmtWeekLabel),
-      datasets:[{
-        data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return useKmh ? parseFloat((dist/(secs/3600)).toFixed(2)) : parseFloat((secs/dist/60).toFixed(3)); }),
-        borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',
-        pointBackgroundColor:'#6c8fff',
-        pointRadius:4, tension:.3, fill:true
-      }]},
-    options:{
-      plugins:{ legend:{display:false}, tooltip:{ callbacks:{
-        title: items => fmtWeekLabel(paceWeeks[items[0].dataIndex]),
-        label: ctx => useKmh ? ctx.raw.toFixed(1)+' km/t' : secsToMmSs(Math.round(ctx.raw*60))+' /km',
-        afterBody: items => {
-          const d = paceWeekDetails[paceWeeks[items[0].dataIndex]];
-          if (!d) return [];
-          return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+  { const _el = document.getElementById('chartPace'), _wrap = _el?.closest('.chart-wrap');
+    _wrap?.querySelector('.chart-no-data')?.remove();
+    if (!paceWeeks.length) {
+      if (_el) _el.style.display = 'none';
+      const m = document.createElement('div'); m.className = 'chart-no-data';
+      m.style.cssText = 'color:var(--muted);font-size:12px;padding:20px 0;text-align:center';
+      m.textContent = 'Ingen data å vise'; _wrap?.appendChild(m);
+    } else {
+      if (_el) _el.style.display = '';
+      Charts.pace = new Chart(_el, {
+        type:'line',
+        data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(fmtWeekLabel),
+          datasets:[{
+            data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return useKmh ? parseFloat((dist/(secs/3600)).toFixed(2)) : parseFloat((secs/dist/60).toFixed(3)); }),
+            borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',
+            pointBackgroundColor:'#6c8fff',
+            pointRadius:4, tension:.3, fill:true
+          }]},
+        options:{
+          plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+            title: items => fmtWeekLabel(paceWeeks[items[0].dataIndex]),
+            label: ctx => useKmh ? ctx.raw.toFixed(1)+' km/t' : secsToMmSs(Math.round(ctx.raw*60))+' /km',
+            afterBody: items => {
+              const d = paceWeekDetails[paceWeeks[items[0].dataIndex]];
+              if (!d) return [];
+              return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+            }
+          }}},
+          scales:{
+            y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(Math.round(v*60))} },
+            x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
+          },
+          onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(paceWeeks[elements[0].index], Store.data.sessions); },
+          responsive:true, maintainAspectRatio:false
         }
-      }}},
-      scales:{
-        y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(Math.round(v*60))} },
-        x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
-      },
-      onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(paceWeeks[elements[0].index], Store.data.sessions); },
-      responsive:true, maintainAspectRatio:false
+      });
     }
-  });
+  }
 
   // Plan vs faktisk
   const planWeekMap = {};
