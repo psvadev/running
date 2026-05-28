@@ -1640,7 +1640,7 @@ const Log = {
         <td>${s.toppuls||''}</td>
         <td>${s.kalorier||''}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${s.sko||''}</td>
-        <td>${s.sovn ? hoursToHHMM(s.sovn) : ''}</td>
+        <td style="${s.sovn ? (s.sovn < 6 ? 'color:#e05555;font-weight:600' : s.sovn < 7 ? 'color:#f0c050;font-weight:600' : 'color:#4bbe78;font-weight:600') : ''}">${s.sovn ? hoursToHHMM(s.sovn) : ''}</td>
         <td>
           <button class="btn-icon btn-sm" onclick="Form.editSession('${s.id}')" title="Rediger">✏️</button>
           <button class="btn-icon btn-sm" onclick="Log.delete('${s.id}')" title="Slett" style="color:var(--danger)">🗑️</button>
