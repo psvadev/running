@@ -32,9 +32,12 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 
 Dashboard filters: session type, training plan, run type (outdoor/treadmill), **tempo unit (min/km ↔ km/t)**, year pills — all charts update live. The tempo unit toggle switches "Tempo per uke", "Tempo i sone 2", and "Tempo vs puls" between pace and speed simultaneously. **Nullstill** resets all filters including chart-local type pills, the pace unit toggle, and the Pulssoner Uke/Måned toggle.
 
+**Mobile:** all charts resize to fit the screen width — no horizontal page scrolling. The training calendar scrolls horizontally within its own card.
+
 ### Session log (Treningslogg)
 - Full sortable table — click any column header to sort
 - **Sleep column** colour-coded at a glance: red `< 6h` · yellow `6–7h` · green `≥ 7h`
+- **Mobile:** secondary columns hidden automatically (week, name, plan, target km, duration, max HR, calories, shoe, sleep); all fields still visible when opening the edit form
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe
 - Edit or delete any row
 - **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; TSV format matches the original Excel export (tab-separated, Norwegian headers, same column order and formatting)
