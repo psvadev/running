@@ -2067,7 +2067,22 @@ function renderPMCChart(allSessions) {
     dailyLoad[s.dato] = (dailyLoad[s.dato] || 0) + load;
   });
   destroyChart('pmc');
-  if (!Object.keys(dailyLoad).length) return;
+  const pmcEl = document.getElementById('chartPmc');
+  const pmcWrap = pmcEl?.closest('.chart-wrap');
+  const pmcExisting = pmcWrap?.querySelector('.pmc-empty');
+  if (pmcExisting) pmcExisting.remove();
+  if (pmcEl) pmcEl.style.display = '';
+  if (!Object.keys(dailyLoad).length) {
+    if (pmcEl) pmcEl.style.display = 'none';
+    if (pmcWrap) {
+      const msg = document.createElement('div');
+      msg.className = 'pmc-empty';
+      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
+      msg.textContent = 'Trenger økter med pulssonedata (Sone 1–5) for å beregne form og utmattelse.';
+      pmcWrap.appendChild(msg);
+    }
+    return;
+  }
 
   const kCTL = Math.exp(-1 / 42);
   const kATL = Math.exp(-1 / 7);
@@ -3398,11 +3413,12 @@ function renderDashboard() {
   });
   const paceWeeks = Object.keys(paceWeekMap).sort().slice(-20);
   destroyChart('pace');
+  const useKmh = paceUnit === 'kmh';
   Charts.pace = new Chart(document.getElementById('chartPace'), {
     type:'line',
     data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(fmtWeekLabel),
       datasets:[{
-        data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return +(secs/dist/60).toFixed(3); }),
+        data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return useKmh ? parseFloat((dist/(secs/3600)).toFixed(2)) : parseFloat((secs/dist/60).toFixed(3)); }),
         borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',
         pointBackgroundColor:'#6c8fff',
         pointRadius:4, tension:.3, fill:true
@@ -3410,7 +3426,7 @@ function renderDashboard() {
     options:{
       plugins:{ legend:{display:false}, tooltip:{ callbacks:{
         title: items => fmtWeekLabel(paceWeeks[items[0].dataIndex]),
-        label: ctx => secsToMmSs(Math.round(ctx.raw*60))+' /km',
+        label: ctx => useKmh ? ctx.raw.toFixed(1)+' km/t' : secsToMmSs(Math.round(ctx.raw*60))+' /km',
         afterBody: items => {
           const d = paceWeekDetails[paceWeeks[items[0].dataIndex]];
           if (!d) return [];
@@ -3418,7 +3434,7 @@ function renderDashboard() {
         }
       }}},
       scales:{
-        y:{ reverse:true, grid:{color:'#2e3248'}, ticks:{color:'#7880a0', callback: v => Math.floor(v)+':'+(Math.round((v%1)*60)).toString().padStart(2,'0')} },
+        y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(Math.round(v*60))} },
         x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
       },
       onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(paceWeeks[elements[0].index], Store.data.sessions); },
@@ -4398,6 +4414,20 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('dfType').value = '';
     document.getElementById('dfPlan').value = '';
     document.querySelector('input[name="dfLopetype"][value=""]').checked = true;
+    paceUnit = 'pace';
+    document.querySelector('input[name="dfPaceUnit"][value="pace"]').checked = true;
+    aeVenueFilter = 'all';
+    document.querySelectorAll('#aeToggleAlle,#aeToggleUte,#aeToggleInn').forEach(el => el.classList.remove('active'));
+    document.getElementById('aeToggleAlle').classList.add('active');
+    sleepHrTypeFilter = 'Easy';
+    document.querySelectorAll('#shrToggleAlle,#shrToggleEasy,#shrToggleLang').forEach(el => el.classList.remove('active'));
+    document.getElementById('shrToggleEasy').classList.add('active');
+    paceHrTypeFilter = 'Easy';
+    document.querySelectorAll('#phrToggleAlle,#phrToggleEasy,#phrToggleLang').forEach(el => el.classList.remove('active'));
+    document.getElementById('phrToggleEasy').classList.add('active');
+    z2PaceTypeFilter = 'alle';
+    document.querySelectorAll('#z2ToggleAlle,#z2ToggleEasy,#z2ToggleLang').forEach(el => el.classList.remove('active'));
+    document.getElementById('z2ToggleAlle').classList.add('active');
     renderDashboard();
   });
 

@@ -30,7 +30,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 - **Sko oversikt** — total km per shoe pair + per-shoe stats: run count, avg pace, avg HR, last used date
 - **Ukentlig oversikt** — scrollable summary table (sessions, distance, time, avg pace per week)
 
-Dashboard filters: session type, training plan, run type (outdoor/treadmill), **tempo unit (min/km ↔ km/t)**, year pills — all charts update live. The tempo unit toggle switches both "Tempo i sone 2" and "Tempo vs puls" between pace and speed simultaneously.
+Dashboard filters: session type, training plan, run type (outdoor/treadmill), **tempo unit (min/km ↔ km/t)**, year pills — all charts update live. The tempo unit toggle switches "Tempo per uke", "Tempo i sone 2", and "Tempo vs puls" between pace and speed simultaneously. **Nullstill** resets all filters including chart-local type pills and the pace unit toggle.
 
 ### Session log (Treningslogg)
 - Full sortable table — click any column header to sort
