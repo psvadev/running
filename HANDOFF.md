@@ -18,6 +18,8 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 | Excel import | SheetJS xlsx 0.18.5 (CDN) |
 | Data storage | Local JSON file via File System Access API (Edge/Chrome auto-save); download/upload fallback for Firefox |
 | Handle persistence | `HandleDB` — stores `FileSystemFileHandle` in IndexedDB so the file re-attaches on next load without a file picker |
+| Backup persistence | `BackupDB` (`lpl_backups` IndexedDB db) — daily JSON snapshots, last 7 kept; auto-triggered on every `Store.load()` |
+| Favicon | Inline SVG data URI in `<head>` — 🏃 emoji, no external file |
 | Language | Vanilla JS, no TypeScript |
 
 ---
@@ -142,7 +144,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 ### ⚙️ Innstillinger (settings tab — max 1200px)
 - **Profil & Puls**: max HR, resting HR, 5 zone BPM boundaries, "Auto-beregn" button (fills zones at 50/60/70/80/90% of max HR)
 - **Treningsrytme**: km-grense per uke (default 15) and løp-grense per uke (default 2); saved to `Store.data.consistencySettings`; triggers `renderDashboard()` on save so score updates immediately
-- **Datafil**: open file, new file, download/export, **📥 Importer Excel/CSV** (moved here from Treningslogg), "Tøm alle data" danger button
+- **Datafil**: open file, new file, download/export, **📥 Importer Excel/CSV** (moved here from Treningslogg), "Tøm alle data" danger button. **Lokale sikkerhetskopier** card below: lists last 7 daily IndexedDB snapshots (date + session count); **↩ Gjenopprett** restores that backup, overwrites current data, and saves the file; list populated by `Settings.renderBackupList()` which is called on every Settings tab open
 
 ---
 
