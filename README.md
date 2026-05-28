@@ -11,8 +11,8 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 
 ### Dashboard (Oversikt)
 - **Yearly goal card** — progress bar with km done, km remaining, year-end projection, and required weekly km to stay on track
-- **Rekorder** — best pace, longest session (time + distance), best avg km/h, total distance and time, best week, longest streak; plus distance PRs for 5 km, 10 km, half marathon, and marathon
-- **Innsikter** — auto-generated insight tiles: km milestones, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month
+- **Rekorder** — best pace, longest session (time + distance), best avg km/h, total distance and time, best week, longest streak, current streak, best Easy pace, best Langtur pace, best aerobic efficiency; plus distance PRs for 5 km, 10 km, half marathon, and marathon
+- **Innsikter** — dynamic pool of insight candidates ranked by priority and recency; top 6 shown: km milestones (passed and upcoming), shoe retirement warnings, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month, Easy pace trend (last 8 vs prior 8 weeks), days since last run
 - **Treningsrytme** — consistency score 0–100 over the last 12 weeks (active-week rate, volume threshold weeks, streak bonus); score breakdown bars show contribution of each component (max 50/30/20 pts); configurable km/run-count thresholds in Settings; monthly active-weeks trend chart
 - **Treningsblokker** — auto-generated training block cards from Plan events; active block is a full-width hero card with consistency progress bar and weekly km sparkline; past blocks shown as compact cards below; click any card for a rich drill-down: weekly progression bars (each row clickable → week detail; badges for Toppuke / Lengste løp / Raskest), auto-generated highlights (best week, longest run, streak, pace trend), consistency breakdown, comparison vs previous block, and full run list
 - **Treningsbelastning per uke** — weekly training load scored by zone intensity (Z1=1 … Z5=5 points/min), color-coded bars with 4-week rolling average

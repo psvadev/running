@@ -2244,7 +2244,7 @@ function renderZ2PaceChart(sessions) {
     return useKmh ? parseFloat(avg.toFixed(2)) : Math.round(avg);
   });
 
-  Charts.z2Pace = new Chart(el, {
+  Charts.z2Pace = new Chart(document.getElementById('chartZ2Pace'), {
     type: 'line',
     data: {
       labels: filtered.map(s => s.dato),
@@ -2370,7 +2370,7 @@ function renderSleepHrChart(sessions) {
     }];
   }
 
-  Charts.sleepHr = new Chart(el, {
+  Charts.sleepHr = new Chart(document.getElementById('chartSleepHr'), {
     type: 'scatter',
     data: {
       datasets: [
@@ -2495,7 +2495,7 @@ function renderPaceHrChart(sessions) {
     }];
   }
 
-  Charts.paceHr = new Chart(el, {
+  Charts.paceHr = new Chart(document.getElementById('chartPaceHr'), {
     type: 'scatter',
     data: {
       datasets: [
@@ -2567,50 +2567,119 @@ function renderInsights(sessions) {
   if (!el) return;
   if (!sessions.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">Ingen data</div>'; return; }
 
-  const insights = [];
+  try {
+  const today = new Date().toISOString().slice(0, 10);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const curMonth  = today.slice(0, 7);
+  const lastMonth = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 7);
+  const mNames    = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+  const totalKm   = sessions.reduce((s, x) => s + (x.distanse || 0), 0);
+  const candidates = [];
 
-  const totalKm = sessions.reduce((s,x)=>s+(x.distanse||0),0);
-  const passed = [100,250,500,750,1000,1500,2000,3000,5000].filter(m=>totalKm>=m);
-  if (passed.length) insights.push({ icon:'🎯', val:`${passed[passed.length-1]} km`, sub:`totalt passert (${totalKm.toFixed(0)} km totalt)` });
+  // Km milestone passed
+  const MILESTONES = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000];
+  const passed = MILESTONES.filter(m => totalKm >= m);
+  if (passed.length) {
+    const top = passed[passed.length - 1];
+    let cumKm = 0, crossDate = null;
+    for (const s of [...sessions].sort((a, b) => (a.dato||'').localeCompare(b.dato||''))) {
+      cumKm += s.distanse || 0;
+      if (cumKm >= top) { crossDate = s.dato; break; }
+    }
+    candidates.push({ icon:'🎯', val:`${top} km`, sub:`totalt passert (${totalKm.toFixed(0)} km totalt)`, priority: crossDate >= thirtyDaysAgo ? 5 : 3 });
+  }
 
+  // Next km milestone
+  const nextMilestone = MILESTONES.find(m => m > totalKm);
+  if (nextMilestone) {
+    const rem = (nextMilestone - totalKm).toFixed(0);
+    candidates.push({ icon:'📍', val:`${rem} km igjen`, sub:`til ${nextMilestone} km-merket`, priority: nextMilestone - totalKm < 50 ? 4 : 2 });
+  }
+
+  // Most used shoe
   const shoeKm = {};
-  sessions.forEach(s=>{ if(s.sko) shoeKm[s.sko]=(shoeKm[s.sko]||0)+(s.distanse||0); });
-  const topShoe = Object.entries(shoeKm).sort((a,b)=>b[1]-a[1])[0];
-  if (topShoe) insights.push({ icon:'👟', val:topShoe[0], sub:`${(+topShoe[1]).toFixed(0)} km – mest brukte` });
+  sessions.forEach(s => { if (s.sko) shoeKm[s.sko] = (shoeKm[s.sko] || 0) + (s.distanse || 0); });
+  const topShoe = Object.entries(shoeKm).sort((a, b) => b[1] - a[1])[0];
+  if (topShoe) candidates.push({ icon:'👟', val:topShoe[0], sub:`${(+topShoe[1]).toFixed(0)} km – mest brukte`, priority: 2 });
 
+  // Shoe approaching retirement (active shoes >= 400 km)
+  (Store.data.shoes || []).filter(s => !s.retired).forEach(shoe => {
+    const km = shoeKm[shoe.name] || 0;
+    if (km >= 400) candidates.push({ icon:'⚠️', val:shoe.name, sub:`${km.toFixed(0)} km – nærmer seg pensjonering`, priority: km >= 450 ? 4 : 3 });
+  });
+
+  // Heaviest 4-week training block
   const loadByWeek = {};
-  sessions.forEach(s=>{
+  sessions.forEach(s => {
     if (!s.soner) return;
-    const w = s.uke||isoWeek(s.dato);
-    const ZONE_WEIGHTS=[1,2,3,4,5];
-    loadByWeek[w]=(loadByWeek[w]||0)+s.soner.reduce((sum,secs,i)=>sum+(secs||0)*ZONE_WEIGHTS[i],0)/60;
+    const w = s.uke || isoWeek(s.dato);
+    loadByWeek[w] = (loadByWeek[w] || 0) + s.soner.reduce((sum, secs, i) => sum + (secs || 0) * [1,2,3,4,5][i], 0) / 60;
   });
   const sortedWks = Object.keys(loadByWeek).sort();
-  let maxBlock=0;
-  for (let i=0; i+3<sortedWks.length; i++) {
-    const block4=[0,1,2,3].reduce((s,j)=>s+(loadByWeek[sortedWks[i+j]]||0),0);
-    if (block4>maxBlock) maxBlock=block4;
+  let maxBlock = 0;
+  for (let i = 0; i + 3 < sortedWks.length; i++) {
+    const b4 = [0,1,2,3].reduce((s, j) => s + (loadByWeek[sortedWks[i+j]] || 0), 0);
+    if (b4 > maxBlock) maxBlock = b4;
   }
-  if (maxBlock>0) insights.push({ icon:'⚡', val:`${Math.round(maxBlock)} pkt`, sub:'tyngste 4-ukers blokk · S1=1 → S5=5 pkt/min' });
+  if (maxBlock > 0) candidates.push({ icon:'⚡', val:`${Math.round(maxBlock)} pkt`, sub:'tyngste 4-ukers blokk · S1=1 → S5=5 pkt/min', priority: 2 });
 
-  const easyWithPace = sessions.filter(s=>s.okttype==='Easy'&&s.tempo>0);
+  // Fastest Easy session
+  const easyWithPace = sessions.filter(s => s.okttype === 'Easy' && s.tempo > 0);
   if (easyWithPace.length) {
-    const fastest = easyWithPace.reduce((a,s)=>s.tempo<a.tempo?s:a);
-    insights.push({ icon:'💨', val:secsToMmSs(fastest.tempo)+' /km', sub:`raskeste Easy (${fmtDate(fastest.dato)})` });
+    const fastest = easyWithPace.reduce((a, s) => s.tempo < a.tempo ? s : a);
+    candidates.push({ icon:'💨', val:secsToMmSs(fastest.tempo)+' /km', sub:`raskeste Easy (${fmtDate(fastest.dato)})`, priority: fastest.dato >= thirtyDaysAgo ? 4 : 2 });
   }
 
-  const monthCount = {};
-  sessions.forEach(s=>{ if(s.dato){ const m=s.dato.slice(0,7); monthCount[m]=(monthCount[m]||0)+1; } });
-  const topMonth = Object.entries(monthCount).sort((a,b)=>b[1]-a[1])[0];
-  if (topMonth && topMonth[1]>1) {
-    const [y,m] = topMonth[0].split('-');
-    const mNames=['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
-    insights.push({ icon:'📅', val:`${mNames[+m-1]} ${y}`, sub:`${topMonth[1]} økter – mest aktive måned` });
+  // Most active month by km (primary) and by session count (only if different month)
+  const monthKm = {}, monthCount = {};
+  sessions.forEach(s => {
+    if (!s.dato) return;
+    const m = s.dato.slice(0, 7);
+    monthKm[m]    = (monthKm[m]    || 0) + (s.distanse || 0);
+    monthCount[m] = (monthCount[m] || 0) + 1;
+  });
+  const topMonthKm  = Object.entries(monthKm).sort((a, b) => b[1] - a[1])[0];
+  const topMonthCnt = Object.entries(monthCount).sort((a, b) => b[1] - a[1])[0];
+  if (topMonthKm) {
+    const [y, m] = topMonthKm[0].split('-');
+    const recent = topMonthKm[0] === curMonth || topMonthKm[0] === lastMonth;
+    candidates.push({ icon:'🏅', val:`${mNames[+m-1]} ${y}`, sub:`${topMonthKm[1].toFixed(0)} km – beste km-måned`, priority: recent ? 4 : 1 });
+  }
+  if (topMonthCnt && topMonthCnt[1] > 1 && (!topMonthKm || topMonthCnt[0] !== topMonthKm[0])) {
+    const [y, m] = topMonthCnt[0].split('-');
+    const recent = topMonthCnt[0] === curMonth || topMonthCnt[0] === lastMonth;
+    candidates.push({ icon:'📅', val:`${mNames[+m-1]} ${y}`, sub:`${topMonthCnt[1]} økter – mest aktive måned`, priority: recent ? 3 : 1 });
   }
 
-  el.innerHTML = insights.slice(0,6).map(ins =>
+  // Easy pace trend: last 8 weeks vs prior 8 weeks (show if >= 3% change)
+  const w8ago  = new Date(Date.now() -  56 * 86400000).toISOString().slice(0, 10);
+  const w16ago = new Date(Date.now() - 112 * 86400000).toISOString().slice(0, 10);
+  const recentEasy = sessions.filter(s => s.okttype === 'Easy' && s.tempo > 0 && s.dato >= w8ago);
+  const priorEasy  = sessions.filter(s => s.okttype === 'Easy' && s.tempo > 0 && s.dato >= w16ago && s.dato < w8ago);
+  if (recentEasy.length >= 3 && priorEasy.length >= 3) {
+    const avgR = recentEasy.reduce((s, x) => s + x.tempo, 0) / recentEasy.length;
+    const avgP = priorEasy.reduce((s,  x) => s + x.tempo, 0) / priorEasy.length;
+    const pct  = (avgP - avgR) / avgP * 100; // positive = faster
+    if (Math.abs(pct) >= 3) {
+      const improving = pct > 0;
+      candidates.push({ icon: improving ? '📈' : '📉', val:`${Math.abs(pct).toFixed(1)}% ${improving ? 'raskere' : 'tregere'}`, sub:`Easy-tempo siste 8 uker vs. forrige 8`, priority: improving ? 3 : 2 });
+    }
+  }
+
+  // Days since last run (show if >= 10 days)
+  const lastSession = sessions.filter(s => s.dato).sort((a, b) => b.dato.localeCompare(a.dato))[0];
+  if (lastSession) {
+    const daysSince = Math.round((new Date(today) - new Date(lastSession.dato)) / 86400000);
+    if (daysSince >= 10) candidates.push({ icon:'😴', val:`${daysSince} dager`, sub:'siden siste løpetur', priority: daysSince >= 14 ? 4 : 3 });
+  }
+
+  candidates.sort((a, b) => b.priority - a.priority);
+  el.innerHTML = candidates.slice(0, 6).map(ins =>
     `<div class="insight-item"><span class="i-icon">${ins.icon}</span><div class="i-body"><div class="i-val">${ins.val}</div><div class="i-sub">${ins.sub}</div></div></div>`
-  ).join('');
+  ).join('') || '<div style="color:var(--muted);font-size:12px">Ingen innsikter tilgjengelig</div>';
+  } catch(e) {
+    el.innerHTML = `<div style="color:red;font-size:11px">DEBUG: ${e.message}</div>`;
+  }
 }
 
 function renderConsistency(sessions) {
@@ -2900,7 +2969,7 @@ function renderVenueChart(sessions) {
   const weeks = Object.keys(weekKm).sort().slice(-20);
   if (!weeks.length) return;
 
-  Charts.venue = new Chart(el, {
+  Charts.venue = new Chart(document.getElementById('chartVenue'), {
     type: 'bar',
     data: {
       labels: weeks,
@@ -3251,6 +3320,10 @@ function renderDashboard() {
     { label:'Totalt tid', value: secsToHms(recs.totalTime), sub: '' },
     { label:'Beste uke', value: recs.besteUke ? recs.besteUkeKm.toFixed(1)+' km' : '–', sub: recs.besteUke ? fmtWeekLabel(recs.besteUke) : '' },
     { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
+    { label:'Nåværende streak', value: recs.currentStreak ? `${recs.currentStreak} uker` : '–', sub: recs.currentStreak > 1 ? 'på rad nå' : recs.currentStreak === 1 ? 'denne uken' : '' },
+    { label:'Beste Easy-tempo', value: recs.bestEasyPace ? secsToMmSs(recs.bestEasyPace.tempo)+' /km' : '–', sub: recs.bestEasyPace ? fmtDate(recs.bestEasyPace.dato) : '' },
+    { label:'Beste Langtur-tempo', value: recs.bestLangturPace ? secsToMmSs(recs.bestLangturPace.tempo)+' /km' : '–', sub: recs.bestLangturPace ? fmtDate(recs.bestLangturPace.dato) : '' },
+    { label:'Beste aerob eff.', value: recs.bestAerobEff ? recs.bestAerobEff.ae.toFixed(2) : '–', sub: recs.bestAerobEff ? `${(+recs.bestAerobEff.kmh).toFixed(1)} km/t · ${recs.bestAerobEff.gjsnittspuls} bpm · ${fmtDate(recs.bestAerobEff.dato)}` : '' },
   ].map(r => `<div class="record-card"><div class="record-label">${r.label}</div><div class="record-value">${r.value}</div><div class="record-sub">${r.sub}</div></div>`).join('');
 
   document.getElementById('distPRGrid').innerHTML = recs.distPRs.map(({ label, session: s }) => {
@@ -3633,6 +3706,7 @@ function renderDashboard() {
 
 function computeRecords(sessions) {
   let bestePace=null, longestDist=null, longestTime=null, bestKmh=null;
+  let bestEasyPace=null, bestLangturPace=null, bestAerobEff=null;
   let totalDist=0, totalTime=0;
   const weekKm = {};
   const absWeekSet = new Set();
@@ -3643,6 +3717,13 @@ function computeRecords(sessions) {
     if (s.distanse && (!longestDist || s.distanse > longestDist.distanse)) longestDist=s;
     if (s.varighet && (!longestTime || s.varighet > longestTime.varighet)) longestTime=s;
     if (s.snittkmh && (!bestKmh || s.snittkmh > bestKmh.snittkmh)) bestKmh=s;
+    if (s.okttype==='Easy' && s.tempo && (!bestEasyPace || s.tempo < bestEasyPace.tempo)) bestEasyPace=s;
+    if (s.okttype==='Langtur' && s.tempo && (!bestLangturPace || s.tempo < bestLangturPace.tempo)) bestLangturPace=s;
+    const kmh = s.snittkmh || (s.distanse && s.varighet > 0 ? +(s.distanse / (s.varighet / 3600)).toFixed(2) : 0);
+    if (s.okttype==='Easy' && s.gjsnittspuls > 0 && kmh > 0) {
+      const ae = +(kmh / s.gjsnittspuls * 100).toFixed(2);
+      if (!bestAerobEff || ae > bestAerobEff.ae) bestAerobEff = { ...s, ae, kmh };
+    }
     const wk = s.uke || isoWeek(s.dato);
     weekKm[wk] = (weekKm[wk]||0) + (s.distanse||0);
     if (s.dato) absWeekSet.add(absWeekNum(s.dato));
@@ -3657,6 +3738,13 @@ function computeRecords(sessions) {
     curStreak = (i>0 && w===absWeeks[i-1]+1) ? curStreak+1 : 1;
     if (curStreak>maxStreak) maxStreak=curStreak;
   });
+  // Current streak (count backwards from this week)
+  const nowAbs = absWeekNum(new Date().toISOString().slice(0,10));
+  let currentStreak = 0;
+  for (let w = nowAbs; w >= nowAbs - 52; w--) {
+    if (absWeekSet.has(w)) currentStreak++;
+    else break;
+  }
   const PR_BRACKETS = [
     { label:'5 km',        min:4.5,  max:5.5  },
     { label:'10 km',       min:9.0,  max:11.0 },
@@ -3668,7 +3756,7 @@ function computeRecords(sessions) {
     if (!candidates.length) return { label: b.label, session: null };
     return { label: b.label, session: candidates.reduce((a, s) => s.tempo < a.tempo ? s : a) };
   });
-  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, besteUke, besteUkeKm:+besteUkeKm.toFixed(1), longestStreak:maxStreak, distPRs };
+  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, besteUke, besteUkeKm:+besteUkeKm.toFixed(1), longestStreak:maxStreak, currentStreak, bestEasyPace, bestLangturPace, bestAerobEff, distPRs };
 }
 
 // ═══════════════════════════════════════════════════════
