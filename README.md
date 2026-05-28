@@ -34,6 +34,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 
 ### Session log (Treningslogg)
 - Full sortable table — click any column header to sort
+- **Sleep column** colour-coded at a glance: red `< 6h` · yellow `6–7h` · green `≥ 7h`
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe
 - Edit or delete any row
 - **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; TSV format matches the original Excel export (tab-separated, Norwegian headers, same column order and formatting)

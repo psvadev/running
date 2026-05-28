@@ -121,6 +121,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 
 ### 📋 Treningslogg (log tab — full width)
 - Full-width sortable table (click column headers); columns include **Plan** (treningsplan) after Navn and **Mål km** after Dist
+- **Søvn column** colour-coded: red `< 6h`, yellow `6–7h`, green `≥ 7h`; empty cells unstyled
 - Filters: fra/til dato, økt-type, **treningsplan (Plan)**, **løpetype** (Alle / 🏃 Utendørs / ⚙️ Tredemølle), sko — all wired to `fFilterPlan`, `fFilterLopetype` etc.; Nullstill clears all
 - Each row shows a 🏃/⚙️ venue badge next to the session type badge (all sessions; untagged = outdoor)
 - Row actions: ✏️ edit (goes to form tab, **returns to log on save/cancel**), 🗑️ delete (with confirm)
