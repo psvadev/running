@@ -125,7 +125,7 @@
     .tab { padding: 10px 12px; font-size: 13px; }
     .panel { padding: 16px 12px; }
     .dash-filter-bar { padding: 10px 12px; gap: 8px; }
-    .dash-grid > * { min-width: 0; overflow: hidden; }
+    .dash-grid > * { min-width: 0; }
     .cs-stat { min-width: 0; flex: 1 1 75px; }
     .form-grid-4 { grid-template-columns: repeat(2, 1fr); }
     #logTable th:nth-child(3),  #logTable td:nth-child(3),
@@ -933,6 +933,23 @@ function fmtDate(str) {
 }
 
 function fmtDist(v) { return v != null ? Number(v).toFixed(2) : ''; }
+
+function showChartEmpty(canvasId, show, msg = 'Ingen data å vise') {
+  const el = document.getElementById(canvasId);
+  const wrap = el?.closest('.chart-wrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.chart-no-data').forEach(n => n.remove());
+  if (show) {
+    if (el) el.style.display = 'none';
+    const m = document.createElement('div');
+    m.className = 'chart-no-data';
+    m.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0;text-align:center';
+    m.textContent = msg;
+    wrap.appendChild(m);
+  } else {
+    if (el) el.style.display = '';
+  }
+}
 
 function hoursToHHMM(h) {
   if (!h && h !== 0) return '';
@@ -2095,22 +2112,8 @@ function renderPMCChart(allSessions) {
     dailyLoad[s.dato] = (dailyLoad[s.dato] || 0) + load;
   });
   destroyChart('pmc');
-  const pmcEl = document.getElementById('chartPmc');
-  const pmcWrap = pmcEl?.closest('.chart-wrap');
-  const pmcExisting = pmcWrap?.querySelector('.pmc-empty');
-  if (pmcExisting) pmcExisting.remove();
-  if (pmcEl) pmcEl.style.display = '';
-  if (!Object.keys(dailyLoad).length) {
-    if (pmcEl) pmcEl.style.display = 'none';
-    if (pmcWrap) {
-      const msg = document.createElement('div');
-      msg.className = 'pmc-empty';
-      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
-      msg.textContent = 'Trenger økter med pulssonedata (Sone 1–5) for å beregne form og utmattelse.';
-      pmcWrap.appendChild(msg);
-    }
-    return;
-  }
+  showChartEmpty('chartPmc', !Object.keys(dailyLoad).length, 'Trenger økter med pulssonedata (Sone 1–5) for å beregne form og utmattelse.');
+  if (!Object.keys(dailyLoad).length) return;
 
   const kCTL = Math.exp(-1 / 42);
   const kATL = Math.exp(-1 / 7);
@@ -2172,24 +2175,9 @@ function renderEfficiencyChart(sessions) {
     .sort((a, b) => a.dato.localeCompare(b.dato));
 
   destroyChart('efficiency');
-  const el = document.getElementById('chartEfficiency');
-  const wrap = el?.closest('.chart-wrap');
-  const existing = wrap?.querySelector('.ae-empty');
-  if (existing) existing.remove();
-  if (el) el.style.display = '';
-
-  if (easySessions.length < 2) {
-    if (el) el.style.display = 'none';
-    if (wrap) {
-      const msg = document.createElement('div');
-      msg.className = 'ae-empty';
-      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
-      const venueLabel = vf === 'outdoor' ? ' utendørs' : vf === 'indoor' ? ' på tredemølle' : '';
-      msg.textContent = `Trenger minst 2 Easy-økter${venueLabel} med pulsmåling.`;
-      wrap.appendChild(msg);
-    }
-    return;
-  }
+  const venueLabel = vf === 'outdoor' ? ' utendørs' : vf === 'indoor' ? ' på tredemølle' : '';
+  showChartEmpty('chartEfficiency', easySessions.length < 2, `Trenger minst 2 Easy-økter${venueLabel} med pulsmåling.`);
+  if (easySessions.length < 2) return;
 
   const scores = easySessions.map(s => +(s.snittkmh / s.gjsnittspuls * 100).toFixed(2));
   const avg = +(scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(2);
@@ -2244,24 +2232,9 @@ function renderZ2PaceChart(sessions) {
   }).sort((a, b) => a.dato.localeCompare(b.dato));
 
   destroyChart('z2Pace');
-  const el = document.getElementById('chartZ2Pace');
-  const wrap = el?.closest('.chart-wrap');
-  const existing = wrap?.querySelector('.z2p-empty');
-  if (existing) existing.remove();
-  if (el) el.style.display = '';
-
-  if (filtered.length < 2) {
-    if (el) el.style.display = 'none';
-    if (wrap) {
-      const msg = document.createElement('div');
-      msg.className = 'z2p-empty';
-      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
-      const lbl = typeFilter === 'alle' ? 'Easy eller Langtur' : typeFilter;
-      msg.textContent = `Trenger minst 2 ${lbl}-økter med tempodata.`;
-      wrap.appendChild(msg);
-    }
-    return;
-  }
+  const lbl = typeFilter === 'alle' ? 'Easy eller Langtur' : typeFilter;
+  showChartEmpty('chartZ2Pace', filtered.length < 2, `Trenger minst 2 ${lbl}-økter med tempodata.`);
+  if (filtered.length < 2) return;
 
   const useKmh = paceUnit === 'kmh';
   const values = filtered.map(s => useKmh ? parseFloat((3600 / s.tempo).toFixed(2)) : s.tempo);
@@ -2346,24 +2319,9 @@ function renderSleepHrChart(sessions) {
   }).sort((a, b) => a.dato.localeCompare(b.dato));
 
   destroyChart('sleepHr');
-  const el = document.getElementById('chartSleepHr');
-  const wrap = el?.closest('.chart-wrap');
-  const existing = wrap?.querySelector('.shr-empty');
-  if (existing) existing.remove();
-  if (el) el.style.display = '';
-
-  if (filtered.length < 2) {
-    if (el) el.style.display = 'none';
-    if (wrap) {
-      const msg = document.createElement('div');
-      msg.className = 'shr-empty';
-      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
-      const lbl = typeFilter === 'alle' ? '' : ` (${typeFilter})`;
-      msg.textContent = `Trenger minst 2 økter${lbl} med både søvn og pulsmåling.`;
-      wrap.appendChild(msg);
-    }
-    return;
-  }
+  const lbl = typeFilter === 'alle' ? '' : ` (${typeFilter})`;
+  showChartEmpty('chartSleepHr', filtered.length < 2, `Trenger minst 2 økter${lbl} med både søvn og pulsmåling.`);
+  if (filtered.length < 2) return;
 
   const pts = filtered.map(s => ({ x: s.sovn, y: s.gjsnittspuls, s }));
 
@@ -2485,24 +2443,9 @@ function renderPaceHrChart(sessions) {
   }).sort((a, b) => a.dato.localeCompare(b.dato));
 
   destroyChart('paceHr');
-  const el = document.getElementById('chartPaceHr');
-  const wrap = el?.closest('.chart-wrap');
-  const existing = wrap?.querySelector('.phr-empty');
-  if (existing) existing.remove();
-  if (el) el.style.display = '';
-
-  if (filtered.length < 2) {
-    if (el) el.style.display = 'none';
-    if (wrap) {
-      const msg = document.createElement('div');
-      msg.className = 'phr-empty';
-      msg.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0';
-      const lbl = typeFilter === 'alle' ? '' : ` (${typeFilter})`;
-      msg.textContent = `Trenger minst 2 økter${lbl} med tempo og pulsmåling.`;
-      wrap.appendChild(msg);
-    }
-    return;
-  }
+  const lbl = typeFilter === 'alle' ? '' : ` (${typeFilter})`;
+  showChartEmpty('chartPaceHr', filtered.length < 2, `Trenger minst 2 økter${lbl} med tempo og pulsmåling.`);
+  if (filtered.length < 2) return;
 
   const useKmh = paceUnit === 'kmh';
   const pts = filtered.map(s => ({ x: s.gjsnittspuls, y: useKmh ? parseFloat((3600 / s.tempo).toFixed(2)) : s.tempo, s }));
@@ -3343,7 +3286,8 @@ function renderDashboard() {
     return +(slice.reduce((s, v) => s + v, 0) / slice.length).toFixed(0);
   });
   destroyChart('load');
-  Charts.load = new Chart(document.getElementById('chartLoad'), {
+  showChartEmpty('chartLoad', !loadWeeks.length, 'Trenger økter med pulssonedata (Sone 1–5) for å beregne belastning.');
+  if (loadWeeks.length) Charts.load = new Chart(document.getElementById('chartLoad'), {
     type: 'bar',
     data: {
       _rawLabels: loadWeeks,
@@ -3398,41 +3342,33 @@ function renderDashboard() {
   });
   const weeks = Object.keys(weekMap).sort().slice(-20);
   destroyChart('weeklyDist');
-  { const _el = document.getElementById('chartWeeklyDist'), _wrap = _el?.closest('.chart-wrap');
-    _wrap?.querySelector('.chart-no-data')?.remove();
-    if (!weeks.length) {
-      if (_el) _el.style.display = 'none';
-      const m = document.createElement('div'); m.className = 'chart-no-data';
-      m.style.cssText = 'color:var(--muted);font-size:12px;padding:20px 0;text-align:center';
-      m.textContent = 'Ingen data å vise'; _wrap?.appendChild(m);
-    } else {
-      if (_el) _el.style.display = '';
-      Charts.weeklyDist = new Chart(_el, {
-        type:'bar',
-        data:{
-          _rawLabels: weeks,
-          labels: weeks.map(fmtWeekLabel),
-          datasets:[{ data: weeks.map(w => weekMap[w].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
-        },
-        options:{
-          plugins:{ legend:{display:false}, tooltip:{ callbacks:{
-            title: items => fmtWeekLabel(weeks[items[0].dataIndex]),
-            label: () => null,
-            afterBody: items => {
-              const d = weekDetails[weeks[items[0].dataIndex]];
-              if (!d) return [];
-              const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
-              if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
-              if (d.hrCount)   lines.push(`HR: ${Math.round(d.hrSum/d.hrCount)}`);
-              return lines;
-            }
-          }}},
-          scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} },
-          onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(weeks[elements[0].index], Store.data.sessions); },
-          responsive:true, maintainAspectRatio:false
-        }
-      });
-    }
+  showChartEmpty('chartWeeklyDist', !weeks.length);
+  if (weeks.length) {
+    Charts.weeklyDist = new Chart(document.getElementById('chartWeeklyDist'), {
+      type:'bar',
+      data:{
+        _rawLabels: weeks,
+        labels: weeks.map(fmtWeekLabel),
+        datasets:[{ data: weeks.map(w => weekMap[w].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
+      },
+      options:{
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+          title: items => fmtWeekLabel(weeks[items[0].dataIndex]),
+          label: () => null,
+          afterBody: items => {
+            const d = weekDetails[weeks[items[0].dataIndex]];
+            if (!d) return [];
+            const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+            if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
+            if (d.hrCount)   lines.push(`HR: ${Math.round(d.hrSum/d.hrCount)}`);
+            return lines;
+          }
+        }}},
+        scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} },
+        onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(weeks[elements[0].index], Store.data.sessions); },
+        responsive:true, maintainAspectRatio:false
+      }
+    });
   }
 
   // Pace per week (weighted average: total time / total distance)
@@ -3453,43 +3389,35 @@ function renderDashboard() {
   const paceWeeks = Object.keys(paceWeekMap).sort().slice(-20);
   destroyChart('pace');
   const useKmh = paceUnit === 'kmh';
-  { const _el = document.getElementById('chartPace'), _wrap = _el?.closest('.chart-wrap');
-    _wrap?.querySelector('.chart-no-data')?.remove();
-    if (!paceWeeks.length) {
-      if (_el) _el.style.display = 'none';
-      const m = document.createElement('div'); m.className = 'chart-no-data';
-      m.style.cssText = 'color:var(--muted);font-size:12px;padding:20px 0;text-align:center';
-      m.textContent = 'Ingen data å vise'; _wrap?.appendChild(m);
-    } else {
-      if (_el) _el.style.display = '';
-      Charts.pace = new Chart(_el, {
-        type:'line',
-        data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(fmtWeekLabel),
-          datasets:[{
-            data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return useKmh ? parseFloat((dist/(secs/3600)).toFixed(2)) : parseFloat((secs/dist/60).toFixed(3)); }),
-            borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',
-            pointBackgroundColor:'#6c8fff',
-            pointRadius:4, tension:.3, fill:true
-          }]},
-        options:{
-          plugins:{ legend:{display:false}, tooltip:{ callbacks:{
-            title: items => fmtWeekLabel(paceWeeks[items[0].dataIndex]),
-            label: ctx => useKmh ? ctx.raw.toFixed(1)+' km/t' : secsToMmSs(Math.round(ctx.raw*60))+' /km',
-            afterBody: items => {
-              const d = paceWeekDetails[paceWeeks[items[0].dataIndex]];
-              if (!d) return [];
-              return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
-            }
-          }}},
-          scales:{
-            y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(Math.round(v*60))} },
-            x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
-          },
-          onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(paceWeeks[elements[0].index], Store.data.sessions); },
-          responsive:true, maintainAspectRatio:false
-        }
-      });
-    }
+  showChartEmpty('chartPace', !paceWeeks.length);
+  if (paceWeeks.length) {
+    Charts.pace = new Chart(document.getElementById('chartPace'), {
+      type:'line',
+      data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(fmtWeekLabel),
+        datasets:[{
+          data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return useKmh ? parseFloat((dist/(secs/3600)).toFixed(2)) : parseFloat((secs/dist/60).toFixed(3)); }),
+          borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',
+          pointBackgroundColor:'#6c8fff',
+          pointRadius:4, tension:.3, fill:true
+        }]},
+      options:{
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+          title: items => fmtWeekLabel(paceWeeks[items[0].dataIndex]),
+          label: ctx => useKmh ? ctx.raw.toFixed(1)+' km/t' : secsToMmSs(Math.round(ctx.raw*60))+' /km',
+          afterBody: items => {
+            const d = paceWeekDetails[paceWeeks[items[0].dataIndex]];
+            if (!d) return [];
+            return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+          }
+        }}},
+        scales:{
+          y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(Math.round(v*60))} },
+          x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
+        },
+        onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(paceWeeks[elements[0].index], Store.data.sessions); },
+        responsive:true, maintainAspectRatio:false
+      }
+    });
   }
 
   // Plan vs faktisk
