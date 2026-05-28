@@ -101,7 +101,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 - Edit mode: clicking a row in the log pre-fills the form; edit banner shown; "Oppdater økt" replaces "Lagre økt"
 
 ### 📊 Oversikt (dashboard tab — full width)
-- Filter bar at top: økt-type dropdown, treningsplan dropdown, **løpetype radios** (Alle / 🏃 Ute / ⚙️ Inne), **Tempo-enhet radios** (min/km / km/t), year pills (toggle individual years), Nullstill button. **Nullstill resets all filters** including paceUnit radio, venue toggle, and all scatter/chart-local type pills back to defaults.
+- Filter bar at top: økt-type dropdown, treningsplan dropdown, **løpetype radios** (Alle / 🏃 Ute / ⚙️ Inne), **Tempo-enhet radios** (min/km / km/t), year pills (toggle individual years), Nullstill button. **Nullstill resets all filters** including paceUnit radio, venue toggle, all scatter/chart-local type pills, and `zoneGroupBy` (Pulssoner Uke/Måned toggle) back to defaults.
 - **Yearly goal card** (full-width, hidden if no goal set): progress bar, km løpt, km igjen, Prognose (year-end projection), km/uke nødvendig. Green if on track, warning if projected to fall short.
 - Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → **Innsikter** → **Treningsrytme** → PMC → Belastning → Ukentlig distanse + Tempo → **Plan vs faktisk** → Treningskalender → **Ute vs inne** → Årssammenligning → Aerob effektivitet → Pulssoner → **Sko oversikt** + Ukentlig oversikt
   - **Rekorder** — general records (best pace, longest dist/time, best km/h, total dist/time, best week, longest streak) + **Distanse-PR** sub-section (5 km, 10 km, Halvmaraton, Maraton — fastest session per bracket)
@@ -144,7 +144,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 ### ⚙️ Innstillinger (settings tab — max 1200px)
 - **Profil & Puls**: max HR, resting HR, 5 zone BPM boundaries, "Auto-beregn" button (fills zones at 50/60/70/80/90% of max HR)
 - **Treningsrytme**: km-grense per uke (default 15) and løp-grense per uke (default 2); saved to `Store.data.consistencySettings`; triggers `renderDashboard()` on save so score updates immediately
-- **Datafil**: open file, new file, download/export, **📥 Importer Excel/CSV** (moved here from Treningslogg), "Tøm alle data" danger button. **Lokale sikkerhetskopier** card below: lists last 7 daily IndexedDB snapshots (date + session count); **↩ Gjenopprett** restores that backup, overwrites current data, and saves the file; list populated by `Settings.renderBackupList()` which is called on every Settings tab open
+- **Datafil**: open file, new file, download/export, **📥 Importer Excel/CSV** (moved here from Treningslogg), "Tøm alle data" danger button. **Lokale sikkerhetskopier** card below: lists last 7 daily IndexedDB snapshots (date + session count); **↩ Gjenopprett** restores that backup, overwrites current data, saves the file, and re-renders the backup list in-place; list populated by `Settings.renderBackupList()` which is called on every Settings tab open
 
 ---
 
@@ -199,7 +199,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 | `switchTab(name)` | Tab navigation; triggers tab-specific render; also toggles `body.is-dash` class — used by CSS to suppress sticky header/tabs on the dashboard (only filter bar sticks there) |
 
 Global state:
-- `let zoneGroupBy = 'week'` — controls Uke/Måned toggle for zones chart
+- `let zoneGroupBy = 'week'` — controls Uke/Måned toggle for zones chart; reset by Nullstill
 - `let aeVenueFilter = 'all'` — controls Alle/Utendørs/Tredemølle toggle for aerobic efficiency chart
 - `let sleepHrTypeFilter = 'Easy'` — session-type filter for Søvn vs puls scatter ('alle'/'Easy'/'Langtur')
 - `let paceHrTypeFilter = 'Easy'` — session-type filter for Tempo vs puls scatter ('alle'/'Easy'/'Langtur')
