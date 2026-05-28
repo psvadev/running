@@ -3938,6 +3938,7 @@ const Settings = {
     Store.load(json);
     await FileIO.save();
     refreshAll();
+    this.renderBackupList();
   },
 
   // ── Goals ──
@@ -4167,7 +4168,7 @@ const Settings = {
 
   deleteEvent(id) {
     const evt = (Store.data.events || []).find(e => e.id === id);
-    const label = evt ? (evt.label || fmtDate(evt.date)) : 'denne hendelsen';
+    const label = evt ? (evt.title || fmtDate(evt.date)) : 'denne hendelsen';
     if (!confirm(`Slette "${label}"?`)) return;
     Store.deleteEvent(id);
     this.renderEventList();
@@ -4428,6 +4429,9 @@ document.addEventListener('DOMContentLoaded', () => {
     z2PaceTypeFilter = 'alle';
     document.querySelectorAll('#z2ToggleAlle,#z2ToggleEasy,#z2ToggleLang').forEach(el => el.classList.remove('active'));
     document.getElementById('z2ToggleAlle').classList.add('active');
+    zoneGroupBy = 'week';
+    document.querySelectorAll('#zoneToggleWeek,#zoneToggleMaaned').forEach(el => el.classList.remove('active'));
+    document.getElementById('zoneToggleWeek').classList.add('active');
     renderDashboard();
   });
 
