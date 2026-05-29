@@ -1565,6 +1565,7 @@ const DriveIO = (() => {
         localStorage.setItem('lpl_cache', json);
         refreshAll();
         _setStatus('✓ Lastet fra Drive');
+        if (!FileIO.handle) FileIO.updateStatus('☁ Drive');
       } else if (Store.data.sessions.length > 0) {
         if (confirm('Ingen puls.json funnet i Drive. Last opp gjeldende data?')) {
           await save();
@@ -1603,6 +1604,7 @@ const DriveIO = (() => {
           Store.load(json);
           localStorage.setItem('lpl_cache', json);
           refreshAll();
+          if (!FileIO.handle) FileIO.updateStatus('☁ Drive');
         }
       }).catch(() => {});
     } else if (localStorage.getItem('pulsDriveConnected')) {
@@ -4792,8 +4794,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Load from cache immediately, then try to silently reattach the file handle
+  // Skip local file restore if Drive is connected — Drive is the source of truth
   if (FileIO.loadCache()) refreshAll();
-  FileIO.restoreHandle();
+  if (!DriveIO.isSignedIn()) FileIO.restoreHandle();
 
   // Client ID + Secret fields — persist to localStorage
   const _driveClientIdEl = document.getElementById('driveClientId');
