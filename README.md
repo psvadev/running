@@ -53,7 +53,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
 - **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
 - **Datafil** — open, create, download, import Excel/CSV, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore
-- **Google Drive** — connect once via OAuth (PKCE flow); paste your Client ID and Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save thereafter; connection persists across page reloads via a stored refresh token; a ☁ Drive indicator in the header shows connection status at a glance
+- **Google Drive** — connect once via OAuth (PKCE flow); paste your Client ID and Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save; connection persists across page reloads via a stored refresh token; Drive takes priority over the local file when connected — the local file status and sync indicator are hidden, only the ☁ Drive indicator is shown
 
 ---
 
@@ -82,7 +82,11 @@ Open `puls.html` in your browser — no install needed.
 4. A `puls.json` file is created in your Drive (or the existing one is loaded)
 5. Every subsequent save syncs automatically — no further clicks needed
 
-The ☁ Drive indicator in the top bar turns green when connected. If you open the app on a new device, repeat steps 1–3 once; the same Drive file is used.
+The ☁ Drive indicator in the top bar turns green when connected. Data is cached locally so the app loads instantly on reload without waiting for Drive. On every page load the app silently re-fetches from Drive in the background, so changes from other devices appear automatically.
+
+When Drive is active, the local file status and sync indicator are hidden — the Drive indicator is the only status shown. If you manually open a local file via Settings, both reappear alongside Drive sync.
+
+If you open the app on a new device, repeat steps 1–3 once; the same Drive file is used.
 
 **Requirements:**
 - The app must be served over HTTP — either `python -m http.server 8080` locally or a hosted URL (GitHub Pages etc.). Opening `puls.html` directly as a `file://` URL will not work for Drive sync (OAuth requires an HTTP redirect URI).
