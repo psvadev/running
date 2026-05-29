@@ -11,7 +11,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 
 ### Dashboard (Oversikt)
 - **Yearly goal card** — progress bar with km done, km remaining, year-end projection, and required weekly km to stay on track
-- **Rekorder** — 16 tiles in two themed rows: **volume row** (total distance, total time, avg km/week, longest session by distance and time, best week, best month, best 4-week block) and **quality row** (best pace, best avg km/h, best Easy pace, best Langtur pace, best aerobic efficiency, lowest avg HR on a run ≥ 5 km, longest streak, current streak); aerobic efficiency and current streak are color-coded (red/amber/green/blue) for instant context; aerobic efficiency tile has a hover tooltip explaining the scale (Lav < 4.0 · Moderat 4.0–5.5 · God 5.5–7.0 · Høy > 7.0); plus distance PRs for 5 km, 10 km, half marathon, and marathon
+- **Rekorder** — 16 tiles in two themed rows: **volume row** (total distance, total time, avg km/week, longest session by distance and time, best week, best month, best 4-week block) and **quality row** (best pace, best avg km/h, best Easy pace, best Long-session pace, best aerobic efficiency, lowest avg HR on a run ≥ 5 km, longest streak, current streak); aerobic efficiency and current streak are color-coded (red/amber/green/blue) for instant context; aerobic efficiency tile has a hover tooltip explaining the scale (Lav < 4.0 · Moderat 4.0–5.5 · God 5.5–7.0 · Høy > 7.0); plus distance PRs for 5 km, 10 km, half marathon, and marathon
 - **Innsikter** — dynamic pool of insight candidates ranked by priority and recency; top 6 shown: km milestones (passed and upcoming), shoe retirement warnings, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month, Easy pace trend (last 8 vs prior 8 weeks), days since last run
 - **Treningsrytme** — consistency score 0–100 over the last 12 weeks (active-week rate, volume threshold weeks, streak bonus); score breakdown bars show contribution of each component (max 50/30/20 pts); configurable km/run-count thresholds in Settings; monthly active-weeks trend chart
 - **Treningsblokker** — auto-generated training block cards from Plan events; active block is a full-width hero card with consistency progress bar and weekly km sparkline; past blocks shown as compact cards below; click any card for a rich drill-down: weekly progression bars (each row clickable → week detail; badges for Toppuke / Lengste løp / Raskest), auto-generated highlights (best week, longest run, streak, pace trend), consistency breakdown, comparison vs previous block, and full run list
@@ -53,6 +53,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
 - **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
 - **Datafil** — open, create, download, import Excel/CSV, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore
+- **Google Drive** — connect once via OAuth (PKCE flow); paste your Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save thereafter; connection persists across page reloads via a stored refresh token; a ☁ Drive indicator in the header shows connection status at a glance
 
 ---
 
@@ -72,6 +73,20 @@ Open `puls.html` in your browser — no install needed.
 1. Go to **⚙️ Innstillinger** → click **📂 Åpne fil**
 2. Select your `puls.json` — data loads immediately across all tabs
 3. The app remembers the file; next time you open it a one-click prompt restores access without re-picking
+
+### Google Drive sync (cross-device)
+
+1. Go to **⚙️ Innstillinger** → **Google Drive**
+2. Paste your OAuth Client Secret (from [Google Cloud Console](https://console.cloud.google.com/) → Credentials → your OAuth 2.0 client)
+3. Click **Koble til Google Drive** — you are redirected to Google sign-in and back
+4. A `puls.json` file is created in your Drive (or the existing one is loaded)
+5. Every subsequent save syncs automatically — no further clicks needed
+
+The ☁ Drive indicator in the top bar turns green when connected. If you open the app on a new device, repeat steps 1–3 once; the same Drive file is used.
+
+**Requirements:** The redirect URI `http://localhost:8080/puls.html` (local) or your hosted URL must be registered under *Authorized redirect URIs* in Google Cloud Console.
+
+---
 
 ### Importing from Excel or CSV
 
@@ -125,3 +140,4 @@ Single `.html` file — no build step, no framework, no install.
 - [SheetJS xlsx 0.18.5](https://sheetjs.com/) — Excel/CSV import
 - File System Access API — local file read/write (Edge/Chrome)
 - IndexedDB — persists the file handle across page reloads so the file re-attaches automatically
+- Google Drive API (via fetch) + OAuth 2.0 PKCE — optional cross-device sync; refresh token stored in localStorage for silent reconnect
