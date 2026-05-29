@@ -551,7 +551,14 @@
           <span class="year-pill" id="aeToggleInn">Tredemølle</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Høyere = mer fart per hjerteslag. Stigende trend betyr bedre kondisjon.</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--muted)">Høyere = mer fart per hjerteslag. Stigende trend betyr bedre kondisjon.</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="aeZ2Alle">Alle Easy</span>
+          <span class="year-pill" id="aeZ2Only">Sone 2</span>
+        </div>
+      </div>
+      <div id="aeZ2Count" style="font-size:11px;color:var(--muted);margin-bottom:8px;display:none"></div>
       <div class="chart-wrap"><canvas id="chartEfficiency"></canvas></div>
     </div>
     <div class="card span2">
@@ -892,6 +899,22 @@ function isoWeek(dateStr) {
   return `${d.getFullYear()}-${String(week).padStart(2, '0')}`;
 }
 function absWeekNum(d) { return Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000)); }
+function getZoneForHr(hr, zones) {
+  if (!hr || !zones?.length) return -1;
+  for (let i = 0; i < zones.length; i++) {
+    if (hr >= zones[i].min && hr <= zones[i].max) return i;
+  }
+  return -1;
+}
+function calcZoneDistribution(sessions) {
+  const totals = [0, 0, 0, 0, 0];
+  let total = 0;
+  sessions.forEach(s => (s.soner || []).forEach((secs, i) => {
+    totals[i] += secs || 0;
+    total += secs || 0;
+  }));
+  return { totals, total, pcts: totals.map(t => total > 0 ? Math.round(t / total * 100) : 0) };
+}
 function avgPaceHR(sessions) {
   const pa = sessions.filter(s=>s.tempo), ha = sessions.filter(s=>s.gjsnittspuls);
   return {
@@ -1622,7 +1645,9 @@ const DriveIO = (() => {
 
   function _setStatus(msg) {
     const el = document.getElementById('driveStatus');
-    if (el) el.textContent = msg;
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = msg.startsWith('✓') ? 'var(--green)' : 'var(--muted)';
   }
 
   function _updateBtn() {
@@ -2027,6 +2052,7 @@ function buildYearPills(allSessions) {
 
 let zoneGroupBy = 'week';
 let aeVenueFilter = 'all';
+let aeZ2Filter = 'all';
 let sleepHrTypeFilter = 'Easy';
 let paceHrTypeFilter = 'Easy';
 let z2PaceTypeFilter = 'alle';
@@ -2398,7 +2424,12 @@ function renderPMCChart(allSessions) {
 
 function renderEfficiencyChart(sessions) {
   const vf = aeVenueFilter;
-  const easySessions = sessions
+  const z2CountEl = document.getElementById('aeZ2Count');
+  document.getElementById('aeZ2Alle')?.classList.toggle('active', aeZ2Filter === 'all');
+  document.getElementById('aeZ2Only')?.classList.toggle('active', aeZ2Filter === 'z2');
+  if (z2CountEl) z2CountEl.style.display = 'none';
+
+  let easySessions = sessions
     .filter(s => {
       if (s.okttype !== 'Easy' || s.gjsnittspuls <= 0) return false;
       const isIndoor = (s.løpetype || 'utendors') === 'treadmill';
@@ -2412,6 +2443,25 @@ function renderEfficiencyChart(sessions) {
 
   destroyChart('efficiency');
   const venueLabel = vf === 'outdoor' ? ' utendørs' : vf === 'indoor' ? ' på tredemølle' : '';
+
+  if (aeZ2Filter === 'z2') {
+    const z2 = (Store.data.settings.zones || [])[1];
+    if (!z2?.min || !z2?.max) {
+      showChartEmpty('chartEfficiency', true, 'Konfigurer pulssoner i innstillingene for Sone 2-filter.');
+      return;
+    }
+    const beforeCount = easySessions.length;
+    easySessions = easySessions.filter(s => {
+      if (s.gjsnittspuls >= z2.min && s.gjsnittspuls <= z2.max) return true;
+      const totalSone = (s.soner || []).reduce((a, b) => a + (b || 0), 0);
+      return totalSone > 0 && (s.soner[1] || 0) / totalSone >= 0.70;
+    });
+    if (z2CountEl) {
+      z2CountEl.textContent = `Sone 2: ${easySessions.length} av ${beforeCount} Easy-løp inkludert`;
+      z2CountEl.style.display = '';
+    }
+  }
+
   showChartEmpty('chartEfficiency', easySessions.length < 2, `Trenger minst 2 Easy-økter${venueLabel} med pulsmåling.`);
   if (easySessions.length < 2) return;
 
@@ -2900,6 +2950,17 @@ function renderInsights(sessions) {
       const improving = pct > 0;
       candidates.push({ icon: improving ? '📈' : '📉', val:`${Math.abs(pct).toFixed(1)}% ${improving ? 'raskere' : 'tregere'}`, sub:`Easy-tempo siste 8 uker vs. forrige 8`, priority: improving ? 3 : 2 });
     }
+  }
+
+  // Easy run compliance: % of Easy runs with avg HR inside Zone 2
+  const z2 = (Store.data.settings.zones || [])[1];
+  const easyWithHR = sessions.filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0);
+  if (easyWithHR.length >= 3 && z2?.min && z2?.max) {
+    const inZ2  = easyWithHR.filter(s => s.gjsnittspuls >= z2.min && s.gjsnittspuls <= z2.max).length;
+    const pct   = Math.round(inZ2 / easyWithHR.length * 100);
+    const avgHR = Math.round(easyWithHR.reduce((sum, s) => sum + s.gjsnittspuls, 0) / easyWithHR.length);
+    const label = pct >= 75 ? 'god kontroll' : pct >= 50 ? 'litt høy' : 'ofte for høy';
+    candidates.push({ icon:'🫀', val:`${pct}% Easy i sone 2`, sub:`${inZ2} av ${easyWithHR.length} Easy-løp · snitt ${avgHR} bpm · ${label}`, priority: pct < 50 ? 3 : 2 });
   }
 
   // Days since last run (show if >= 10 days)
@@ -3462,6 +3523,25 @@ const DetailPanel = {
         </div>`;
     }
 
+    const zoneDist = calcZoneDistribution(blockSessions);
+    let zoneHtml = '<div class="dp-section-label">Sonefordeling</div>';
+    if (zoneDist.total > 0) {
+      const lowPct  = zoneDist.pcts[0] + zoneDist.pcts[1];
+      const highPct = zoneDist.pcts[3] + zoneDist.pcts[4];
+      zoneHtml += `
+        <div style="display:flex;height:10px;border-radius:6px;overflow:hidden;margin-bottom:8px">
+          ${ZONE_COLORS.map((c,i) => zoneDist.pcts[i] > 0 ? `<div style="width:${zoneDist.pcts[i]}%;background:${c}" title="Sone ${i+1}: ${zoneDist.pcts[i]}%"></div>` : '').join('')}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+          ${ZONE_COLORS.map((c,i) => `<span style="color:${c}">S${i+1}</span> ${zoneDist.pcts[i]}%`).join(' · ')}
+        </div>
+        <div style="font-size:12px;color:var(--text);margin-bottom:12px">
+          Lavintensitet (S1+S2): <strong>${lowPct}%</strong> &nbsp;·&nbsp; Høyintensitet (S4+S5): <strong>${highPct}%</strong>
+        </div>`;
+    } else {
+      zoneHtml += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Ingen sonedata registrert for denne blokken.</div>`;
+    }
+
     const detailParts = [
       (shoes?.length) ? `Sko: ${shoes.join(', ')}` : '',
       (indoorKm||0) > 0 ? `Ute ${(outdoorKm||0).toFixed(0)} km · Inne ${(indoorKm||0).toFixed(0)} km` : '',
@@ -3496,6 +3576,7 @@ const DetailPanel = {
         ${consLines.map(l=>`<div style="font-size:12px;color:var(--muted)">${l}</div>`).join('')}
       </div>
       ${compHtml}
+      ${zoneHtml}
       ${detailParts.length ? `<div class="dp-section-label">Detaljer</div><div style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px;margin-bottom:12px">${detailParts.map(p=>`<div>${p}</div>`).join('')}</div>` : ''}
       ${runsHtml ? `<div class="dp-section-label">Løp i blokken</div>${runsHtml}` : ''}
     `);
@@ -4679,6 +4760,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Aerobic efficiency Zone 2 filter toggle
+  [['aeZ2Alle','all'],['aeZ2Only','z2']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      aeZ2Filter = val;
+      renderEfficiencyChart(DashFilter.get(Store.data.sessions));
+    });
+  });
+
   // Sleep vs HR type toggle
   [['shrToggleAlle','alle'],['shrToggleEasy','Easy'],['shrToggleLang','Long']].forEach(([id, val]) => {
     document.getElementById(id).addEventListener('click', () => {
@@ -4743,6 +4832,9 @@ document.addEventListener('DOMContentLoaded', () => {
     aeVenueFilter = 'all';
     document.querySelectorAll('#aeToggleAlle,#aeToggleUte,#aeToggleInn').forEach(el => el.classList.remove('active'));
     document.getElementById('aeToggleAlle').classList.add('active');
+    aeZ2Filter = 'all';
+    document.querySelectorAll('#aeZ2Alle,#aeZ2Only').forEach(el => el.classList.remove('active'));
+    document.getElementById('aeZ2Alle').classList.add('active');
     sleepHrTypeFilter = 'Easy';
     document.querySelectorAll('#shrToggleAlle,#shrToggleEasy,#shrToggleLang').forEach(el => el.classList.remove('active'));
     document.getElementById('shrToggleEasy').classList.add('active');
