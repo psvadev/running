@@ -53,7 +53,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
 - **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
 - **Datafil** — open, create, download, import Excel/CSV, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore
-- **Google Drive** — connect once via OAuth (PKCE flow); paste your Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save thereafter; connection persists across page reloads via a stored refresh token; a ☁ Drive indicator in the header shows connection status at a glance
+- **Google Drive** — connect once via OAuth (PKCE flow); paste your Client ID and Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save thereafter; connection persists across page reloads via a stored refresh token; a ☁ Drive indicator in the header shows connection status at a glance
 
 ---
 
@@ -77,7 +77,7 @@ Open `puls.html` in your browser — no install needed.
 ### Google Drive sync (cross-device)
 
 1. Go to **⚙️ Innstillinger** → **Google Drive**
-2. Paste your OAuth Client Secret (from [Google Cloud Console](https://console.cloud.google.com/) → Credentials → your OAuth 2.0 client)
+2. Paste your **Client ID** and **Client Secret** (from [Google Cloud Console](https://console.cloud.google.com/) → Credentials → your OAuth 2.0 client)
 3. Click **Koble til Google Drive** — you are redirected to Google sign-in and back
 4. A `puls.json` file is created in your Drive (or the existing one is loaded)
 5. Every subsequent save syncs automatically — no further clicks needed

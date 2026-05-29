@@ -825,6 +825,10 @@
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Google Drive</div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Synkroniser data med Google Drive for tilgang fra alle enheter.</p>
       <div style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Client ID</label>
+        <input type="text" id="driveClientId" placeholder="Lim inn fra Google Cloud Console" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+      </div>
+      <div style="margin-bottom:10px">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Client Secret</label>
         <input type="password" id="driveClientSecret" placeholder="Lim inn fra Google Cloud Console" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
       </div>
@@ -1430,10 +1434,10 @@ const FileIO = {
 // GOOGLE DRIVE SYNC  (PKCE auth-code flow + refresh tokens)
 // ═══════════════════════════════════════════════════════
 const DriveIO = (() => {
-  const CLIENT_ID = '422567903828-uf67bchfrs26s06io8ju8121t3rg0mg4.apps.googleusercontent.com';
-  const SCOPES    = 'https://www.googleapis.com/auth/drive.file';
+  const SCOPES     = 'https://www.googleapis.com/auth/drive.file';
 
-  const _secret  = () => localStorage.getItem('pulsDriveSecret') || '';
+  const _clientId = () => localStorage.getItem('pulsDriveClientId') || '';
+  const _secret   = () => localStorage.getItem('pulsDriveSecret') || '';
   const _getStoredToken = () => { try { return JSON.parse(localStorage.getItem('pulsDriveToken') || 'null'); } catch { return null; } };
   const _saveStoredToken = t => localStorage.setItem('pulsDriveToken', JSON.stringify(t));
 
@@ -1456,7 +1460,7 @@ const DriveIO = (() => {
       const res = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: CLIENT_ID, client_secret: _secret() })
+        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: _clientId(), client_secret: _secret() })
       });
       const d = await res.json();
       if (d.access_token) {
@@ -1469,12 +1473,13 @@ const DriveIO = (() => {
   }
 
   async function connect() {
+    if (!_clientId()) { alert('Legg inn Client ID i innstillingene først.'); return; }
     if (!_secret()) { alert('Legg inn Client Secret i innstillingene først.'); return; }
     const { verifier, challenge } = await _generatePKCE();
     localStorage.setItem('pulsDrivePKCE', verifier);
     const redirectUri = window.location.origin + window.location.pathname;
     const params = new URLSearchParams({
-      client_id: CLIENT_ID,
+      client_id: _clientId(),
       redirect_uri: redirectUri,
       response_type: 'code', scope: SCOPES,
       code_challenge: challenge, code_challenge_method: 'S256',
@@ -1490,7 +1495,7 @@ const DriveIO = (() => {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        code, client_id: CLIENT_ID, client_secret: _secret(),
+        code, client_id: _clientId(), client_secret: _secret(),
         redirect_uri: window.location.origin + window.location.pathname,
         grant_type: 'authorization_code', code_verifier: verifier
       })
@@ -4779,7 +4784,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (FileIO.loadCache()) refreshAll();
   FileIO.restoreHandle();
 
-  // Client secret field — persist to localStorage
+  // Client ID + Secret fields — persist to localStorage
+  const _driveClientIdEl = document.getElementById('driveClientId');
+  if (_driveClientIdEl) {
+    _driveClientIdEl.value = localStorage.getItem('pulsDriveClientId') || '';
+    _driveClientIdEl.addEventListener('change', () => localStorage.setItem('pulsDriveClientId', _driveClientIdEl.value.trim()));
+  }
   const _driveSecretEl = document.getElementById('driveClientSecret');
   if (_driveSecretEl) {
     _driveSecretEl.value = localStorage.getItem('pulsDriveSecret') || '';
