@@ -163,7 +163,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 | `Store` | In-memory data; `addSession`, `updateSession`, `deleteSession`, `mergeSessions`, `_migrate()` |
 | `HandleDB` | IndexedDB wrapper; `get()`, `set(handle)`, `clear()` — persists `FileSystemFileHandle` across page loads |
 | `BackupDB` | IndexedDB wrapper (`lpl_backups` db); `save(json, count)`, `getAll()`, `restore(date)` — daily snapshots, last 7 kept; hooked into `Store.load()` |
-| `FileIO` | File System Access API wrapper; `open()`, `save()`, `download()`, `loadCache()`, `restoreHandle()` |
+| `FileIO` | File System Access API wrapper; `open()`, `save()`, `download()`, `loadCache()`, `restoreHandle()`. `save()` always writes to localStorage cache and triggers `DriveIO.save()` when signed in; the entire local-file block (handle recovery + picker) is skipped when Drive is connected so no browser permission dialogs appear. |
 | `Form` | Form read/write; `read()`, `populate()`, `save()`, `editSession()`, `autoCalcVarighet()`, `autoCalcPace()`. `editSession()` stores `returnTab` so save/cancel navigates back to the originating tab. |
 | `Log` | Session table render + sort/filter; `lastFiltered` holds the current filtered+sorted session array (set on each render; read by export) |
 | `LogExport` | Export state object: `selectedIds` (Set of checked session IDs), `update()` (sync button label/enable state), `flash()` (show "Kopiert!" feedback), `getSelected()` (returns sorted sessions for checked IDs) |
@@ -229,6 +229,7 @@ Global state:
 ### Manual save (💾 Lagre) re-using the existing file
 - **Problem:** After a page reload, `this.handle` is null until `restoreHandle()` completes. If the user clicks Lagre first, `save()` would call `showSaveFilePicker` and prompt for a location — even though the file is known.
 - **Fix:** `save()` checks IndexedDB for a stored handle before falling back to `showSaveFilePicker`. Clicking Lagre IS a user gesture, so `requestPermission` is allowed inline. `this.handle.name` (synchronous) is used for the filename instead of `getFile()`. Filename is cached in `localStorage('lpl_handle_name')` and used in the write-success path to avoid an extra async `getFile()` call on every save.
+- **Drive guard:** The entire `supportsApi` block (handle recovery + `requestPermission` + picker) is wrapped in `!DriveIO.isSignedIn()`. When Drive is connected, saves go exclusively to Drive — no local file dialogs ever appear, even if a handle is stored in IndexedDB.
 
 ### Distance PRs (distPRs)
 - Brackets: 5 km (4.5–5.5), 10 km (9.0–11.0), Halvmaraton (19.5–22.0), Maraton (40.0–43.5)
