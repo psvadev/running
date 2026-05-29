@@ -820,6 +820,12 @@
       <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Lagres automatisk i nettleseren hver gang du åpner filen. Siste 7 dager beholdes.</p>
       <div id="backupList"></div>
     </div>
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Google Drive</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Synkroniser data med Google Drive for tilgang fra alle enheter.</p>
+      <div id="driveStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+      <button class="btn-secondary btn-sm" id="driveSignInBtn" disabled>Koble til Google Drive</button>
+    </div>
   </div>
 
 </div>
@@ -1273,6 +1279,7 @@ const FileIO = {
     this.setSyncSaving();
     const json = Store.toJSON();
     localStorage.setItem('lpl_cache', json);
+    if (DriveIO.isSignedIn()) DriveIO.save().catch(e => console.warn('Drive sync failed', e));
 
     if (this.supportsApi) {
       // No in-memory handle — try to recover from IndexedDB first (handles page-reload case)
@@ -1413,6 +1420,138 @@ const FileIO = {
     }
   }
 };
+
+// ═══════════════════════════════════════════════════════
+// GOOGLE DRIVE SYNC
+// ═══════════════════════════════════════════════════════
+const DriveIO = (() => {
+  const CLIENT_ID = '422567903828-uf67bchfrs26s06io8ju8121t3rg0mg4.apps.googleusercontent.com';
+  const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+  let tokenClient = null, accessToken = null;
+  let fileId = localStorage.getItem('pulsDriveFileId') || null;
+
+  function isSignedIn() { return !!accessToken; }
+
+  async function init() {
+    await new Promise(resolve => gapi.load('client', resolve));
+    await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: async resp => {
+        if (resp.error) { console.error('Drive auth error', resp); _setStatus('Innlogging feilet'); return; }
+        accessToken = resp.access_token;
+        gapi.client.setToken({ access_token: accessToken });
+        _updateBtn();
+        await _afterSignIn();
+      }
+    });
+    const btn = document.getElementById('driveSignInBtn');
+    if (btn) btn.disabled = false;
+    _updateBtn();
+  }
+
+  async function _afterSignIn() {
+    _setStatus('Kobler til Drive…');
+    try {
+      const data = await load();
+      if (data) {
+        Store.load(JSON.stringify(data));
+        refreshAll();
+        _setStatus('✓ Lastet fra Drive');
+      } else if (Store.data.sessions.length > 0) {
+        if (confirm('Ingen puls.json funnet i Drive. Last opp gjeldende data?')) {
+          await save();
+          _setStatus('✓ Lastet opp til Drive');
+        } else {
+          _setStatus('Koblet til');
+        }
+      } else {
+        await save();
+        _setStatus('✓ Ny Drive-fil opprettet');
+      }
+    } catch(e) {
+      console.error('Drive error', e);
+      _setStatus('Feil: ' + (e.result?.error?.message || e.message || 'ukjent'));
+    }
+  }
+
+  async function load() {
+    if (!isSignedIn()) return null;
+    if (fileId) {
+      try {
+        const resp = await gapi.client.drive.files.get({ fileId, alt: 'media' });
+        return JSON.parse(resp.body);
+      } catch(e) {
+        if (e.status === 404) { fileId = null; localStorage.removeItem('pulsDriveFileId'); }
+        else throw e;
+      }
+    }
+    const list = await gapi.client.drive.files.list({
+      q: "name='puls.json' and trashed=false",
+      spaces: 'drive',
+      fields: 'files(id)'
+    });
+    if (list.result.files.length > 0) {
+      fileId = list.result.files[0].id;
+      localStorage.setItem('pulsDriveFileId', fileId);
+      const resp = await gapi.client.drive.files.get({ fileId, alt: 'media' });
+      return JSON.parse(resp.body);
+    }
+    return null;
+  }
+
+  async function save() {
+    if (!isSignedIn()) return false;
+    const body = Store.toJSON();
+    if (!fileId) {
+      const meta = await gapi.client.drive.files.create({
+        resource: { name: 'puls.json', mimeType: 'application/json' },
+        fields: 'id'
+      });
+      fileId = meta.result.id;
+      localStorage.setItem('pulsDriveFileId', fileId);
+    }
+    await gapi.client.request({
+      path: `/upload/drive/v3/files/${fileId}`,
+      method: 'PATCH',
+      params: { uploadType: 'media' },
+      headers: { 'Content-Type': 'application/json' },
+      body
+    });
+    return true;
+  }
+
+  function signIn() { tokenClient?.requestAccessToken({ prompt: '' }); }
+
+  function signOut() {
+    if (accessToken) google.accounts.oauth2.revoke(accessToken, () => {});
+    accessToken = null; fileId = null;
+    localStorage.removeItem('pulsDriveFileId');
+    gapi.client.setToken(null);
+    _setStatus('');
+    _updateBtn();
+  }
+
+  function _setStatus(msg) {
+    const el = document.getElementById('driveStatus');
+    if (el) el.textContent = msg;
+  }
+
+  function _updateBtn() {
+    const btn = document.getElementById('driveSignInBtn');
+    if (!btn) return;
+    if (isSignedIn()) {
+      btn.textContent = 'Koble fra Google Drive';
+      btn.onclick = signOut;
+    } else {
+      btn.textContent = 'Koble til Google Drive';
+      btn.onclick = signIn;
+    }
+  }
+
+  return { init, signIn, signOut, load, save, isSignedIn };
+})();
 
 // ═══════════════════════════════════════════════════════
 // FORM
@@ -4568,6 +4707,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load from cache immediately, then try to silently reattach the file handle
   if (FileIO.loadCache()) refreshAll();
   FileIO.restoreHandle();
+
+  // Load GAPI + GIS for Google Drive (dynamic to avoid timing issues with inline JS)
+  let _gapiReady = false, _gisReady = false;
+  const _maybeDriveInit = () => { if (_gapiReady && _gisReady) DriveIO.init(); };
+  const _s1 = document.createElement('script');
+  _s1.src = 'https://apis.google.com/js/api.js';
+  _s1.onload = () => { _gapiReady = true; _maybeDriveInit(); };
+  const _s2 = document.createElement('script');
+  _s2.src = 'https://accounts.google.com/gsi/client';
+  _s2.onload = () => { _gisReady = true; _maybeDriveInit(); };
+  document.head.appendChild(_s1);
+  document.head.appendChild(_s2);
 });
 </script>
 <div id="hmTooltip"></div>
