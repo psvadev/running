@@ -258,6 +258,7 @@
   <div class="file-status" id="fileStatus">Ingen fil åpen</div>
   <button class="btn-secondary btn-sm" id="btnHeaderSave" style="margin-left:12px">💾 Lagre</button>
   <span id="syncStatus" style="font-size:12px;color:var(--muted);margin-left:16px"><span class="sync-dot" id="syncDot"></span><span id="syncText">Klar</span></span>
+  <span id="driveIndicator" style="font-size:11px;color:var(--muted);margin-left:10px" title="Google Drive ikke koblet til">☁ Drive</span>
   <input type="file" id="fileInput" accept=".json" style="display:none">
 </header>
 
@@ -823,8 +824,12 @@
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Google Drive</div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Synkroniser data med Google Drive for tilgang fra alle enheter.</p>
+      <div style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Client Secret</label>
+        <input type="password" id="driveClientSecret" placeholder="Lim inn fra Google Cloud Console" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+      </div>
       <div id="driveStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
-      <button class="btn-secondary btn-sm" id="driveSignInBtn" disabled>Koble til Google Drive</button>
+      <button class="btn-secondary btn-sm" id="driveSignInBtn">Koble til Google Drive</button>
     </div>
   </div>
 
@@ -1422,36 +1427,132 @@ const FileIO = {
 };
 
 // ═══════════════════════════════════════════════════════
-// GOOGLE DRIVE SYNC
+// GOOGLE DRIVE SYNC  (PKCE auth-code flow + refresh tokens)
 // ═══════════════════════════════════════════════════════
 const DriveIO = (() => {
   const CLIENT_ID = '422567903828-uf67bchfrs26s06io8ju8121t3rg0mg4.apps.googleusercontent.com';
-  const SCOPES = 'https://www.googleapis.com/auth/drive.file';
-  let tokenClient = null, accessToken = null;
-  let fileId = localStorage.getItem('pulsDriveFileId') || null;
+  const SCOPES    = 'https://www.googleapis.com/auth/drive.file';
 
-  function isSignedIn() { return !!accessToken; }
+  const _secret  = () => localStorage.getItem('pulsDriveSecret') || '';
+  const _getStoredToken = () => { try { return JSON.parse(localStorage.getItem('pulsDriveToken') || 'null'); } catch { return null; } };
+  const _saveStoredToken = t => localStorage.setItem('pulsDriveToken', JSON.stringify(t));
 
-  async function init() {
-    await new Promise(resolve => gapi.load('client', resolve));
-    await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: CLIENT_ID,
-      scope: SCOPES,
-      callback: async resp => {
-        if (resp.error) { console.error('Drive auth error', resp); _setStatus('Innlogging feilet'); return; }
-        accessToken = resp.access_token;
-        gapi.client.setToken({ access_token: accessToken });
-        _updateBtn();
-        await _afterSignIn();
-      }
-    });
-    const btn = document.getElementById('driveSignInBtn');
-    if (btn) btn.disabled = false;
-    _updateBtn();
+  function isSignedIn() { return !!_getStoredToken()?.refresh_token; }
+
+  async function _generatePKCE() {
+    const arr = crypto.getRandomValues(new Uint8Array(48));
+    const verifier = btoa(String.fromCharCode(...arr)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    const challenge = btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+    return { verifier, challenge };
   }
 
-  async function _afterSignIn() {
+  async function _validToken() {
+    const t = _getStoredToken();
+    if (!t) return null;
+    if (Date.now() < t.expires_at - 60000) return t.access_token;
+    if (!t.refresh_token) return null;
+    try {
+      const res = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: CLIENT_ID, client_secret: _secret() })
+      });
+      const d = await res.json();
+      if (d.access_token) {
+        _saveStoredToken({ ...t, access_token: d.access_token, expires_at: Date.now() + (d.expires_in || 3600) * 1000 });
+        return d.access_token;
+      }
+      if (d.error === 'invalid_grant') { _saveStoredToken(null); _updateBtn(); }
+    } catch {}
+    return null;
+  }
+
+  async function connect() {
+    if (!_secret()) { alert('Legg inn Client Secret i innstillingene først.'); return; }
+    const { verifier, challenge } = await _generatePKCE();
+    localStorage.setItem('pulsDrivePKCE', verifier);
+    const redirectUri = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams({
+      client_id: CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: 'code', scope: SCOPES,
+      code_challenge: challenge, code_challenge_method: 'S256',
+      access_type: 'offline', prompt: 'consent'
+    });
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+  }
+
+  async function handleCallback(code) {
+    const verifier = localStorage.getItem('pulsDrivePKCE');
+    localStorage.removeItem('pulsDrivePKCE');
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code, client_id: CLIENT_ID, client_secret: _secret(),
+        redirect_uri: window.location.origin + window.location.pathname,
+        grant_type: 'authorization_code', code_verifier: verifier
+      })
+    });
+    const d = await res.json();
+    if (d.access_token) {
+      _saveStoredToken({ access_token: d.access_token, refresh_token: d.refresh_token, expires_at: Date.now() + (d.expires_in || 3600) * 1000 });
+      localStorage.setItem('pulsDriveConnected', '1');
+      const url = new URL(window.location);
+      url.searchParams.delete('code'); url.searchParams.delete('scope');
+      window.history.replaceState({}, '', url);
+      return true;
+    }
+    console.error('Drive token exchange failed', d);
+    return false;
+  }
+
+  async function load() {
+    const token = await _validToken();
+    if (!token) return null;
+    const fileId = localStorage.getItem('pulsDriveFileId');
+    if (fileId) {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) return res.json();
+      if (res.status === 404) localStorage.removeItem('pulsDriveFileId');
+    }
+    const list = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent("name='puls.json' and trashed=false")}&spaces=drive&fields=files(id)`, { headers: { Authorization: `Bearer ${token}` } });
+    const { files } = await list.json();
+    if (files?.length) {
+      localStorage.setItem('pulsDriveFileId', files[0].id);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${files[0].id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) return res.json();
+    }
+    return null;
+  }
+
+  async function save() {
+    const token = await _validToken();
+    if (!token) return false;
+    const body = Store.toJSON();
+    let fileId = localStorage.getItem('pulsDriveFileId');
+    if (fileId) {
+      const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body
+      });
+      if (res.ok) return true;
+      if (res.status === 404) { localStorage.removeItem('pulsDriveFileId'); fileId = null; }
+    }
+    if (!fileId) {
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify({ name: 'puls.json', mimeType: 'application/json' })], { type: 'application/json' }));
+      form.append('file', new Blob([body], { type: 'application/json' }));
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
+      });
+      const d = await res.json();
+      if (d.id) { localStorage.setItem('pulsDriveFileId', d.id); return true; }
+    }
+    return false;
+  }
+
+  async function _afterConnect() {
     _setStatus('Kobler til Drive…');
     try {
       const data = await load();
@@ -1472,65 +1573,25 @@ const DriveIO = (() => {
       }
     } catch(e) {
       console.error('Drive error', e);
-      _setStatus('Feil: ' + (e.result?.error?.message || e.message || 'ukjent'));
+      _setStatus('Feil: ' + (e.message || 'ukjent'));
     }
+    _updateBtn();
   }
 
-  async function load() {
-    if (!isSignedIn()) return null;
-    if (fileId) {
-      try {
-        const resp = await gapi.client.drive.files.get({ fileId, alt: 'media' });
-        return JSON.parse(resp.body);
-      } catch(e) {
-        if (e.status === 404) { fileId = null; localStorage.removeItem('pulsDriveFileId'); }
-        else throw e;
-      }
-    }
-    const list = await gapi.client.drive.files.list({
-      q: "name='puls.json' and trashed=false",
-      spaces: 'drive',
-      fields: 'files(id)'
-    });
-    if (list.result.files.length > 0) {
-      fileId = list.result.files[0].id;
-      localStorage.setItem('pulsDriveFileId', fileId);
-      const resp = await gapi.client.drive.files.get({ fileId, alt: 'media' });
-      return JSON.parse(resp.body);
-    }
-    return null;
-  }
-
-  async function save() {
-    if (!isSignedIn()) return false;
-    const body = Store.toJSON();
-    if (!fileId) {
-      const meta = await gapi.client.drive.files.create({
-        resource: { name: 'puls.json', mimeType: 'application/json' },
-        fields: 'id'
-      });
-      fileId = meta.result.id;
-      localStorage.setItem('pulsDriveFileId', fileId);
-    }
-    await gapi.client.request({
-      path: `/upload/drive/v3/files/${fileId}`,
-      method: 'PATCH',
-      params: { uploadType: 'media' },
-      headers: { 'Content-Type': 'application/json' },
-      body
-    });
-    return true;
-  }
-
-  function signIn() { tokenClient?.requestAccessToken({ prompt: '' }); }
-
-  function signOut() {
-    if (accessToken) google.accounts.oauth2.revoke(accessToken, () => {});
-    accessToken = null; fileId = null;
+  function disconnect() {
+    const t = _getStoredToken();
+    if (t?.access_token) fetch(`https://oauth2.googleapis.com/revoke?token=${t.access_token}`, { method: 'POST' }).catch(() => {});
+    localStorage.removeItem('pulsDriveToken');
     localStorage.removeItem('pulsDriveFileId');
-    gapi.client.setToken(null);
+    localStorage.removeItem('pulsDriveConnected');
     _setStatus('');
     _updateBtn();
+  }
+
+  function init() {
+    _updateBtn();
+    if (isSignedIn()) _setStatus('✓ Koblet til Drive');
+    else if (localStorage.getItem('pulsDriveConnected')) _setStatus('Klikk for å koble til på nytt');
   }
 
   function _setStatus(msg) {
@@ -1539,18 +1600,28 @@ const DriveIO = (() => {
   }
 
   function _updateBtn() {
+    const wasConnected = !!localStorage.getItem('pulsDriveConnected');
     const btn = document.getElementById('driveSignInBtn');
-    if (!btn) return;
-    if (isSignedIn()) {
-      btn.textContent = 'Koble fra Google Drive';
-      btn.onclick = signOut;
-    } else {
-      btn.textContent = 'Koble til Google Drive';
-      btn.onclick = signIn;
+    if (btn) {
+      btn.textContent = isSignedIn() ? 'Koble fra Google Drive' : wasConnected ? 'Koble til Drive på nytt' : 'Koble til Google Drive';
+      btn.onclick = isSignedIn() ? disconnect : connect;
+    }
+    const ind = document.getElementById('driveIndicator');
+    if (ind) {
+      if (isSignedIn()) {
+        ind.style.color = 'var(--green)'; ind.title = 'Google Drive koblet til';
+        ind.style.cursor = ''; ind.onclick = null;
+      } else if (wasConnected) {
+        ind.style.color = 'rgba(240,192,80,.9)'; ind.title = 'Google Drive frakoblet — klikk for å koble til på nytt';
+        ind.style.cursor = 'pointer'; ind.onclick = () => switchTab('settings');
+      } else {
+        ind.style.color = 'var(--muted)'; ind.title = 'Google Drive ikke koblet til';
+        ind.style.cursor = ''; ind.onclick = null;
+      }
     }
   }
 
-  return { init, signIn, signOut, load, save, isSignedIn };
+  return { init, connect, disconnect, load, save, isSignedIn, handleCallback, _afterConnect };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -4708,17 +4779,23 @@ document.addEventListener('DOMContentLoaded', () => {
   if (FileIO.loadCache()) refreshAll();
   FileIO.restoreHandle();
 
-  // Load GAPI + GIS for Google Drive (dynamic to avoid timing issues with inline JS)
-  let _gapiReady = false, _gisReady = false;
-  const _maybeDriveInit = () => { if (_gapiReady && _gisReady) DriveIO.init(); };
-  const _s1 = document.createElement('script');
-  _s1.src = 'https://apis.google.com/js/api.js';
-  _s1.onload = () => { _gapiReady = true; _maybeDriveInit(); };
-  const _s2 = document.createElement('script');
-  _s2.src = 'https://accounts.google.com/gsi/client';
-  _s2.onload = () => { _gisReady = true; _maybeDriveInit(); };
-  document.head.appendChild(_s1);
-  document.head.appendChild(_s2);
+  // Client secret field — persist to localStorage
+  const _driveSecretEl = document.getElementById('driveClientSecret');
+  if (_driveSecretEl) {
+    _driveSecretEl.value = localStorage.getItem('pulsDriveSecret') || '';
+    _driveSecretEl.addEventListener('change', () => localStorage.setItem('pulsDriveSecret', _driveSecretEl.value.trim()));
+  }
+
+  // Handle OAuth redirect callback (?code=...)
+  const _oauthCode = new URLSearchParams(window.location.search).get('code');
+  if (_oauthCode) {
+    DriveIO.handleCallback(_oauthCode).then(async ok => {
+      if (ok) await DriveIO._afterConnect();
+      else DriveIO.init();
+    });
+  } else {
+    DriveIO.init();
+  }
 });
 </script>
 <div id="hmTooltip"></div>
