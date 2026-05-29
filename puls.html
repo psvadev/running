@@ -2132,6 +2132,8 @@ const eventLinesPlugin = {
         events.forEach(evt => {
           let idx = rawLabels.indexOf(evt.date);
           if (idx < 0) idx = rawLabels.indexOf(isoWeek(evt.date));
+          if (idx < 0 && evt.date >= rawLabels[0] && evt.date <= rawLabels[rawLabels.length - 1])
+            idx = rawLabels.findIndex(l => l >= evt.date);
           if (idx < 0 || idx >= meta.data.length) return;
           const x = meta.data[idx].x;
           if (x < chartArea.left || x > chartArea.right) return;
