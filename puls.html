@@ -1313,7 +1313,7 @@ const FileIO = {
     localStorage.setItem('lpl_cache', json);
     if (DriveIO.isSignedIn()) DriveIO.save().catch(e => console.warn('Drive sync failed', e));
 
-    if (this.supportsApi) {
+    if (this.supportsApi && !DriveIO.isSignedIn()) {
       // No in-memory handle — try to recover from IndexedDB first (handles page-reload case)
       if (!this.handle) {
         const stored = await HandleDB.get();
@@ -1331,7 +1331,7 @@ const FileIO = {
         }
       }
 
-      if (!this.handle && !DriveIO.isSignedIn()) {
+      if (!this.handle) {
         try {
           this.handle = await window.showSaveFilePicker({
             suggestedName: 'puls.json',
