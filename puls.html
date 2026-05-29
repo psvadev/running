@@ -505,7 +505,7 @@
       <div class="chart-wrap"><canvas id="chartWeeklyDist"></canvas></div>
     </div>
     <div class="card">
-      <div class="card-title">Tempo per uke (min/km)</div>
+      <div class="card-title" id="paceCardTitle">Tempo per uke (min/km)</div>
       <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Lavere er raskere. Veid snitt per uke.</div>
       <div class="chart-wrap"><canvas id="chartPace"></canvas></div>
     </div>
@@ -3494,7 +3494,7 @@ const DetailPanel = {
     const spanWeeks = Math.max(Math.round((new Date(endDate)-new Date(startDate))/(7*86400000)), 1);
     const consLines = [
       `${activeAbsArr.length}/${spanWeeks} uker med løping`,
-      maxStreak > 1 ? `Lengste streik: ${maxStreak} uker på rad` : null,
+      maxStreak > 1 ? `Lengste streak: ${maxStreak} uker på rad` : null,
       targetKmWeek   ? `${kmAboveTarget}/${weeks} uker over ${targetKmWeek} km` : null,
       targetRunsWeek ? `${runsAboveTarget}/${weeks} uker med ${targetRunsWeek}+ løp` : null,
     ].filter(Boolean);
@@ -3584,6 +3584,58 @@ const DetailPanel = {
     `);
   },
 };
+
+function renderPaceWeekChart(sessions) {
+  const paceWeekMap = {};
+  const paceWeekDetails = {};
+  sessions.forEach(s => {
+    const wk = s.uke || isoWeek(s.dato);
+    if (!paceWeekDetails[wk]) paceWeekDetails[wk] = { km:0, runs:0, secs:0 };
+    paceWeekDetails[wk].km   += s.distanse||0;
+    paceWeekDetails[wk].runs += 1;
+    paceWeekDetails[wk].secs += s.varighet||0;
+    if (s.distanse > 0 && s.varighet > 0) {
+      if (!paceWeekMap[wk]) paceWeekMap[wk] = { dist: 0, secs: 0 };
+      paceWeekMap[wk].dist += s.distanse;
+      paceWeekMap[wk].secs += s.varighet;
+    }
+  });
+  const paceWeeks = Object.keys(paceWeekMap).sort().slice(-20);
+  destroyChart('pace');
+  const useKmh = paceUnit === 'kmh';
+  const titleEl = document.getElementById('paceCardTitle');
+  if (titleEl) titleEl.textContent = useKmh ? 'Tempo per uke (km/t)' : 'Tempo per uke (min/km)';
+  showChartEmpty('chartPace', !paceWeeks.length);
+  if (paceWeeks.length) {
+    Charts.pace = new Chart(document.getElementById('chartPace'), {
+      type:'line',
+      data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(fmtWeekLabel),
+        datasets:[{
+          data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return useKmh ? parseFloat((dist/(secs/3600)).toFixed(2)) : parseFloat((secs/dist/60).toFixed(3)); }),
+          borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',
+          pointBackgroundColor:'#6c8fff',
+          pointRadius:4, tension:.3, fill:true
+        }]},
+      options:{
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+          title: items => fmtWeekLabel(paceWeeks[items[0].dataIndex]),
+          label: ctx => useKmh ? ctx.raw.toFixed(1)+' km/t' : secsToMmSs(Math.round(ctx.raw*60))+' /km',
+          afterBody: items => {
+            const d = paceWeekDetails[paceWeeks[items[0].dataIndex]];
+            if (!d) return [];
+            return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+          }
+        }}},
+        scales:{
+          y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(Math.round(v*60))} },
+          x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
+        },
+        onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(paceWeeks[elements[0].index], Store.data.sessions); },
+        responsive:true, maintainAspectRatio:false
+      }
+    });
+  }
+}
 
 function renderDashboard() {
   const allSessions = Store.data.sessions;
@@ -3767,54 +3819,7 @@ function renderDashboard() {
     });
   }
 
-  // Pace per week (weighted average: total time / total distance)
-  const paceWeekMap = {};
-  const paceWeekDetails = {};
-  sessions.forEach(s => {
-    const wk = s.uke || isoWeek(s.dato);
-    if (!paceWeekDetails[wk]) paceWeekDetails[wk] = { km:0, runs:0, secs:0 };
-    paceWeekDetails[wk].km   += s.distanse||0;
-    paceWeekDetails[wk].runs += 1;
-    paceWeekDetails[wk].secs += s.varighet||0;
-    if (s.distanse > 0 && s.varighet > 0) {
-      if (!paceWeekMap[wk]) paceWeekMap[wk] = { dist: 0, secs: 0 };
-      paceWeekMap[wk].dist += s.distanse;
-      paceWeekMap[wk].secs += s.varighet;
-    }
-  });
-  const paceWeeks = Object.keys(paceWeekMap).sort().slice(-20);
-  destroyChart('pace');
-  const useKmh = paceUnit === 'kmh';
-  showChartEmpty('chartPace', !paceWeeks.length);
-  if (paceWeeks.length) {
-    Charts.pace = new Chart(document.getElementById('chartPace'), {
-      type:'line',
-      data:{ _rawLabels: paceWeeks, labels: paceWeeks.map(fmtWeekLabel),
-        datasets:[{
-          data: paceWeeks.map(wk => { const {dist,secs}=paceWeekMap[wk]; return useKmh ? parseFloat((dist/(secs/3600)).toFixed(2)) : parseFloat((secs/dist/60).toFixed(3)); }),
-          borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',
-          pointBackgroundColor:'#6c8fff',
-          pointRadius:4, tension:.3, fill:true
-        }]},
-      options:{
-        plugins:{ legend:{display:false}, tooltip:{ callbacks:{
-          title: items => fmtWeekLabel(paceWeeks[items[0].dataIndex]),
-          label: ctx => useKmh ? ctx.raw.toFixed(1)+' km/t' : secsToMmSs(Math.round(ctx.raw*60))+' /km',
-          afterBody: items => {
-            const d = paceWeekDetails[paceWeeks[items[0].dataIndex]];
-            if (!d) return [];
-            return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
-          }
-        }}},
-        scales:{
-          y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(Math.round(v*60))} },
-          x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
-        },
-        onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(paceWeeks[elements[0].index], Store.data.sessions); },
-        responsive:true, maintainAspectRatio:false
-      }
-    });
-  }
+  renderPaceWeekChart(sessions);
 
   // Plan vs faktisk
   const planWeekMap = {};
@@ -4805,6 +4810,7 @@ document.addEventListener('DOMContentLoaded', () => {
     radio.addEventListener('change', () => {
       paceUnit = radio.value;
       const s = DashFilter.get(Store.data.sessions);
+      renderPaceWeekChart(s);
       renderZ2PaceChart(s);
       renderPaceHrChart(s);
     });
