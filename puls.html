@@ -3319,7 +3319,7 @@ function renderDashboard() {
     { label:'Lengste økt (tid)', value: recs.longestTime ? secsToHms(recs.longestTime.varighet) : '–', sub: recs.longestTime ? fmtDate(recs.longestTime.dato) : '' },
     { label:'Beste uke', value: recs.besteUke ? recs.besteUkeKm.toFixed(1)+' km' : '–', sub: recs.besteUke ? fmtWeekLabel(recs.besteUke) : '' },
     { label:'Beste måned', value: recs.besteMåned ? recs.besteMånedKm.toFixed(1)+' km' : '–', sub: recs.besteMåned ? (['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'][+recs.besteMåned.slice(5,7)-1]+' '+recs.besteMåned.slice(0,4)) : '' },
-    { label:'Beste 4-ukers blokk', value: recs.beste4Blokk ? recs.beste4Blokk.toFixed(1)+' km' : '–', sub: '4 sammenhengende uker' },
+    { label:'Beste 4-ukersperiode', value: recs.beste4Blokk ? recs.beste4Blokk.toFixed(1)+' km' : '–', sub: 'Rullerende 4 uker' },
     { label:'Beste tempo', value: recs.bestePace ? secsToMmSs(recs.bestePace.tempo)+' /km' : '–', sub: recs.bestePace ? fmtDate(recs.bestePace.dato) : '' },
     { label:'Beste snitt km/t', value: recs.bestKmh ? recs.bestKmh.snittkmh.toFixed(1)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
     { label:'Beste Easy-tempo', value: recs.bestEasyPace ? secsToMmSs(recs.bestEasyPace.tempo)+' /km' : '–', sub: recs.bestEasyPace ? fmtDate(recs.bestEasyPace.dato) : '' },
