@@ -1331,7 +1331,7 @@ const FileIO = {
         }
       }
 
-      if (!this.handle) {
+      if (!this.handle && !DriveIO.isSignedIn()) {
         try {
           this.handle = await window.showSaveFilePicker({
             suggestedName: 'puls.json',
