@@ -1560,7 +1560,9 @@ const DriveIO = (() => {
     try {
       const data = await load();
       if (data) {
-        Store.load(JSON.stringify(data));
+        const json = JSON.stringify(data);
+        Store.load(json);
+        localStorage.setItem('lpl_cache', json);
         refreshAll();
         _setStatus('✓ Lastet fra Drive');
       } else if (Store.data.sessions.length > 0) {
@@ -1593,8 +1595,19 @@ const DriveIO = (() => {
 
   function init() {
     _updateBtn();
-    if (isSignedIn()) _setStatus('✓ Koblet til Drive');
-    else if (localStorage.getItem('pulsDriveConnected')) _setStatus('Klikk for å koble til på nytt');
+    if (isSignedIn()) {
+      _setStatus('✓ Koblet til Drive');
+      load().then(data => {
+        if (data) {
+          const json = JSON.stringify(data);
+          Store.load(json);
+          localStorage.setItem('lpl_cache', json);
+          refreshAll();
+        }
+      }).catch(() => {});
+    } else if (localStorage.getItem('pulsDriveConnected')) {
+      _setStatus('Klikk for å koble til på nytt');
+    }
   }
 
   function _setStatus(msg) {
