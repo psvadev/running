@@ -1504,9 +1504,7 @@ const DriveIO = (() => {
     if (d.access_token) {
       _saveStoredToken({ access_token: d.access_token, refresh_token: d.refresh_token, expires_at: Date.now() + (d.expires_in || 3600) * 1000 });
       localStorage.setItem('pulsDriveConnected', '1');
-      const url = new URL(window.location);
-      url.searchParams.delete('code'); url.searchParams.delete('scope');
-      window.history.replaceState({}, '', url);
+      window.history.replaceState({}, '', window.location.pathname);
       return true;
     }
     console.error('Drive token exchange failed', d);
@@ -4796,8 +4794,9 @@ document.addEventListener('DOMContentLoaded', () => {
     _driveSecretEl.addEventListener('change', () => localStorage.setItem('pulsDriveSecret', _driveSecretEl.value.trim()));
   }
 
-  // Handle OAuth redirect callback (?code=...)
+  // Handle OAuth redirect callback (?code=...) — strip all query params on entry
   const _oauthCode = new URLSearchParams(window.location.search).get('code');
+  if (window.location.search) window.history.replaceState({}, '', window.location.pathname);
   if (_oauthCode) {
     DriveIO.handleCallback(_oauthCode).then(async ok => {
       if (ok) await DriveIO._afterConnect();
