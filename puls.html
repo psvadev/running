@@ -1565,7 +1565,7 @@ const DriveIO = (() => {
         localStorage.setItem('lpl_cache', json);
         refreshAll();
         _setStatus('✓ Lastet fra Drive');
-        if (!FileIO.handle) FileIO.updateStatus('☁ Drive');
+        if (!FileIO.handle) document.getElementById('fileStatus').style.display = 'none';
       } else if (Store.data.sessions.length > 0) {
         if (confirm('Ingen puls.json funnet i Drive. Last opp gjeldende data?')) {
           await save();
@@ -1604,7 +1604,7 @@ const DriveIO = (() => {
           Store.load(json);
           localStorage.setItem('lpl_cache', json);
           refreshAll();
-          if (!FileIO.handle) FileIO.updateStatus('☁ Drive');
+          if (!FileIO.handle) document.getElementById('fileStatus').style.display = 'none';
         }
       }).catch(() => {});
     } else if (localStorage.getItem('pulsDriveConnected')) {
