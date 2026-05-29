@@ -84,7 +84,11 @@ Open `puls.html` in your browser — no install needed.
 
 The ☁ Drive indicator in the top bar turns green when connected. If you open the app on a new device, repeat steps 1–3 once; the same Drive file is used.
 
-**Requirements:** The redirect URI `http://localhost:8080/puls.html` (local) or your hosted URL must be registered under *Authorized redirect URIs* in Google Cloud Console.
+**Requirements:**
+- The app must be served over HTTP — either `python -m http.server 8080` locally or a hosted URL (GitHub Pages etc.). Opening `puls.html` directly as a `file://` URL will not work for Drive sync (OAuth requires an HTTP redirect URI).
+- The redirect URI (`http://localhost:8080/puls.html` for local, or your hosted URL) must be registered under *Authorized redirect URIs* in Google Cloud Console.
+
+Opening `puls.html` directly as a local file still works fully for offline use — only the Drive sync feature requires HTTP.
 
 ---
 
