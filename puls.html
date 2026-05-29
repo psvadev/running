@@ -1351,6 +1351,8 @@ const FileIO = {
     el.className = 'file-status ok';
     el.style.cursor = '';
     el.onclick = null;
+    el.style.display = '';
+    document.getElementById('syncStatus').style.display = '';
   },
 
   setSyncSaving() {
@@ -1565,7 +1567,10 @@ const DriveIO = (() => {
         localStorage.setItem('lpl_cache', json);
         refreshAll();
         _setStatus('✓ Lastet fra Drive');
-        if (!FileIO.handle) document.getElementById('fileStatus').style.display = 'none';
+        if (!FileIO.handle) {
+          document.getElementById('fileStatus').style.display = 'none';
+          document.getElementById('syncStatus').style.display = 'none';
+        }
       } else if (Store.data.sessions.length > 0) {
         if (confirm('Ingen puls.json funnet i Drive. Last opp gjeldende data?')) {
           await save();
@@ -1604,7 +1609,10 @@ const DriveIO = (() => {
           Store.load(json);
           localStorage.setItem('lpl_cache', json);
           refreshAll();
-          if (!FileIO.handle) document.getElementById('fileStatus').style.display = 'none';
+          if (!FileIO.handle) {
+          document.getElementById('fileStatus').style.display = 'none';
+          document.getElementById('syncStatus').style.display = 'none';
+        }
         }
       }).catch(() => {});
     } else if (localStorage.getItem('pulsDriveConnected')) {
