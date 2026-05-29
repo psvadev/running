@@ -557,9 +557,9 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
         <div class="card-title" style="margin-bottom:0">Tempo i sone 2</div>
         <div style="display:flex;gap:6px">
-          <span class="year-pill active" id="z2ToggleAlle">Easy + Langtur</span>
+          <span class="year-pill active" id="z2ToggleAlle">Easy + Long</span>
           <span class="year-pill" id="z2ToggleEasy">Easy</span>
-          <span class="year-pill" id="z2ToggleLang">Langtur</span>
+          <span class="year-pill" id="z2ToggleLang">Long</span>
         </div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Tempo på rolige økter over tid. Raskere tempo ved samme innsats betyr bedre aerob base.</div>
@@ -571,7 +571,7 @@
         <div style="display:flex;gap:6px">
           <span class="year-pill" id="shrToggleAlle">Alle</span>
           <span class="year-pill active" id="shrToggleEasy">Easy</span>
-          <span class="year-pill" id="shrToggleLang">Langtur</span>
+          <span class="year-pill" id="shrToggleLang">Long</span>
         </div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Hvert punkt er én økt. Se om søvnmengde påvirker puls og tempo — mønster kan avdekke restitusjonstrender.</div>
@@ -583,7 +583,7 @@
         <div style="display:flex;gap:6px">
           <span class="year-pill" id="phrToggleAlle">Alle</span>
           <span class="year-pill active" id="phrToggleEasy">Easy</span>
-          <span class="year-pill" id="phrToggleLang">Langtur</span>
+          <span class="year-pill" id="phrToggleLang">Long</span>
         </div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Hvert punkt er én økt. Lavere puls ved samme tempo — eller raskere ved samme puls — tyder på bedre form.</div>
@@ -2227,12 +2227,12 @@ function renderZ2PaceChart(sessions) {
   const typeFilter = z2PaceTypeFilter;
   const filtered = sessions.filter(s => {
     if (!s.tempo || s.tempo <= 0) return false;
-    if (typeFilter === 'alle') return s.okttype === 'Easy' || s.okttype === 'Langtur';
+    if (typeFilter === 'alle') return s.okttype === 'Easy' || s.okttype === 'Long';
     return s.okttype === typeFilter;
   }).sort((a, b) => a.dato.localeCompare(b.dato));
 
   destroyChart('z2Pace');
-  const lbl = typeFilter === 'alle' ? 'Easy eller Langtur' : typeFilter;
+  const lbl = typeFilter === 'alle' ? 'Easy eller Long' : typeFilter;
   showChartEmpty('chartZ2Pace', filtered.length < 2, `Trenger minst 2 ${lbl}-økter med tempodata.`);
   if (filtered.length < 2) return;
 
@@ -2342,7 +2342,7 @@ function renderSleepHrChart(sessions) {
 
   const TYPE_COLORS = {
     'Easy':      'rgba(75,190,120,.7)',
-    'Langtur':   'rgba(108,143,255,.7)',
+    'Long':   'rgba(108,143,255,.7)',
     'Tempo':     'rgba(255,160,80,.7)',
     'Intervall': 'rgba(255,80,80,.7)',
     'Terskel':   'rgba(220,120,255,.7)',
@@ -2467,7 +2467,7 @@ function renderPaceHrChart(sessions) {
 
   const TYPE_COLORS = {
     'Easy':      'rgba(75,190,120,.7)',
-    'Langtur':   'rgba(108,143,255,.7)',
+    'Long':   'rgba(108,143,255,.7)',
     'Tempo':     'rgba(255,160,80,.7)',
     'Intervall': 'rgba(255,80,80,.7)',
     'Terskel':   'rgba(220,120,255,.7)',
@@ -3323,7 +3323,7 @@ function renderDashboard() {
     { label:'Beste tempo', value: recs.bestePace ? secsToMmSs(recs.bestePace.tempo)+' /km' : '–', sub: recs.bestePace ? fmtDate(recs.bestePace.dato) : '' },
     { label:'Beste snitt km/t', value: recs.bestKmh ? recs.bestKmh.snittkmh.toFixed(1)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
     { label:'Beste Easy-tempo', value: recs.bestEasyPace ? secsToMmSs(recs.bestEasyPace.tempo)+' /km' : '–', sub: recs.bestEasyPace ? fmtDate(recs.bestEasyPace.dato) : '' },
-    { label:'Beste Langtur-tempo', value: recs.bestLangturPace ? secsToMmSs(recs.bestLangturPace.tempo)+' /km' : '–', sub: recs.bestLangturPace ? fmtDate(recs.bestLangturPace.dato) : '' },
+    { label:'Beste Long-tempo', value: recs.bestLangturPace ? secsToMmSs(recs.bestLangturPace.tempo)+' /km' : '–', sub: recs.bestLangturPace ? fmtDate(recs.bestLangturPace.dato) : '' },
     { label:'Beste aerob eff.', value: recs.bestAerobEff ? recs.bestAerobEff.ae.toFixed(2) : '–', sub: recs.bestAerobEff ? `${(+recs.bestAerobEff.kmh).toFixed(1)} km/t · ${recs.bestAerobEff.gjsnittspuls} bpm · ${fmtDate(recs.bestAerobEff.dato)} · ${recs.bestAerobEff.ae >= 7 ? 'Høy' : recs.bestAerobEff.ae >= 5.5 ? 'God' : recs.bestAerobEff.ae >= 4 ? 'Moderat' : 'Lav'}` : '', color: recs.bestAerobEff ? (recs.bestAerobEff.ae >= 7 ? '#6c8fff' : recs.bestAerobEff.ae >= 5.5 ? 'var(--green)' : recs.bestAerobEff.ae >= 4 ? 'rgba(240,192,80,.9)' : '#f87171') : null, tooltip: 'Aerob effektivitet = fart ÷ puls × 100\nLav: < 4.0 · Moderat: 4.0–5.5 · God: 5.5–7.0 · Høy: > 7.0' },
     { label:'Lavest gj.snittspuls', value: recs.lavPuls ? recs.lavPuls.gjsnittspuls+' bpm' : '–', sub: recs.lavPuls ? `${fmtDist(recs.lavPuls.distanse)} km · ${fmtDate(recs.lavPuls.dato)}` : '' },
     { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
@@ -3722,7 +3722,7 @@ function computeRecords(sessions) {
     if (s.varighet && (!longestTime || s.varighet > longestTime.varighet)) longestTime=s;
     if (s.snittkmh && (!bestKmh || s.snittkmh > bestKmh.snittkmh)) bestKmh=s;
     if (s.okttype==='Easy' && s.tempo && (!bestEasyPace || s.tempo < bestEasyPace.tempo)) bestEasyPace=s;
-    if (s.okttype==='Langtur' && s.tempo && (!bestLangturPace || s.tempo < bestLangturPace.tempo)) bestLangturPace=s;
+    if (s.okttype==='Long' && s.tempo && (!bestLangturPace || s.tempo < bestLangturPace.tempo)) bestLangturPace=s;
     const kmh = s.snittkmh || (s.distanse && s.varighet > 0 ? +(s.distanse / (s.varighet / 3600)).toFixed(2) : 0);
     if (s.okttype==='Easy' && s.gjsnittspuls > 0 && kmh > 0) {
       const ae = +(kmh / s.gjsnittspuls * 100).toFixed(2);
@@ -4444,7 +4444,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Sleep vs HR type toggle
-  [['shrToggleAlle','alle'],['shrToggleEasy','Easy'],['shrToggleLang','Langtur']].forEach(([id, val]) => {
+  [['shrToggleAlle','alle'],['shrToggleEasy','Easy'],['shrToggleLang','Long']].forEach(([id, val]) => {
     document.getElementById(id).addEventListener('click', () => {
       sleepHrTypeFilter = val;
       document.querySelectorAll('#shrToggleAlle,#shrToggleEasy,#shrToggleLang').forEach(el => el.classList.remove('active'));
@@ -4454,7 +4454,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Zone 2 pace type toggle
-  [['z2ToggleAlle','alle'],['z2ToggleEasy','Easy'],['z2ToggleLang','Langtur']].forEach(([id, val]) => {
+  [['z2ToggleAlle','alle'],['z2ToggleEasy','Easy'],['z2ToggleLang','Long']].forEach(([id, val]) => {
     document.getElementById(id).addEventListener('click', () => {
       z2PaceTypeFilter = val;
       document.querySelectorAll('#z2ToggleAlle,#z2ToggleEasy,#z2ToggleLang').forEach(el => el.classList.remove('active'));
@@ -4464,7 +4464,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Pace vs HR type toggle
-  [['phrToggleAlle','alle'],['phrToggleEasy','Easy'],['phrToggleLang','Langtur']].forEach(([id, val]) => {
+  [['phrToggleAlle','alle'],['phrToggleEasy','Easy'],['phrToggleLang','Long']].forEach(([id, val]) => {
     document.getElementById(id).addEventListener('click', () => {
       paceHrTypeFilter = val;
       document.querySelectorAll('#phrToggleAlle,#phrToggleEasy,#phrToggleLang').forEach(el => el.classList.remove('active'));
