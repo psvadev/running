@@ -136,7 +136,8 @@
     #logTable th:nth-child(12), #logTable td:nth-child(12),
     #logTable th:nth-child(13), #logTable td:nth-child(13),
     #logTable th:nth-child(14), #logTable td:nth-child(14),
-    #logTable th:nth-child(15), #logTable td:nth-child(15) { display: none; }
+    #logTable th:nth-child(15), #logTable td:nth-child(15),
+    #logTable th:nth-child(16), #logTable td:nth-child(16) { display: none; }
     .shoe-bar-row { grid-template-columns: 110px 1fr 44px; }
     .zone-grid { grid-template-columns: repeat(3, 1fr); }
     .records-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
@@ -312,7 +313,7 @@
       </div>
       <div class="form-group">
         <label>Løpetype</label>
-        <select id="fLopetype" onchange="const isTM=this.value==='treadmill'; document.getElementById('stigningGroup').style.display=isTM?'':'none'; if(!isTM) document.getElementById('fStigning').value='';">
+        <select id="fLopetype" onchange="const isTM=this.value==='treadmill'; document.getElementById('stigningGroup').style.display=isTM?'':'none'; if(!isTM) document.getElementById('fStigning').value=''; document.getElementById('hoydeMeterGroup').style.display=!isTM?'':'none'; if(isTM) document.getElementById('fHoydeMeter').value='';">
           <option value="utendors">Utendørs</option>
           <option value="treadmill" selected>Tredemølle</option>
         </select>
@@ -389,6 +390,10 @@
       <div class="form-group" id="stigningGroup">
         <label>Stigning (%)</label>
         <input type="number" id="fStigning" step="0.5" min="0" placeholder="1.0">
+      </div>
+      <div class="form-group" id="hoydeMeterGroup" style="display:none">
+        <label>Høydemeter (m)</label>
+        <input type="number" id="fHoydeMeter" step="1" min="0" placeholder="250">
       </div>
       <div class="form-group" id="shoeGroup">
         <label>Sko</label>
@@ -699,6 +704,7 @@
           <th data-col="kalorier">Kal <span class="sort-indicator">↕</span></th>
           <th data-col="sko">Sko</th>
           <th data-col="sovn">Søvn <span class="sort-indicator">↕</span></th>
+          <th data-col="hoydeMeter">Høyde</th>
           <th></th>
         </tr>
       </thead>
@@ -1008,7 +1014,7 @@ function formatSessionTsv(sessions) {
   const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
     'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
     'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
-    'Snitt km/t','Stigning (%)','Sko','Søvn'];
+    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn'];
   const rows = sessions.map(s => {
     const soner = s.soner || [0,0,0,0,0];
     const [y,m,d] = s.dato.split('-');
@@ -1028,6 +1034,7 @@ function formatSessionTsv(sessions) {
       s.tempo ? secsToMmSs(s.tempo) : '',
       s.snittkmh != null ? s.snittkmh.toFixed(1) : '',
       s.stigning != null ? s.stigning : '',
+      s.hoydeMeter != null ? s.hoydeMeter : '',
       s.sko || '',
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
     ].join('\t');
@@ -1773,6 +1780,7 @@ const Form = {
       tempo: mmSsToSecs(document.getElementById('fTempo').value) || null,
       snittkmh: parseFloat(document.getElementById('fSnittkmh').value) || null,  // set by autoCalcPace
       stigning: parseFloat(document.getElementById('fStigning').value) || null,
+      hoydeMeter: parseInt(document.getElementById('fHoydeMeter').value) || null,
       sko: document.getElementById('fSko').value,
       løpetype: document.getElementById('fLopetype').value || 'utendors',
       sovn: hhmmToHours(document.getElementById('fSovn').value),
@@ -1802,6 +1810,8 @@ const Form = {
     const isTM = (s.løpetype || 'utendors') === 'treadmill';
     document.getElementById('stigningGroup').style.display = isTM ? '' : 'none';
     document.getElementById('fStigning').value = isTM ? (s.stigning ?? '') : '';
+    document.getElementById('hoydeMeterGroup').style.display = !isTM ? '' : 'none';
+    document.getElementById('fHoydeMeter').value = !isTM ? (s.hoydeMeter ?? '') : '';
     document.getElementById('fSovn').value = s.sovn ? hoursToHHMM(s.sovn) : '';
     this.refreshShoeDropdown(s.sko);
   },
@@ -1854,11 +1864,12 @@ const Form = {
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
-     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fSovn'].forEach(id => {
+     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn'].forEach(id => {
       document.getElementById(id).value = '';
     });
     document.getElementById('fLopetype').value = 'treadmill';
     document.getElementById('stigningGroup').style.display = '';
+    document.getElementById('hoydeMeterGroup').style.display = 'none';
   }
 };
 
@@ -1947,6 +1958,7 @@ const Log = {
         <td>${s.kalorier||''}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${s.sko||''}</td>
         <td style="${s.sovn ? (s.sovn < 6 ? 'color:#e05555;font-weight:600' : s.sovn < 7 ? 'color:#f0c050;font-weight:600' : 'color:#4bbe78;font-weight:600') : ''}">${s.sovn ? hoursToHHMM(s.sovn) : ''}</td>
+        <td>${s.hoydeMeter ? s.hoydeMeter+'m' : ''}</td>
         <td>
           <button class="btn-icon btn-sm" onclick="Form.editSession('${s.id}')" title="Rediger">✏️</button>
           <button class="btn-icon btn-sm" onclick="Log.delete('${s.id}')" title="Slett" style="color:var(--danger)">🗑️</button>
@@ -2972,6 +2984,56 @@ function renderInsights(sessions) {
     if (daysSince >= 10) candidates.push({ icon:'😴', val:`${daysSince} dager`, sub:'siden siste løpetur', priority: daysSince >= 14 ? 4 : 3 });
   }
 
+  // Volume trend: last 4 weeks vs prior 4 weeks
+  const w4ago  = new Date(Date.now() -  28 * 86400000).toISOString().slice(0, 10);
+  const w8ago2 = new Date(Date.now() -  56 * 86400000).toISOString().slice(0, 10);
+  const recentKm = sessions.filter(s => s.dato >= w4ago).reduce((sum, s) => sum + (s.distanse||0), 0);
+  const priorKm  = sessions.filter(s => s.dato >= w8ago2 && s.dato < w4ago).reduce((sum, s) => sum + (s.distanse||0), 0);
+  if (recentKm > 0 && priorKm > 0) {
+    const volPct = Math.round((recentKm - priorKm) / priorKm * 100);
+    if (Math.abs(volPct) >= 10) {
+      const up = volPct > 0;
+      candidates.push({ icon: up ? '📈' : '📉', val: `${Math.abs(volPct)}% ${up ? 'mer' : 'mindre'} volum`,
+        sub: `Siste 4 uker (${recentKm.toFixed(0)} km) vs. forrige 4 (${priorKm.toFixed(0)} km)`,
+        priority: Math.abs(volPct) >= 25 ? 4 : 3 });
+    }
+  }
+
+  // Long run gap: surface if last Long session was >= 3 weeks ago
+  const lastLong = sessions.filter(s => s.okttype === 'Long' && s.dato).sort((a,b) => b.dato.localeCompare(a.dato))[0];
+  if (lastLong) {
+    const weeksAgo = Math.floor((new Date(today) - new Date(lastLong.dato)) / (7 * 86400000));
+    if (weeksAgo >= 3) {
+      candidates.push({ icon: '🏃', val: `${weeksAgo} uker siden`,
+        sub: `siste langtursøkt (${fmtDate(lastLong.dato)} · ${fmtDist(lastLong.distanse)} km)`,
+        priority: weeksAgo >= 5 ? 4 : 3 });
+    }
+  }
+
+  // Easy HR trend: last 8 weeks vs prior 8 weeks (uses w8ago/w16ago already declared above)
+  const recentEasyHR = sessions.filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.dato >= w8ago);
+  const priorEasyHR  = sessions.filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.dato >= w16ago && s.dato < w8ago);
+  if (recentEasyHR.length >= 3 && priorEasyHR.length >= 3) {
+    const avgRhr = Math.round(recentEasyHR.reduce((sum, x) => sum + x.gjsnittspuls, 0) / recentEasyHR.length);
+    const avgPhr = Math.round(priorEasyHR.reduce((sum,  x) => sum + x.gjsnittspuls, 0) / priorEasyHR.length);
+    const hrDiff = avgPhr - avgRhr; // positive = HR going down = improving
+    if (Math.abs(hrDiff) >= 3) {
+      const improving = hrDiff > 0;
+      candidates.push({ icon: improving ? '💚' : '🔴', val: `${Math.abs(hrDiff)} bpm ${improving ? 'lavere' : 'høyere'}`,
+        sub: `Easy-puls siste 8 uker (${avgRhr} bpm) vs. forrige 8 (${avgPhr} bpm)`,
+        priority: 3 });
+    }
+  }
+
+  // Elevation this month
+  const thisMonthElev = sessions.filter(s => s.dato && s.dato.slice(0,7) === curMonth && s.hoydeMeter > 0)
+    .reduce((sum, s) => sum + s.hoydeMeter, 0);
+  if (thisMonthElev >= 500) {
+    candidates.push({ icon: '⛰️', val: `${thisMonthElev.toLocaleString('nb-NO')} m`,
+      sub: `høydemeter i ${(['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'][+curMonth.slice(5,7)-1])}`,
+      priority: thisMonthElev >= 2000 ? 4 : 3 });
+  }
+
   candidates.sort((a, b) => b.priority - a.priority);
   el.innerHTML = candidates.slice(0, 6).map(ins =>
     `<div class="insight-item"><span class="i-icon">${ins.icon}</span><div class="i-body"><div class="i-val">${ins.val}</div><div class="i-sub">${ins.sub}</div></div></div>`
@@ -3347,6 +3409,7 @@ const DetailPanel = {
       ['HR snitt / topp',(s.gjsnittspuls||s.toppuls) ? [s.gjsnittspuls, s.toppuls].filter(Boolean).join(' / ') : null],
       ['Kalorier',       s.kalorier ? s.kalorier+' kcal' : null],
       ['Stigning',       s.stigning ? s.stigning+'%' : null],
+      ['Høydemeter',     s.hoydeMeter ? s.hoydeMeter+' m' : null],
       ['Sko',            s.sko  || null],
       ['Søvn',           s.sovn ? hoursToHHMM(s.sovn) : null],
     ].filter(([,v]) => v);
@@ -3691,10 +3754,13 @@ function renderDashboard() {
     { label:'Beste uke', value: recs.besteUke ? recs.besteUkeKm.toFixed(1)+' km' : '–', sub: recs.besteUke ? fmtWeekLabel(recs.besteUke) : '' },
     { label:'Beste måned', value: recs.besteMåned ? recs.besteMånedKm.toFixed(1)+' km' : '–', sub: recs.besteMåned ? (['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'][+recs.besteMåned.slice(5,7)-1]+' '+recs.besteMåned.slice(0,4)) : '' },
     { label:'Beste 4-ukersperiode', value: recs.beste4Blokk ? recs.beste4Blokk.toFixed(1)+' km' : '–', sub: 'Rullerende 4 uker' },
+    { label:'Mest høydemeter', value: recs.bestHoyde ? recs.bestHoyde.hoydeMeter+' m' : '–', sub: recs.bestHoyde ? `${fmtDist(recs.bestHoyde.distanse)} km · ${fmtDate(recs.bestHoyde.dato)}` : '' },
     { label:'Beste tempo', value: recs.bestePace ? secsToMmSs(recs.bestePace.tempo)+' /km' : '–', sub: recs.bestePace ? fmtDate(recs.bestePace.dato) : '' },
     { label:'Beste snitt km/t', value: recs.bestKmh ? recs.bestKmh.snittkmh.toFixed(1)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
-    { label:'Beste Easy-tempo', value: recs.bestEasyPace ? secsToMmSs(recs.bestEasyPace.tempo)+' /km' : '–', sub: recs.bestEasyPace ? fmtDate(recs.bestEasyPace.dato) : '' },
-    { label:'Beste Long-tempo', value: recs.bestLangturPace ? secsToMmSs(recs.bestLangturPace.tempo)+' /km' : '–', sub: recs.bestLangturPace ? fmtDate(recs.bestLangturPace.dato) : '' },
+    { label:'Beste Easy pace', value: recs.bestEasyPace ? secsToMmSs(recs.bestEasyPace.tempo)+' /km' : '–', sub: recs.bestEasyPace ? fmtDate(recs.bestEasyPace.dato) : '' },
+    { label:'Beste Long pace', value: recs.bestLangturPace ? secsToMmSs(recs.bestLangturPace.tempo)+' /km' : '–', sub: recs.bestLangturPace ? fmtDate(recs.bestLangturPace.dato) : '' },
+    { label:'Beste Tempo pace', value: recs.bestTempoPace ? secsToMmSs(recs.bestTempoPace.tempo)+' /km' : '–', sub: recs.bestTempoPace ? fmtDate(recs.bestTempoPace.dato) : '' },
+    { label:'Beste Test pace', value: recs.bestTestPace ? secsToMmSs(recs.bestTestPace.tempo)+' /km' : '–', sub: recs.bestTestPace ? fmtDate(recs.bestTestPace.dato) : '' },
     { label:'Beste aerob eff.', value: recs.bestAerobEff ? recs.bestAerobEff.ae.toFixed(2) : '–', sub: recs.bestAerobEff ? `${(+recs.bestAerobEff.kmh).toFixed(1)} km/t · ${recs.bestAerobEff.gjsnittspuls} bpm · ${fmtDate(recs.bestAerobEff.dato)}` : '', color: recs.bestAerobEff ? (recs.bestAerobEff.ae >= 7 ? '#6c8fff' : recs.bestAerobEff.ae >= 5.5 ? 'var(--green)' : recs.bestAerobEff.ae >= 4 ? 'rgba(240,192,80,.9)' : '#f87171') : null, tooltip: 'Aerob effektivitet = fart ÷ puls × 100\nLav: < 4.0 · Moderat: 4.0–5.5 · God: 5.5–7.0 · Høy: > 7.0' },
     { label:'Lavest gj.snittspuls', value: recs.lavPuls ? recs.lavPuls.gjsnittspuls+' bpm' : '–', sub: recs.lavPuls ? `${fmtDist(recs.lavPuls.distanse)} km · ${fmtDate(recs.lavPuls.dato)}` : '' },
     { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
@@ -4034,7 +4100,8 @@ function renderDashboard() {
 
 function computeRecords(sessions) {
   let bestePace=null, longestDist=null, longestTime=null, bestKmh=null;
-  let bestEasyPace=null, bestLangturPace=null, bestAerobEff=null, lavPuls=null;
+  let bestEasyPace=null, bestLangturPace=null, bestTempoPace=null, bestTestPace=null, bestAerobEff=null, lavPuls=null;
+  let bestHoyde=null;
   let totalDist=0, totalTime=0;
   const weekKm = {}, monthKm = {}, absWeekKm = {};
   const absWeekSet = new Set();
@@ -4045,8 +4112,11 @@ function computeRecords(sessions) {
     if (s.distanse && (!longestDist || s.distanse > longestDist.distanse)) longestDist=s;
     if (s.varighet && (!longestTime || s.varighet > longestTime.varighet)) longestTime=s;
     if (s.snittkmh && (!bestKmh || s.snittkmh > bestKmh.snittkmh)) bestKmh=s;
-    if (s.okttype==='Easy' && s.tempo && (!bestEasyPace || s.tempo < bestEasyPace.tempo)) bestEasyPace=s;
-    if (s.okttype==='Long' && s.tempo && (!bestLangturPace || s.tempo < bestLangturPace.tempo)) bestLangturPace=s;
+    if (s.okttype==='Easy'  && s.tempo && (!bestEasyPace   || s.tempo < bestEasyPace.tempo))   bestEasyPace=s;
+    if (s.okttype==='Long'  && s.tempo && (!bestLangturPace|| s.tempo < bestLangturPace.tempo)) bestLangturPace=s;
+    if (s.okttype==='Tempo' && s.tempo && (!bestTempoPace  || s.tempo < bestTempoPace.tempo))   bestTempoPace=s;
+    if (s.okttype==='Test'  && s.tempo && (!bestTestPace   || s.tempo < bestTestPace.tempo))    bestTestPace=s;
+    if (s.hoydeMeter && (!bestHoyde || s.hoydeMeter > bestHoyde.hoydeMeter)) bestHoyde=s;
     const kmh = s.snittkmh || (s.distanse && s.varighet > 0 ? +(s.distanse / (s.varighet / 3600)).toFixed(2) : 0);
     if (s.okttype==='Easy' && s.gjsnittspuls > 0 && kmh > 0) {
       const ae = +(kmh / s.gjsnittspuls * 100).toFixed(2);
@@ -4101,7 +4171,7 @@ function computeRecords(sessions) {
     if (!candidates.length) return { label: b.label, session: null };
     return { label: b.label, session: candidates.reduce((a, s) => s.tempo < a.tempo ? s : a) };
   });
-  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLangturPace, bestAerobEff, lavPuls, distPRs };
+  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLangturPace, bestTempoPace, bestTestPace, bestHoyde, bestAerobEff, lavPuls, distPRs };
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4126,6 +4196,7 @@ const COL_MAP = {
   'tempo (min/km)':'tempo','tempo':'tempo','pace':'tempo',
   'snitt km/t':'snittkmh','snittkmh':'snittkmh','avg km/h':'snittkmh',
   'stigning (%)':'stigning','stigning':'stigning','elevation':'stigning',
+  'høydemeter (m)':'hoydeMeter','høydemeter':'hoydeMeter','hoydeMeter':'hoydeMeter','hoydeMeter (m)':'hoydeMeter','elevation gain':'hoydeMeter','elevation (m)':'hoydeMeter',
   'sko':'sko','shoes':'sko',
   'søvn':'sovn','sovn':'sovn','sleep':'sovn',
 };
@@ -4222,6 +4293,7 @@ const Import = {
             tempo: parseExcelTime(obj.tempo)||null,
             snittkmh: obj.snittkmh ? +parseFloat(obj.snittkmh).toFixed(2) : null,
             stigning: parseFloat(obj.stigning)||null,
+            hoydeMeter: parseInt(obj.hoydeMeter)||null,
             sko: String(obj.sko||'').trim(),
             sovn: parseSovn(obj.sovn),
           };
