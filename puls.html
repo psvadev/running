@@ -136,8 +136,7 @@
     #logTable th:nth-child(12), #logTable td:nth-child(12),
     #logTable th:nth-child(13), #logTable td:nth-child(13),
     #logTable th:nth-child(14), #logTable td:nth-child(14),
-    #logTable th:nth-child(15), #logTable td:nth-child(15),
-    #logTable th:nth-child(16), #logTable td:nth-child(16) { display: none; }
+    #logTable th:nth-child(15), #logTable td:nth-child(15) { display: none; }
     .shoe-bar-row { grid-template-columns: 110px 1fr 44px; }
     .zone-grid { grid-template-columns: repeat(3, 1fr); }
     .records-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
@@ -703,7 +702,6 @@
           <th data-col="tempo">Tempo <span class="sort-indicator">↕</span></th>
           <th data-col="gjsnittspuls">♥ Snitt <span class="sort-indicator">↕</span></th>
           <th data-col="toppuls">♥ Topp <span class="sort-indicator">↕</span></th>
-          <th data-col="kalorier">Kal <span class="sort-indicator">↕</span></th>
           <th data-col="sko">Sko</th>
           <th data-col="sovn">Søvn <span class="sort-indicator">↕</span></th>
           <th data-col="hoydeMeter">Høyde</th>
@@ -1957,10 +1955,9 @@ const Log = {
         <td>${s.tempo ? secsToMmSs(s.tempo) : ''}</td>
         <td>${s.gjsnittspuls||''}</td>
         <td>${s.toppuls||''}</td>
-        <td>${s.kalorier||''}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${s.sko||''}</td>
         <td style="${s.sovn ? (s.sovn < 6 ? 'color:#e05555;font-weight:600' : s.sovn < 7 ? 'color:#f0c050;font-weight:600' : 'color:#4bbe78;font-weight:600') : ''}">${s.sovn ? hoursToHHMM(s.sovn) : ''}</td>
-        <td>${s.hoydeMeter ? s.hoydeMeter+'m' : ''}</td>
+        <td>${s.hoydeMeter ? s.hoydeMeter+'m' : s.stigning ? s.stigning+'%' : ''}</td>
         <td>
           <button class="btn-icon btn-sm" onclick="Form.editSession('${s.id}')" title="Rediger">✏️</button>
           <button class="btn-icon btn-sm" onclick="Log.delete('${s.id}')" title="Slett" style="color:var(--danger)">🗑️</button>
