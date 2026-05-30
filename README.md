@@ -5,14 +5,14 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 ## Features
 
 ### Logging
-- Log runs with date, session type, training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline, shoe, sleep, and **run type** (outdoor / treadmill)
+- Log runs with date, session type, training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline (treadmill) or **elevation gain in metres** (outdoor), shoe, sleep, and **run type** (outdoor / treadmill)
 - Auto-calculated fields: duration (summed from zones), pace, avg km/h
 - Edit any past session by clicking it in the log
 
 ### Dashboard (Oversikt)
 - **Yearly goal card** — progress bar with km done, km remaining, year-end projection, and required weekly km to stay on track
-- **Rekorder** — 16 tiles in two themed rows: **volume row** (total distance, total time, avg km/week, longest session by distance and time, best week, best month, best 4-week block) and **quality row** (best pace, best avg km/h, best Easy pace, best Long-session pace, best aerobic efficiency, lowest avg HR on a run ≥ 5 km, longest streak, current streak); aerobic efficiency and current streak are color-coded (red/amber/green/blue) for instant context; aerobic efficiency tile has a hover tooltip explaining the scale (Lav < 4.0 · Moderat 4.0–5.5 · God 5.5–7.0 · Høy > 7.0); plus distance PRs for 5 km, 10 km, half marathon, and marathon
-- **Innsikter** — dynamic pool of insight candidates ranked by priority and recency; top 6 shown: km milestones (passed and upcoming), shoe retirement warnings, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month, Easy pace trend (last 8 vs prior 8 weeks), days since last run, Easy run Zone 2 compliance (surfaces when compliance is low and needs attention)
+- **Rekorder** — three sub-sections: **main grid** (total distance, total time, avg km/week, longest session by distance and time, best week, best month, best 4-week block, most elevation gain, best aerobic efficiency, lowest avg HR on a run ≥ 5 km, longest streak, current streak); **Pace** (best overall pace, best avg km/h, best Easy/Long/Tempo/Test pace); **Distanse-PR** (5 km, 10 km, half marathon, marathon — fastest session per bracket); aerobic efficiency and current streak are color-coded (red/amber/green/blue); aerobic efficiency tile has a hover tooltip explaining the scale (Lav < 4.0 · Moderat 4.0–5.5 · God 5.5–7.0 · Høy > 7.0)
+- **Innsikter** — dynamic pool of insight candidates ranked by priority and recency; top 6 shown: km milestones (passed and upcoming), shoe retirement warnings, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month, Easy pace trend (last 8 vs prior 8 weeks), **Easy HR trend** (avg HR last 8 vs prior 8 weeks — rising or falling), **volume trend** (last 4 weeks vs prior 4 weeks), **long run gap** (weeks since last Langtur), **elevation this month** (total høydemeter), days since last run, Easy run Zone 2 compliance
 - **Treningsrytme** — consistency score 0–100 over the last 12 weeks (active-week rate, volume threshold weeks, streak bonus); score breakdown bars show contribution of each component (max 50/30/20 pts); configurable km/run-count thresholds in Settings; monthly active-weeks trend chart
 - **Treningsblokker** — auto-generated training block cards from Plan events; active block is a full-width hero card with consistency progress bar and weekly km sparkline; past blocks shown as compact cards below; click any card for a rich drill-down: weekly progression bars (each row clickable → week detail; badges for Toppuke / Lengste løp / Raskest), auto-generated highlights (best week, longest run, streak, pace trend), consistency breakdown, HR zone distribution (stacked bar with low/high intensity summary), comparison vs previous block, and full run list
 - **Treningsbelastning per uke** — weekly training load scored by zone intensity (Z1=1 … Z5=5 points/min), color-coded bars with 4-week rolling average
@@ -37,7 +37,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 ### Session log (Treningslogg)
 - Full sortable table — click any column header to sort
 - **Sleep column** colour-coded at a glance: red `< 6h` · yellow `6–7h` · green `≥ 7h`
-- **Mobile:** secondary columns hidden automatically (week, name, plan, target km, duration, max HR, calories, shoe, sleep); all fields still visible when opening the edit form
+- **Mobile:** secondary columns hidden automatically (week, name, plan, target km, duration, max HR, calories, shoe, sleep, elevation); all fields still visible when opening the edit form
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe
 - Edit or delete any row
 - **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; TSV format matches the original Excel export (tab-separated, Norwegian headers, same column order and formatting)
