@@ -468,6 +468,8 @@
     <div class="card span2">
       <div class="card-title">Rekorder</div>
       <div class="records-grid" id="recordsGrid"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Pace</div>
+      <div class="records-grid" id="paceRecordsGrid"></div>
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Distanse-PR</div>
       <div class="records-grid" id="distPRGrid"></div>
     </div>
@@ -3745,6 +3747,7 @@ function renderDashboard() {
 
   // Records
   const recs = computeRecords(sessions);
+  const recCardHtml = r => `<div class="record-card"${r.tooltip ? ` title="${r.tooltip}"` : ''}><div class="record-label">${r.label}</div><div class="record-value"${r.color ? ` style="color:${r.color}"` : ''}>${r.value}</div><div class="record-sub">${r.sub}</div></div>`;
   document.getElementById('recordsGrid').innerHTML = [
     { label:'Totalt distanse', value: recs.totalDist.toFixed(1)+' km', sub: `${sessions.length} økter` },
     { label:'Totalt tid', value: secsToHms(recs.totalTime), sub: '' },
@@ -3755,17 +3758,20 @@ function renderDashboard() {
     { label:'Beste måned', value: recs.besteMåned ? recs.besteMånedKm.toFixed(1)+' km' : '–', sub: recs.besteMåned ? (['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'][+recs.besteMåned.slice(5,7)-1]+' '+recs.besteMåned.slice(0,4)) : '' },
     { label:'Beste 4-ukersperiode', value: recs.beste4Blokk ? recs.beste4Blokk.toFixed(1)+' km' : '–', sub: 'Rullerende 4 uker' },
     { label:'Mest høydemeter', value: recs.bestHoyde ? recs.bestHoyde.hoydeMeter+' m' : '–', sub: recs.bestHoyde ? `${fmtDist(recs.bestHoyde.distanse)} km · ${fmtDate(recs.bestHoyde.dato)}` : '' },
+    { label:'Beste aerob eff.', value: recs.bestAerobEff ? recs.bestAerobEff.ae.toFixed(2) : '–', sub: recs.bestAerobEff ? `${(+recs.bestAerobEff.kmh).toFixed(1)} km/t · ${recs.bestAerobEff.gjsnittspuls} bpm · ${fmtDate(recs.bestAerobEff.dato)}` : '', color: recs.bestAerobEff ? (recs.bestAerobEff.ae >= 7 ? '#6c8fff' : recs.bestAerobEff.ae >= 5.5 ? 'var(--green)' : recs.bestAerobEff.ae >= 4 ? 'rgba(240,192,80,.9)' : '#f87171') : null, tooltip: 'Aerob effektivitet = fart ÷ puls × 100\nLav: < 4.0 · Moderat: 4.0–5.5 · God: 5.5–7.0 · Høy: > 7.0' },
+    { label:'Lavest gj.snittspuls', value: recs.lavPuls ? recs.lavPuls.gjsnittspuls+' bpm' : '–', sub: recs.lavPuls ? `${fmtDist(recs.lavPuls.distanse)} km · ${fmtDate(recs.lavPuls.dato)}` : '' },
+    { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
+    { label:'Nåværende streak', value: recs.currentStreak ? `${recs.currentStreak} uker` : '–', sub: recs.currentStreak > 1 ? 'på rad nå' : recs.currentStreak === 1 ? 'denne uken' : '', color: recs.currentStreak >= 6 ? '#6c8fff' : recs.currentStreak >= 3 ? 'var(--green)' : recs.currentStreak >= 1 ? 'rgba(240,192,80,.9)' : null },
+  ].map(recCardHtml).join('');
+
+  document.getElementById('paceRecordsGrid').innerHTML = [
     { label:'Beste tempo', value: recs.bestePace ? secsToMmSs(recs.bestePace.tempo)+' /km' : '–', sub: recs.bestePace ? fmtDate(recs.bestePace.dato) : '' },
     { label:'Beste snitt km/t', value: recs.bestKmh ? recs.bestKmh.snittkmh.toFixed(1)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
     { label:'Beste Easy pace', value: recs.bestEasyPace ? secsToMmSs(recs.bestEasyPace.tempo)+' /km' : '–', sub: recs.bestEasyPace ? fmtDate(recs.bestEasyPace.dato) : '' },
     { label:'Beste Long pace', value: recs.bestLangturPace ? secsToMmSs(recs.bestLangturPace.tempo)+' /km' : '–', sub: recs.bestLangturPace ? fmtDate(recs.bestLangturPace.dato) : '' },
     { label:'Beste Tempo pace', value: recs.bestTempoPace ? secsToMmSs(recs.bestTempoPace.tempo)+' /km' : '–', sub: recs.bestTempoPace ? fmtDate(recs.bestTempoPace.dato) : '' },
     { label:'Beste Test pace', value: recs.bestTestPace ? secsToMmSs(recs.bestTestPace.tempo)+' /km' : '–', sub: recs.bestTestPace ? fmtDate(recs.bestTestPace.dato) : '' },
-    { label:'Beste aerob eff.', value: recs.bestAerobEff ? recs.bestAerobEff.ae.toFixed(2) : '–', sub: recs.bestAerobEff ? `${(+recs.bestAerobEff.kmh).toFixed(1)} km/t · ${recs.bestAerobEff.gjsnittspuls} bpm · ${fmtDate(recs.bestAerobEff.dato)}` : '', color: recs.bestAerobEff ? (recs.bestAerobEff.ae >= 7 ? '#6c8fff' : recs.bestAerobEff.ae >= 5.5 ? 'var(--green)' : recs.bestAerobEff.ae >= 4 ? 'rgba(240,192,80,.9)' : '#f87171') : null, tooltip: 'Aerob effektivitet = fart ÷ puls × 100\nLav: < 4.0 · Moderat: 4.0–5.5 · God: 5.5–7.0 · Høy: > 7.0' },
-    { label:'Lavest gj.snittspuls', value: recs.lavPuls ? recs.lavPuls.gjsnittspuls+' bpm' : '–', sub: recs.lavPuls ? `${fmtDist(recs.lavPuls.distanse)} km · ${fmtDate(recs.lavPuls.dato)}` : '' },
-    { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
-    { label:'Nåværende streak', value: recs.currentStreak ? `${recs.currentStreak} uker` : '–', sub: recs.currentStreak > 1 ? 'på rad nå' : recs.currentStreak === 1 ? 'denne uken' : '', color: recs.currentStreak >= 6 ? '#6c8fff' : recs.currentStreak >= 3 ? 'var(--green)' : recs.currentStreak >= 1 ? 'rgba(240,192,80,.9)' : null },
-  ].map(r => `<div class="record-card"${r.tooltip ? ` title="${r.tooltip}"` : ''}><div class="record-label">${r.label}</div><div class="record-value"${r.color ? ` style="color:${r.color}"` : ''}>${r.value}</div><div class="record-sub">${r.sub}</div></div>`).join('');
+  ].map(recCardHtml).join('');
 
   document.getElementById('distPRGrid').innerHTML = recs.distPRs.map(({ label, session: s }) => {
     const value = s ? secsToHms(s.varighet) : '–';
