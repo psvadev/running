@@ -36,7 +36,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
     "dato": "2026-05-24",          // ISO date string
     "uke": "2026-21",              // ISO week e.g. YYYY-WW
     "oktnavn": "Runna easy run",
-    "okttype": "Easy",             // Easy | Steady | Long | Tempo | Intervaller | Test
+    "okttype": "Easy",             // Easy | Steady | Long | Tempo | Intervaller | Test | Race
     "treningsplan": "Runna",       // Runna | Egentrening
     "varighet": 3060,              // seconds (auto-summed from zones)
     "distanse": 6.5,               // km
@@ -80,6 +80,15 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
       {"min": 176, "max": 195}
     ]
   },
+  "bestEfforts": {
+    "400m": null,                 // total seconds for 400m best effort (manual entry from Strava/Runna)
+    "1k": 362,                    // total seconds; null if not entered
+    "5k": null,
+    "10k": null,
+    "15k": null,
+    "half": null,
+    "marathon": null
+  },
   "lastUpdated": "2026-05-24T10:00:00Z"
 }
 ```
@@ -106,7 +115,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 - Filter bar at top: økt-type dropdown, treningsplan dropdown, **løpetype radios** (Alle / 🏃 Ute / ⚙️ Inne), **Tempo-enhet radios** (min/km / km/t), year pills (toggle individual years), Nullstill button. **Nullstill resets all filters** including paceUnit radio, venue toggle, all scatter/chart-local type pills, and `zoneGroupBy` (Pulssoner Uke/Måned toggle) back to defaults.
 - **Yearly goal card** (full-width, hidden if no goal set): progress bar, km løpt, km igjen, Prognose (year-end projection), km/uke nødvendig. Green if on track, warning if projected to fall short.
 - Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → **Innsikter** → **Treningsrytme** → PMC → Belastning → Ukentlig distanse + Tempo → **Plan vs faktisk** → Treningskalender → **Ute vs inne** → Årssammenligning → Aerob effektivitet → Pulssoner → **Sko oversikt** + Ukentlig oversikt
-  - **Rekorder** — three sub-sections rendered from `computeRecords()`: (1) main grid (`recordsGrid`): total dist/time, avg km/week, longest session, best week/month/4-week block, Mest høydemeter, best aerob eff., lowest avg HR, longest + current streak; (2) **Pace** sub-section (`paceRecordsGrid`): Beste tempo, Beste snitt km/t, Beste Easy/Long/Tempo/Test pace — all use "pace" label to avoid "Tempo-tempo" ambiguity; Steady and Intervaller excluded (Steady too similar to Easy; interval session pace is not meaningful); (3) **Distanse-PR** (`distPRGrid`): 5 km, 10 km, Halvmaraton, Maraton — fastest session per distance bracket. `computeRecords()` returns `bestEasyPace`, `bestLangturPace`, `bestTempoPace`, `bestTestPace`, `bestHoyde`.
+  - **Rekorder** — four sub-sections rendered from `computeRecords()` + `computePerfCurve()`: (1) main grid (`recordsGrid`): total dist/time, avg km/week, longest session, best week/month/4-week block, Mest høydemeter, best aerob eff., lowest avg HR, longest + current streak; (2) **Pace** sub-section (`paceRecordsGrid`): Beste tempo, Beste snitt km/t, Beste Easy/Long/Tempo/Test/Race pace — all use "pace" label to avoid "Tempo-tempo" ambiguity; Steady and Intervaller excluded (Steady too similar to Easy; interval session pace is not meaningful); (3) **Distanse-PR** (`distPRGrid`): 5 km, 10 km, Halvmaraton, Maraton — fastest session per distance bracket; (4) **Ytelseskurve** (`perfCurveGrid`): 400 m, 1 km, 5 km, 10 km, 15 km, Halvmaraton, Maraton — priority: manual override from `Store.data.bestEfforts` > actual Test/Race session in ±10% range > Riegel estimate (`t2 = t1 × (d/d1)^1.06`) from closest Test/Race anchor ≥1 km; 400m never gets a Riegel estimate; estimated tiles styled with `.record-value.estimated` (muted colour). `computeRecords()` returns `bestEasyPace`, `bestLangturPace`, `bestTempoPace`, `bestTestPace`, `bestRacePace`, `bestHoyde`.
   - **Treningsstatus (PMC)** — line chart, last 365 days; three lines: Kondisjon/CTL (42-day exp. avg, blue), Tretthet/ATL (7-day exp. avg, red), Form/TSB (CTL−ATL, green). Always uses `allSessions` regardless of dashboard filter — CTL/ATL require full history to be meaningful (full-width)
   - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width). Supports event marker lines. **Tooltip shows:** load points + level + km/løp/tid. **Click a bar → `DetailPanel.openWeek`**. Shows "Ingen data å vise" empty state when no sessions have HR zone data.
   - **Ukentlig distanse** — bar chart, km per week (last 20 weeks). Shows "Ingen data å vise" empty state when filtered to zero sessions. Supports event marker lines. Uses `_rawLabels` (YYYY-WW) for event matching. **Tooltip shows:** week label, km, løp, tid, tempo, HR. **Click a bar → `DetailPanel.openWeek`**.
@@ -119,14 +128,16 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
   - **Pulssoner** — stacked bar, time per zone per week, last 20 weeks; Y-axis and tooltips display in `tt:mm` (h:mm) format via `minsToHm()`; **Uke/Måned toggle** switches grouping
   - **Treningsrytme** — consistency score card (span2, after Innsikter). Score 0–100 from 3 components: active-week rate (×50), volume consistency weeks above km threshold (×30), current streak bonus (×20, maxes at 4+ weeks). Labels: Svært jevn rytme (≥85) / God rytme (≥70) / Jevn (≥55) / Litt ujevn (≥40) / Ujevn trening (<40). 4 stat tiles: aktive uker, uker over km-grense, uker med N+ løp, nåværende streak. Bar chart below: active weeks per month, last 12 months. Thresholds (km-grense, løp-grense) configured in ⚙️ Innstillinger → Treningsrytme; persisted as `consistencySettings` in JSON. Card id: `rhythmCard`.
   - **Treningsblokker** — training block cards (span2, after Treningsrytme); **hidden when no Plan events exist**. Auto-generated from events with `type: "plan"`: each Plan event starts a block that runs until the next Plan event start, or the event's own `endDate` if set, or today for the current block. **Active block** (endDate ≥ today) renders as a full-width hero card: accent-coloured border, 16px/700 title, full metrics row, consistency progress bar with colour-coded label (Fremragende ≥85 / God konsistens ≥70 / Moderat ≥50 / Ujevn <50), and a pure-SVG weekly km sparkline. **Past blocks** render as compact cards below (4px consistency bar, no sparkline). Newest block first. Click opens DetailPanel (`openBlock`). Card id: `blocksCard`.
-  - **Innsikter** — auto-generated insight tiles (span2, after Rekorder). Up to 6 tiles, each with icon + bold value + muted sub-label. Generators: km-milepæl (total distance passed a round number), nest km-milepæl, mest brukte sko (by km), sko nærmer seg pensjonering, tyngste 4-ukers blokk (rolling zone-weighted load), raskeste Easy-økt, mest aktive måned (by km + by count if different), Easy-tempo trend (last 8 vs prior 8 weeks, ≥3% change), Easy HR trend (last 8 vs prior 8 weeks, ≥3 bpm change), Easy Zone 2 compliance, volum trend (last 4 vs prior 4 weeks, ≥10% change), langtursøkt-gap (≥3 weeks since last Long session), høydemeter denne måneden (≥500m), days since last run (≥10 days). Responds to DashFilter. Streak and best-week tiles intentionally omitted — both already shown in Rekorder.
+  - **Innsikter** — auto-generated insight tiles (span2, after Rekorder). Up to 6 tiles, each with icon + bold value + muted sub-label. Generators: km-milepæl (total distance passed a round number), next km-milepæl, mest brukte sko (by km), sko nærmer seg pensjonering, tyngste 4-ukers blokk (rolling zone-weighted load), raskeste Easy-økt, mest aktive måned (by km + by count if different), Easy-tempo trend (last 8 vs prior 8 weeks, ≥3% change), Easy HR trend (last 8 vs prior 8 weeks, ≥3 bpm change), Easy Zone 2 compliance, volum trend (last 4 vs prior 4 weeks, ≥10% change), langtursøkt-gap (≥3 weeks since last Long session), høydemeter denne måneden (≥500m), **race countdown** (days until next race event from `Store.data.events` — priority 5 ≤14 days, 4 ≤60 days, 3 otherwise), days since last run (≥10 days). Responds to DashFilter. Streak and best-week tiles intentionally omitted — both already shown in Rekorder.
   - **Sko oversikt** — horizontal bar per shoe showing total km + ⚠️/🔴 retirement warning. Below each bar: chip row with `X løp`, `X:XX /km` (avg pace), `HR X` (avg HR, omitted if no HR data), `sist DD.MM.YYYY` (last run date). **Clicking any shoe bar opens `DetailPanel.openShoe`** with full stats + recent sessions. Shoes separated by subtle divider lines.
   - Weekly summary table (scrollable)
 
 ### 📋 Treningslogg (log tab — full width)
 - Full-width sortable table (click column headers); columns include **Plan** (treningsplan) after Navn and **Mål km** after Dist
 - **Søvn column** colour-coded: red `< 6h`, yellow `6–7h`, green `≥ 7h`; empty cells unstyled
-- **Mobile (≤600px):** 9 secondary columns hidden via CSS `nth-child` — Uke (3), Navn (5), Plan (6), Mål km (8), Varighet (9), ♥ Topp (12), Kal (13), Sko (14), Søvn (15). Visible: checkbox, Dato, Type, Dist, Tempo, ♥ Snitt, actions. All fields accessible via edit form.
+- **Høyde column** — shows `hoydeMeter + 'm'` for outdoor runs and `stigning + '%'` for treadmill runs; blank if neither is set
+- **Kal (calories) column removed** — still logged in the form and included in TSV export and session detail panel; just not shown in the table
+- **Mobile (≤600px):** 9 secondary columns hidden via CSS `nth-child` — Uke (3), Navn (5), Plan (6), Mål km (8), Varighet (9), ♥ Topp (12), Sko (13), Søvn (14), Høyde (15). Visible: checkbox, Dato, Type, Dist, Tempo, ♥ Snitt, actions. All fields accessible via edit form.
 - Filters: fra/til dato, økt-type, **treningsplan (Plan)**, **løpetype** (Alle / 🏃 Utendørs / ⚙️ Tredemølle), sko — all wired to `fFilterPlan`, `fFilterLopetype` etc.; Nullstill clears all
 - Each row shows a 🏃/⚙️ venue badge next to the session type badge (all sessions; untagged = outdoor)
 - Row actions: ✏️ edit (goes to form tab, **returns to log on save/cancel**), 🗑️ delete (with confirm)
@@ -142,10 +153,12 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 ### 📅 Planlegging (planning tab — max 1200px)
 - **Mål**: add yearly km goals (year + km); listed with delete button (with confirm); triggers goal card on dashboard
 - **Sko**: add by name + optional retirement km. Shows progress bar + projected retirement date (8/12-week rate). Old string-only JSON files migrated automatically. **Pensjonér** button marks a shoe as retired (hidden from session form dropdown, grayed out with 📦 icon in Settings, still visible in log filter for historical searches). **Aktiver** restores a retired shoe. Retired shoes appear below a "Pensjonerte sko" divider. **Fjern** permanently deletes with confirm.
-- **Hendelser**: add timeline events (start date, optional end date, type, title). Types: **plan / race / illness / vacation / personal**. When type = **plan**, two optional extra inputs appear: *Mål km/uke* and *Mål løp/uke* — saved as `targetKmPerWeek` and `targetRunsPerWeek` on the event object. These targets are used in the Treningsblokker detail panel to show "X/N uker over target". Point events = dashed vertical line; range events (with `endDate`) = semi-transparent shaded band with dashed borders. Toggled via "Hendelser" checkbox in dashboard filter bar. Delete has confirm dialog. Event list shows date range as "DD. MMM – DD. MMM" when endDate present.
+- **Hendelser**: add timeline events (start date, optional end date, type, title). Types: **plan / race / illness / vacation / personal**. When type = **plan**, two optional extra inputs appear: *Mål km/uke* and *Mål løp/uke* — saved as `targetKmPerWeek` and `targetRunsPerWeek` on the event object. These targets are used in the Treningsblokker detail panel to show "X/N uker over target". Point events = dashed vertical line; range events (with `endDate`) = semi-transparent shaded band with dashed borders. Race events show 🏁 prefix in chart marker labels. Toggled via "Hendelser" checkbox in dashboard filter bar. Delete has confirm dialog. Event list shows date range as "DD. MMM – DD. MMM" when endDate present.
+- **Løp & Races**: card below Hendelser listing all `type:'race'` events newest-first. Each row shows race title, date, "Kommende" badge for future races, and matched session stats (distance, time, pace, HR). Session matching: prefers `okttype === 'Race'` session on same date, falls back to longest session within ±1 day. "Ingen økt logget" shown for past races with no match. Refreshes on add/delete event.
 
 ### ⚙️ Innstillinger (settings tab — max 1200px)
 - **Profil & Puls**: max HR, resting HR, 5 zone BPM boundaries, "Auto-beregn" button (fills zones at 50/60/70/80/90% of max HR)
+- **Beste innsats**: manual entry of GPS-derived best effort times (400 m, 1 km, 5 km, 10 km, 15 km, halvmaraton, maraton) from Strava/Runna; format mm:ss or h:mm:ss; saved to `Store.data.bestEfforts` (total seconds per distance key: `'400m'`/`'1k'`/`'5k'`/`'10k'`/`'15k'`/`'half'`/`'marathon'`); overrides Riegel estimates in Ytelseskurve; Lagre triggers `renderDashboard()`
 - **Treningsrytme**: km-grense per uke (default 15) and løp-grense per uke (default 2); saved to `Store.data.consistencySettings`; triggers `renderDashboard()` on save so score updates immediately
 - **Datafil**: open file, new file, download/export, **📥 Importer Excel/CSV** (moved here from Treningslogg), "Tøm alle data" danger button. **Lokale sikkerhetskopier** card below: lists last 7 daily IndexedDB snapshots (date + session count); **↩ Gjenopprett** restores that backup, overwrites current data, saves the file, and re-renders the backup list in-place; list populated by `Settings.renderBackupList()` which is called on every Settings tab open
 
@@ -169,7 +182,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 | `Log` | Session table render + sort/filter; `lastFiltered` holds the current filtered+sorted session array (set on each render; read by export) |
 | `LogExport` | Export state object: `selectedIds` (Set of checked session IDs), `update()` (sync button label/enable state), `flash()` (show "Kopiert!" feedback), `getSelected()` (returns sorted sessions for checked IDs) |
 | `DashFilter` | Dashboard filter state (years Set, type, plan, løpetype); `get(sessions)` returns filtered array |
-| `Settings` | Shoe management, goal management, zone editor, profile save, file controls |
+| `Settings` | Shoe management, goal management, zone editor, profile save, file controls, best efforts, race history |
 | `Import` | SheetJS parse, Norwegian column mapping, preview modal, `mergeSessions` dedup |
 | `renderDashboard()` | Rebuilds all chart panels and goal card; calls `buildYearPills()`, `renderInsights()`; computes `cachedBlocks = computeBlocks(Store.data.sessions)` once before calling `renderBlocks()`; hides `yearCompCard` when single year selected |
 | `renderInsights(sessions)` | Generates up to 6 auto-insight tiles into `#insightContent`. Each tile: `{ icon, val, sub, priority }`. Generators: km milestone, most-used shoe, highest 4-week load block, fastest Easy pace, most active month, Easy pace trend (last 8 vs prior 8 weeks), days since last run, **Easy run Zone 2 compliance** (🫀 — surfaces only when ≥3 Easy runs with HR exist AND `settings.zones[1]` is configured AND compliance is low; priority 3 when <50%, else 2 so it only shows when actionable). |
@@ -188,7 +201,8 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 | `renderVenueChart(sessions)` | Stacked bar chart (last 20 weeks): outdoor km (green) vs treadmill km (blue). Hidden when no treadmill sessions. |
 | `renderHeatmap(sessions)` | Training calendar heatmap — GitHub-style grid, 4 modes: distance (blue intensity), belastning (zone-load intensity), økttype (coloured by dominant type), pulssone (coloured by dominant HR zone). `dailyData` entries carry `zones:[0,0,0,0,0]` and `ids:[]` for zone mode and click navigation. Click handler registered once in `DOMContentLoaded` via delegation on `#heatmapContainer` → single session: `DetailPanel.openSession`; multiple sessions same day: `DetailPanel.openWeek`. Custom tooltip registered the same way. Stats bar (`#heatmapStats`) shows active days, total km, current/longest streak for the visible period. Uses DashFilter year for range. Reads `input[name="heatmetric"]` radio for mode. |
 | `eventLinesPlugin` | Chart.js globally registered plugin (`Chart.register(eventLinesPlugin)`). Runs on ALL charts. Draws dashed vertical lines (point events) or semi-transparent shaded bands with dashed borders (range events with `endDate`). Safely no-ops on charts where labels don't match. Guarded with double try-catch so errors never crash chart rendering. |
-| `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Streak uses Monday-aligned epoch week index for correct ISO week / year-boundary handling. |
+| `computeRecords(sessions)` | Returns general records + `distPRs` array (5k/10k/halvmaraton/maraton — fastest session per distance bracket). Also tracks `bestRacePace` (fastest Race session by tempo). Streak uses Monday-aligned epoch week index for correct ISO week / year-boundary handling. |
+| `computePerfCurve(sessions)` | Returns array of 7 performance curve entries (400m, 1k, 5k, 10k, 15k, half, marathon). For each distance: (1) manual override from `Store.data.bestEfforts`; (2) actual Test/Race session in ±10% range; (3) Riegel estimate `t2 = t1 × (km/anchor.distanse)^1.06` from closest Test/Race anchor ≥1 km; (4) dash. 400m never gets Riegel estimate. Returns `{ label, value, sub, estimated }` per entry. |
 | `renderZoneChart(sessions)` | Standalone function; reads `zoneGroupBy` ('week'/'month') to group data |
 | `fmtWeekLabel(wk)` | Formats a `YYYY-WW` string as `"Uke N 'YY"` — used for all weekly chart display labels; defined near `isoWeek` |
 | `absWeekNum(d)` | Monday-aligned epoch week integer — `Math.floor((Date+3days)/7days)`; used for consecutive-week streak and consistency calculations across `renderConsistency`, `computeBlocks`, `DetailPanel.openBlock`, `computeRecords` |
@@ -307,18 +321,9 @@ Global state:
 
 ## Roadmap / future plans
 
-### Phase 2 — Google Drive sync
-- Replace local JSON with a single `puls.json` in Google Drive
-- OAuth 2.0 PKCE flow (no backend needed), `drive.file` scope
-- Needs a **new** Google Cloud project (not shared with other apps)
-- `FileIO` is designed as a thin wrapper — swap `open()`/`save()` implementations only
-- Redirect URI will depend on hosting (see below)
-
-### Phase 3 — Hosting
-- **GitHub Pages** for the HTML file (free static hosting)
-- **Cloudflare Access** in front for auth (Cloudflare Zero Trust, free tier)
-- **Custom domain** via Cloudflare DNS
-- No backend needed — the app is entirely client-side
+### Completed
+- **Google Drive sync** — OAuth 2.0 PKCE flow, `drive.file` scope, refresh token in localStorage, silent sync on every save
+- **GitHub Pages hosting** — app live at `https://psvadev.github.io/running/puls.html`
 
 ### Other ideas noted
 - HR zone labels in charts could show actual BPM ranges once settings are saved
