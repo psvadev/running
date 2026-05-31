@@ -4219,8 +4219,8 @@ function computeRecords(sessions) {
 
 function computePerfCurve(sessions) {
   const DISTS = [
+    { label:'400 m',       km:0.4,  key:'400m'     },
     { label:'1 km',        km:1.0,  key:'1k'       },
-    { label:'3 km',        km:3.0,  key:'3k'       },
     { label:'5 km',        km:5.0,  key:'5k'       },
     { label:'10 km',       km:10.0, key:'10k'      },
     { label:'15 km',       km:15.0, key:'15k'      },
@@ -4245,7 +4245,8 @@ function computePerfCurve(sessions) {
     if (actual) {
       return { label, value: secsToHms(actual.varighet), sub: `${secsToMmSs(actual.tempo)} /km · ${fmtDate(actual.dato)}`, estimated: false };
     }
-    // 3. Riegel estimate from closest Test anchor (min 3k)
+    // 3. Riegel estimate from closest Test anchor (min 1k; skip for 400m)
+    if (km < 1) return { label, value: '–', sub: 'Legg inn manuelt', estimated: false };
     const anchor = testSessions
       .filter(s => s.distanse >= 3)
       .reduce((best, s) => !best || Math.abs(s.distanse - km) < Math.abs(best.distanse - km) ? s : best, null);
@@ -4783,7 +4784,7 @@ const Settings = {
     const el = document.getElementById('bestEffortsForm');
     if (!el) return;
     const DISTS = [
-      { label:'1 km', key:'1k' }, { label:'3 km', key:'3k' },
+      { label:'400 m', key:'400m' }, { label:'1 km', key:'1k' },
       { label:'5 km', key:'5k' }, { label:'10 km', key:'10k' },
       { label:'15 km', key:'15k' }, { label:'Halvmaraton', key:'half' },
       { label:'Maraton', key:'marathon' },
@@ -4801,7 +4802,7 @@ const Settings = {
   },
 
   saveBestEfforts() {
-    const KEYS = ['1k','3k','5k','10k','15k','half','marathon'];
+    const KEYS = ['400m','1k','5k','10k','15k','half','marathon'];
     if (!Store.data.bestEfforts) Store.data.bestEfforts = {};
     KEYS.forEach(key => {
       const raw = document.getElementById('be_' + key)?.value.trim();
