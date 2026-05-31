@@ -147,6 +147,7 @@
   .record-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
   .record-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
   .record-value { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .record-value.estimated { color: var(--muted); }
   .record-sub { font-size: 11px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ── Table ── */
@@ -471,6 +472,8 @@
       <div class="records-grid" id="paceRecordsGrid"></div>
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Distanse-PR</div>
       <div class="records-grid" id="distPRGrid"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Ytelseskurve</div>
+      <div class="records-grid" id="perfCurveGrid"></div>
     </div>
     <div class="card span2" id="insightCard">
       <div class="card-title">Innsikter</div>
@@ -768,6 +771,12 @@
     <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
 
+  <!-- Løp & Races -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Løp &amp; Races</div>
+    <div id="raceHistoryList"></div>
+  </div>
+
 </div>
 
 <!-- ══════════════ TAB 5: SETTINGS ══════════════ -->
@@ -848,6 +857,15 @@
       <div id="driveStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
       <button class="btn-secondary btn-sm" id="driveSignInBtn">Koble til Google Drive</button>
     </div>
+  </div>
+
+  <!-- Beste innsats -->
+  <div class="card" style="margin-top:16px">
+    <div class="card-title">Beste innsats</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Legg inn GPS-tider fra Strava eller Runna. Format: mm:ss eller h:mm:ss. Overskriver Riegel-estimater i Ytelseskurven.</p>
+    <div id="bestEffortsForm"></div>
+    <button class="btn" style="margin-top:10px" onclick="Settings.saveBestEfforts()">Lagre</button>
+    <span id="bestEffortsMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
   </div>
 
 </div>
@@ -1097,6 +1115,7 @@ const Store = {
   _migrate() {
     if (!this.data.goals) this.data.goals = {};
     if (!this.data.events) this.data.events = [];
+    if (!this.data.bestEfforts) this.data.bestEfforts = {};
     // Migrate shoes from string array to object array
     if (this.data.shoes.length && typeof this.data.shoes[0] === 'string') {
       this.data.shoes = this.data.shoes.map(s => ({ name: s }));
@@ -2149,7 +2168,8 @@ const eventLinesPlugin = {
           const x = meta.data[idx].x;
           if (x < chartArea.left || x > chartArea.right) return;
           const color = EVENT_COLORS[evt.type] || EVENT_COLORS.personal;
-          const labelText = evt.title.length > 14 ? evt.title.slice(0, 13) + '…' : evt.title;
+          const prefix = evt.type === 'race' ? '🏁 ' : '';
+          const labelText = prefix + (evt.title.length > 12 ? evt.title.slice(0, 12) + '…' : evt.title);
 
           ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
           ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
@@ -3033,6 +3053,18 @@ function renderInsights(sessions) {
       priority: thisMonthElev >= 2000 ? 4 : 3 });
   }
 
+  // Race countdown
+  const upcomingRaces = (Store.data.events || [])
+    .filter(e => e.type === 'race' && e.date > today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (upcomingRaces.length) {
+    const next = upcomingRaces[0];
+    const daysUntil = Math.round((new Date(next.date) - new Date(today)) / 86400000);
+    candidates.push({ icon: '🏁', val: `${daysUntil} dager`,
+      sub: `til ${next.title} (${fmtDate(next.date)})`,
+      priority: daysUntil <= 14 ? 5 : daysUntil <= 60 ? 4 : 3 });
+  }
+
   candidates.sort((a, b) => b.priority - a.priority);
   el.innerHTML = candidates.slice(0, 6).map(ins =>
     `<div class="insight-item"><span class="i-icon">${ins.icon}</span><div class="i-body"><div class="i-val">${ins.val}</div><div class="i-sub">${ins.sub}</div></div></div>`
@@ -3776,6 +3808,10 @@ function renderDashboard() {
     return `<div class="record-card"><div class="record-label">${label}</div><div class="record-value">${value}</div><div class="record-sub">${sub}</div></div>`;
   }).join('');
 
+  document.getElementById('perfCurveGrid').innerHTML = computePerfCurve(Store.data.sessions).map(r =>
+    `<div class="record-card"><div class="record-label">${r.label}</div><div class="record-value${r.estimated ? ' estimated' : ''}">${r.value}</div><div class="record-sub">${r.sub}</div></div>`
+  ).join('');
+
   // Training load per week (zone minutes × zone weight, summed per week)
   const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
   const loadWeekMap = {};
@@ -4177,6 +4213,47 @@ function computeRecords(sessions) {
   return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLangturPace, bestTempoPace, bestTestPace, bestHoyde, bestAerobEff, lavPuls, distPRs };
 }
 
+function computePerfCurve(sessions) {
+  const DISTS = [
+    { label:'1 km',        km:1.0,  key:'1k'       },
+    { label:'3 km',        km:3.0,  key:'3k'       },
+    { label:'5 km',        km:5.0,  key:'5k'       },
+    { label:'10 km',       km:10.0, key:'10k'      },
+    { label:'15 km',       km:15.0, key:'15k'      },
+    { label:'Halvmaraton', km:21.1, key:'half'     },
+    { label:'Maraton',     km:42.2, key:'marathon' },
+  ];
+  const TOL = 0.10;
+  const testSessions = sessions.filter(s =>
+    s.okttype === 'Test' && s.distanse >= 1 && s.varighet > 0 && s.tempo);
+
+  return DISTS.map(({ label, km, key }) => {
+    // 1. Manual override (highest priority)
+    const manual = Store.data.bestEfforts?.[key];
+    if (manual) {
+      const pace = Math.round(manual / km);
+      return { label, value: secsToHms(manual), sub: `${secsToMmSs(pace)} /km · Manuell`, estimated: false };
+    }
+    // 2. Actual Test session in ±10% range
+    const actual = testSessions
+      .filter(s => s.distanse >= km*(1-TOL) && s.distanse <= km*(1+TOL))
+      .reduce((best, s) => !best || s.tempo < best.tempo ? s : best, null);
+    if (actual) {
+      return { label, value: secsToHms(actual.varighet), sub: `${secsToMmSs(actual.tempo)} /km · ${fmtDate(actual.dato)}`, estimated: false };
+    }
+    // 3. Riegel estimate from closest Test anchor (min 3k)
+    const anchor = testSessions
+      .filter(s => s.distanse >= 3)
+      .reduce((best, s) => !best || Math.abs(s.distanse - km) < Math.abs(best.distanse - km) ? s : best, null);
+    if (anchor) {
+      const t2 = Math.round(anchor.varighet * Math.pow(km / anchor.distanse, 1.06));
+      const pace = Math.round(t2 / km);
+      return { label, value: secsToHms(t2), sub: `${secsToMmSs(pace)} /km · Riegel-estimat`, estimated: true };
+    }
+    return { label, value: '–', sub: '', estimated: false };
+  });
+}
+
 // ═══════════════════════════════════════════════════════
 // EXCEL IMPORT
 // ═══════════════════════════════════════════════════════
@@ -4391,6 +4468,8 @@ const Settings = {
     this.loadProfileFields();
     this.loadConsistencyFields();
     this.renderEventList();
+    this.renderRaceHistory();
+    this.renderBestEfforts();
     this.renderBackupList();
     // Pre-fill goal year with current year if empty
     const yr = document.getElementById('newGoalYear');
@@ -4649,6 +4728,7 @@ const Settings = {
     document.getElementById('evtPlanTargets').style.display = 'none';
     document.getElementById('newEvtType').value = 'plan';
     this.renderEventList();
+    this.renderRaceHistory();
     if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
   },
 
@@ -4658,7 +4738,79 @@ const Settings = {
     if (!confirm(`Slette "${label}"?`)) return;
     Store.deleteEvent(id);
     this.renderEventList();
+    this.renderRaceHistory();
     if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
+  },
+
+  renderRaceHistory() {
+    const el = document.getElementById('raceHistoryList');
+    if (!el) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const races = (Store.data.events || []).filter(e => e.type === 'race')
+      .sort((a, b) => b.date.localeCompare(a.date));
+    if (!races.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:13px">Ingen races registrert. Legg til hendelse av typen Løp/Race.</p>';
+      return;
+    }
+    el.innerHTML = races.map(evt => {
+      const isFuture = evt.date > today;
+      const nearby = Store.data.sessions.filter(s =>
+        Math.abs(new Date(s.dato) - new Date(evt.date)) <= 86400000);
+      const s = nearby.reduce((best, x) => !best || x.distanse > best.distanse ? x : best, null);
+      const stats = s ? [
+        s.distanse ? `${fmtDist(s.distanse)} km` : '',
+        s.varighet ? secsToHms(s.varighet) : '',
+        s.tempo    ? `${secsToMmSs(s.tempo)}/km` : '',
+        s.gjsnittspuls ? `♥ ${s.gjsnittspuls}` : '',
+      ].filter(Boolean).join(' · ') : (isFuture ? '' : 'Ingen økt logget');
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-weight:600">🏁 ${evt.title}</span>
+          ${isFuture ? '<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(108,143,255,.2);color:var(--accent)">Kommende</span>' : ''}
+          <span style="font-size:12px;color:var(--muted);margin-left:auto">${fmtDate(evt.date)}</span>
+        </div>
+        ${stats ? `<div style="font-size:12px;color:var(--muted);margin-top:3px">${stats}</div>` : ''}
+      </div>`;
+    }).join('');
+  },
+
+  renderBestEfforts() {
+    const el = document.getElementById('bestEffortsForm');
+    if (!el) return;
+    const DISTS = [
+      { label:'1 km', key:'1k' }, { label:'3 km', key:'3k' },
+      { label:'5 km', key:'5k' }, { label:'10 km', key:'10k' },
+      { label:'15 km', key:'15k' }, { label:'Halvmaraton', key:'half' },
+      { label:'Maraton', key:'marathon' },
+    ];
+    const be = Store.data.bestEfforts || {};
+    el.innerHTML = DISTS.map(({ label, key }) => {
+      const secs = be[key];
+      const val = secs ? secsToHms(secs) : '';
+      return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span style="width:100px;font-size:13px">${label}</span>
+        <input type="text" id="be_${key}" value="${val}" placeholder="mm:ss"
+          style="width:90px;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;">
+      </div>`;
+    }).join('');
+  },
+
+  saveBestEfforts() {
+    const KEYS = ['1k','3k','5k','10k','15k','half','marathon'];
+    if (!Store.data.bestEfforts) Store.data.bestEfforts = {};
+    KEYS.forEach(key => {
+      const raw = document.getElementById('be_' + key)?.value.trim();
+      if (!raw) { Store.data.bestEfforts[key] = null; return; }
+      const parts = raw.split(':').map(Number);
+      let secs = 0;
+      if (parts.length === 3) secs = parts[0]*3600 + parts[1]*60 + parts[2];
+      else if (parts.length === 2) secs = parts[0]*60 + parts[1];
+      Store.data.bestEfforts[key] = secs > 0 ? secs : null;
+    });
+    Store.save();
+    renderDashboard();
+    const msg = document.getElementById('bestEffortsMsg');
+    if (msg) { msg.textContent = 'Lagret ✓'; setTimeout(() => { msg.textContent = ''; }, 2000); }
   },
 
   // ── HR Zones ──
