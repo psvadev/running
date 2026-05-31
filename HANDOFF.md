@@ -323,7 +323,11 @@ Global state:
 
 ### Completed
 - **Google Drive sync** — OAuth 2.0 PKCE flow, `drive.file` scope, refresh token in localStorage, silent sync on every save
-- **GitHub Pages hosting** — app live at `https://psvadev.github.io/running/puls.html`
+
+### Phase 3 — Hosting
+- **GitHub Pages** for the HTML file (free static hosting) — not yet enabled
+- Redirect URI for Drive OAuth will need updating to the Pages URL once live
+- No backend needed — the app is entirely client-side
 
 ### Other ideas noted
 - HR zone labels in charts could show actual BPM ranges once settings are saved
