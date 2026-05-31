@@ -806,6 +806,15 @@
     </div>
   </div>
 
+  <!-- Beste innsats -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Beste innsats</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Legg inn GPS-tider fra Strava eller Runna. Format: mm:ss eller h:mm:ss. Overskriver Riegel-estimater i Ytelseskurven.</p>
+    <div id="bestEffortsForm"></div>
+    <button class="btn" style="margin-top:10px" onclick="Settings.saveBestEfforts()">Lagre</button>
+    <span id="bestEffortsMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
+  </div>
+
   <!-- Treningsrytme -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Treningsrytme</div>
@@ -857,15 +866,6 @@
       <div id="driveStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
       <button class="btn-secondary btn-sm" id="driveSignInBtn">Koble til Google Drive</button>
     </div>
-  </div>
-
-  <!-- Beste innsats -->
-  <div class="card" style="margin-top:16px">
-    <div class="card-title">Beste innsats</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Legg inn GPS-tider fra Strava eller Runna. Format: mm:ss eller h:mm:ss. Overskriver Riegel-estimater i Ytelseskurven.</p>
-    <div id="bestEffortsForm"></div>
-    <button class="btn" style="margin-top:10px" onclick="Settings.saveBestEfforts()">Lagre</button>
-    <span id="bestEffortsMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
   </div>
 
 </div>
