@@ -2227,6 +2227,24 @@ const EVENT_FILL_COLORS = Object.fromEntries(
 
 let showEventMarkers = true;
 
+// Interpolate pixel x for an arbitrary ISO date between sparse date-axis labels
+function interpX(dateStr, rawLabels, metaData) {
+  if (!rawLabels.length || !metaData.length) return 0;
+  const exact = rawLabels.indexOf(dateStr);
+  if (exact >= 0 && exact < metaData.length) return metaData[exact].x;
+  if (dateStr <= rawLabels[0]) return metaData[0].x;
+  const last = rawLabels.length - 1;
+  if (dateStr >= rawLabels[last]) return metaData[Math.min(last, metaData.length - 1)].x;
+  let before = 0;
+  for (let i = 0; i < last; i++) {
+    if (rawLabels[i] <= dateStr && rawLabels[i + 1] >= dateStr) { before = i; break; }
+  }
+  const after = before + 1;
+  const t = (new Date(dateStr) - new Date(rawLabels[before])) /
+            (new Date(rawLabels[after]) - new Date(rawLabels[before]));
+  return metaData[before].x + t * (metaData[after].x - metaData[before].x);
+}
+
 const eventLinesPlugin = {
   id: 'eventLines',
   afterDraw(chart) {
@@ -2260,30 +2278,36 @@ const eventLinesPlugin = {
           ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
 
           if (evt.endDate) {
-            const endWkIso = isoWeek(evt.endDate);
-            let idx2 = rawLabels.indexOf(evt.endDate);
-            if (idx2 < 0) idx2 = rawLabels.indexOf(endWkIso);
-            if (idx2 < 0) {
-              // Labels are either ISO dates (2026-05-27) or ISO weeks (2026-22) — use matching format
-              const labelsAreDates = /^\d{4}-\d{2}-\d{2}$/.test(rawLabels[0] || '');
-              const endRef = labelsAreDates ? evt.endDate : endWkIso;
-              if (endRef <= (rawLabels[rawLabels.length - 1] || '')) {
+            const labelsAreDates = /^\d{4}-\d{2}-\d{2}$/.test(rawLabels[0] || '');
+            let xStart, xEnd, drawEndLine;
+            if (labelsAreDates) {
+              // Line/scatter charts with date labels — interpolate exact pixel positions
+              xStart = interpX(evt.date, rawLabels, meta.data);
+              xEnd   = interpX(evt.endDate, rawLabels, meta.data);
+              drawEndLine = xEnd <= chartArea.right;
+            } else {
+              // Weekly bar charts — snap to label buckets with colWidth offsets
+              const endWkIso = isoWeek(evt.endDate);
+              let idx2 = rawLabels.indexOf(evt.endDate);
+              if (idx2 < 0) idx2 = rawLabels.indexOf(endWkIso);
+              if (idx2 < 0 && endWkIso <= (rawLabels[rawLabels.length - 1] || '')) {
                 for (let i = rawLabels.length - 1; i >= 0; i--) {
-                  if (rawLabels[i] <= endRef) { idx2 = i; break; }
+                  if (rawLabels[i] <= endWkIso) { idx2 = i; break; }
                 }
               }
+              const endWeekVisible = idx2 >= 0;
+              if (idx2 < 0) idx2 = rawLabels.length - 1;
+              xStart = x - colWidth * 0.5;
+              xEnd = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
+              drawEndLine = endWeekVisible && xEnd <= chartArea.right + 1;
             }
-            const endWeekVisible = idx2 >= 0;
-            if (idx2 < 0) idx2 = rawLabels.length - 1;
-            const xStart = x - colWidth * 0.5;
-            const xEnd = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
             const xEndC = Math.min(xEnd, chartArea.right);
             if (xEndC > xStart) {
               ctx.fillStyle = EVENT_FILL_COLORS[evt.type] || EVENT_FILL_COLORS.personal;
               ctx.fillRect(xStart, chartArea.top, xEndC - xStart, chartArea.bottom - chartArea.top);
             }
             ctx.beginPath(); ctx.moveTo(xStart, chartArea.top); ctx.lineTo(xStart, chartArea.bottom); ctx.stroke();
-            if (endWeekVisible && xEnd <= chartArea.right + 1) {
+            if (drawEndLine) {
               ctx.beginPath(); ctx.moveTo(xEnd, chartArea.top); ctx.lineTo(xEnd, chartArea.bottom); ctx.stroke();
             }
             ctx.setLineDash([]);
