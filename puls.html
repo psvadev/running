@@ -1038,7 +1038,7 @@ function formatSessionTsv(sessions) {
   const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
     'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
     'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
-    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn'];
+    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn'].join('\t');
   const blocks = sessions.map(s => {
     const soner = s.soner || [0,0,0,0,0];
     const [y,m,d] = s.dato.split('-');
@@ -1062,9 +1062,10 @@ function formatSessionTsv(sessions) {
       s.sko || '',
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
     ].join('\t');
-    return s.notater ? `${s.dato}: ${s.notater}\n${dataRow}` : dataRow;
+    const notePart = s.notater ? `${s.dato}: ${s.notater}\n\n` : '';
+    return `${notePart}${HDR}\n${dataRow}`;
   });
-  return [HDR.join('\t'), ...blocks].join('\n\n');
+  return blocks.join('\n\n\n');
 }
 
 async function copyToClipboard(text) {
