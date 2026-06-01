@@ -2974,12 +2974,14 @@ function renderRpeChart(sessions) {
     return true;
   }).sort((a, b) => a.dato.localeCompare(b.dato));
 
+  const totalRpe = sessions.filter(s => s.rpe).length;
   destroyChart('chartRpe');
   const card = document.getElementById('rpeCard');
+  if (totalRpe < 2) { if (card) card.style.display = 'none'; return; }
+  if (card) card.style.display = '';
   const lbl = rpeTypeFilter !== 'alle' ? ` (${rpeTypeFilter})` : '';
   showChartEmpty('chartRpe', filtered.length < 2, `Trenger minst 2 økter${lbl} med RPE-data.`);
-  if (filtered.length < 2) { if (card) card.style.display = 'none'; return; }
-  if (card) card.style.display = '';
+  if (filtered.length < 2) return;
 
   const labels = filtered.map(s => s.dato);
   const rpeVals = filtered.map(s => s.rpe);
