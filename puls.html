@@ -1035,14 +1035,15 @@ function tsvIsoWeek(dateStr) {
 }
 
 function formatSessionTsv(sessions) {
-  const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
+  const HDR = ['Notater','Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
     'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
     'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
-    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn','Notater'];
+    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn'];
   const rows = sessions.map(s => {
     const soner = s.soner || [0,0,0,0,0];
     const [y,m,d] = s.dato.split('-');
     return [
+      s.notater || '',
       `${parseInt(m)}/${parseInt(d)}/${y}`,
       tsvIsoWeek(s.dato),
       s.oktnavn || '',
@@ -1061,7 +1062,6 @@ function formatSessionTsv(sessions) {
       s.hoydeMeter != null ? s.hoydeMeter : '',
       s.sko || '',
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
-      s.notater || '',
     ].join('\t');
   });
   return [HDR.join('\t'), ...rows].join('\n');
