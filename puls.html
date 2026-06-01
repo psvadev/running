@@ -1062,7 +1062,7 @@ function formatSessionTsv(sessions) {
       s.sko || '',
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
     ].join('\t');
-    return s.notater ? `${s.dato}: ${s.notater}\n${dataRow}` : dataRow;
+    return s.notater ? `${s.dato}: ${s.notater}\n\n${dataRow}` : dataRow;
   });
   return [HDR, ...blocks].join('\n\n');
 }
