@@ -95,7 +95,9 @@ If you open the app on a new device, repeat steps 1–3 once; the same Drive fil
 
 **Requirements:**
 - The app must be served over HTTP — either `python -m http.server 8080` locally or a hosted URL (GitHub Pages etc.). Opening `puls.html` directly as a `file://` URL will not work for Drive sync (OAuth requires an HTTP redirect URI).
-- The redirect URI (`http://localhost:8080/puls.html` for local, or your hosted URL) must be registered under *Authorized redirect URIs* in Google Cloud Console.
+- The redirect URI must be registered under *Authorized redirect URIs* in Google Cloud Console. Add both if using locally and on GitHub Pages:
+  - `http://localhost:8080/puls.html`
+  - `https://<your-username>.github.io/<repo>/puls.html`
 
 Opening `puls.html` directly as a local file still works fully for offline use — only the Drive sync feature requires HTTP.
 
