@@ -1035,7 +1035,10 @@ function tsvIsoWeek(dateStr) {
 }
 
 function formatSessionTsv(sessions) {
-  const HDR = ['Notater','Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
+  const noteLines = sessions
+    .filter(s => s.notater)
+    .map(s => `${s.dato}: ${s.notater}`);
+  const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
     'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
     'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
     'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn'];
@@ -1043,7 +1046,6 @@ function formatSessionTsv(sessions) {
     const soner = s.soner || [0,0,0,0,0];
     const [y,m,d] = s.dato.split('-');
     return [
-      s.notater || '',
       `${parseInt(m)}/${parseInt(d)}/${y}`,
       tsvIsoWeek(s.dato),
       s.oktnavn || '',
@@ -1064,7 +1066,8 @@ function formatSessionTsv(sessions) {
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
     ].join('\t');
   });
-  return [HDR.join('\t'), ...rows].join('\n');
+  const tsvPart = [HDR.join('\t'), ...rows].join('\n');
+  return noteLines.length ? noteLines.join('\n') + '\n\n' + tsvPart : tsvPart;
 }
 
 async function copyToClipboard(text) {
