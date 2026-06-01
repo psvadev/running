@@ -142,7 +142,10 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 - **RPE column** (col 16): shows `rpe` value colour-coded (green ≤3, amber ≤6, orange ≤8, red 10); hidden on mobile (nth-child 16)
 - **📝 icon** appended to the session name cell when `notater` is set — `title` attribute shows full note text on hover; not a separate column
 - **Kal (calories) column removed** — still logged in the form and included in TSV export and session detail panel; just not shown in the table
-- **Mobile (≤600px):** 9 secondary columns hidden via CSS `nth-child` — Uke (3), Navn (5), Plan (6), Mål km (8), Varighet (9), ♥ Topp (12), Sko (13), Søvn (14), Høyde (15). Visible: checkbox, Dato, Type, Dist, Tempo, ♥ Snitt, actions. All fields accessible via edit form.
+- **Responsive columns — 3 tiers:**
+  - **≥ 1100px (full desktop):** all columns visible
+  - **601–1099px (tablet / small laptop):** hides Uke (3), Mål km (8), Varighet (9), ♥ Topp (12), Sko (13), Søvn (14), Høyde (15), RPE (16) — keeps Dato, Type, Navn, Plan, Dist, Tempo, ♥ Snitt, actions
+  - **≤ 600px (mobile):** additionally hides Navn (5) and Plan (6) — keeps only Dato, Type, Dist, Tempo, ♥ Snitt, actions. All fields accessible via edit form.
 - Filters: fra/til dato, økt-type, **treningsplan (Plan)**, **løpetype** (Alle / 🏃 Utendørs / ⚙️ Tredemølle), sko — all wired to `fFilterPlan`, `fFilterLopetype` etc.; Nullstill clears all
 - Each row shows a 🏃/⚙️ venue badge next to the session type badge (all sessions; untagged = outdoor)
 - Row actions: ✏️ edit (goes to form tab, **returns to log on save/cancel**), 🗑️ delete (with confirm)

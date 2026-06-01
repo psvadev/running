@@ -115,6 +115,18 @@
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .dash-grid .span2 { grid-column: span 2; }
   @media (max-width: 768px) { .dash-grid { grid-template-columns: 1fr; } .dash-grid .span2 { grid-column: span 1; } }
+  /* Medium: tablet / small laptop — hide secondary columns, keep core ones */
+  @media (max-width: 1099px) {
+    #logTable th:nth-child(3),  #logTable td:nth-child(3),
+    #logTable th:nth-child(8),  #logTable td:nth-child(8),
+    #logTable th:nth-child(9),  #logTable td:nth-child(9),
+    #logTable th:nth-child(12), #logTable td:nth-child(12),
+    #logTable th:nth-child(13), #logTable td:nth-child(13),
+    #logTable th:nth-child(14), #logTable td:nth-child(14),
+    #logTable th:nth-child(15), #logTable td:nth-child(15),
+    #logTable th:nth-child(16), #logTable td:nth-child(16) { display: none; }
+  }
+
   @media (max-width: 600px) {
     html { overflow-x: hidden; }
     header { padding: 0 12px; gap: 8px; }
@@ -128,16 +140,9 @@
     .dash-grid > * { min-width: 0; }
     .cs-stat { min-width: 0; flex: 1 1 75px; }
     .form-grid-4 { grid-template-columns: repeat(2, 1fr); }
-    #logTable th:nth-child(3),  #logTable td:nth-child(3),
+    /* Additionally hide Navn and Plan at mobile (already hiding others above) */
     #logTable th:nth-child(5),  #logTable td:nth-child(5),
-    #logTable th:nth-child(6),  #logTable td:nth-child(6),
-    #logTable th:nth-child(8),  #logTable td:nth-child(8),
-    #logTable th:nth-child(9),  #logTable td:nth-child(9),
-    #logTable th:nth-child(12), #logTable td:nth-child(12),
-    #logTable th:nth-child(13), #logTable td:nth-child(13),
-    #logTable th:nth-child(14), #logTable td:nth-child(14),
-    #logTable th:nth-child(15), #logTable td:nth-child(15),
-    #logTable th:nth-child(16), #logTable td:nth-child(16) { display: none; }
+    #logTable th:nth-child(6),  #logTable td:nth-child(6) { display: none; }
     .shoe-bar-row { grid-template-columns: 110px 1fr 44px; }
     .zone-grid { grid-template-columns: repeat(3, 1fr); }
     .records-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
