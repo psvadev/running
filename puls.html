@@ -2264,9 +2264,12 @@ const eventLinesPlugin = {
             let idx2 = rawLabels.indexOf(evt.endDate);
             if (idx2 < 0) idx2 = rawLabels.indexOf(endWkIso);
             if (idx2 < 0) {
-              if (endWkIso <= (rawLabels[rawLabels.length - 1] || '')) {
+              // Labels are either ISO dates (2026-05-27) or ISO weeks (2026-22) — use matching format
+              const labelsAreDates = /^\d{4}-\d{2}-\d{2}$/.test(rawLabels[0] || '');
+              const endRef = labelsAreDates ? evt.endDate : endWkIso;
+              if (endRef <= (rawLabels[rawLabels.length - 1] || '')) {
                 for (let i = rawLabels.length - 1; i >= 0; i--) {
-                  if (rawLabels[i] <= endWkIso) { idx2 = i; break; }
+                  if (rawLabels[i] <= endRef) { idx2 = i; break; }
                 }
               }
             }
@@ -2275,8 +2278,10 @@ const eventLinesPlugin = {
             const xStart = x - colWidth * 0.5;
             const xEnd = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
             const xEndC = Math.min(xEnd, chartArea.right);
-            ctx.fillStyle = EVENT_FILL_COLORS[evt.type] || EVENT_FILL_COLORS.personal;
-            ctx.fillRect(xStart, chartArea.top, xEndC - xStart, chartArea.bottom - chartArea.top);
+            if (xEndC > xStart) {
+              ctx.fillStyle = EVENT_FILL_COLORS[evt.type] || EVENT_FILL_COLORS.personal;
+              ctx.fillRect(xStart, chartArea.top, xEndC - xStart, chartArea.bottom - chartArea.top);
+            }
             ctx.beginPath(); ctx.moveTo(xStart, chartArea.top); ctx.lineTo(xStart, chartArea.bottom); ctx.stroke();
             if (endWeekVisible && xEnd <= chartArea.right + 1) {
               ctx.beginPath(); ctx.moveTo(xEnd, chartArea.top); ctx.lineTo(xEnd, chartArea.bottom); ctx.stroke();
