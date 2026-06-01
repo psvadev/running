@@ -41,7 +41,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Høyde column** shows elevation in metres for outdoor runs and incline % for treadmill runs
 - **RPE column** shows effort rating 1–10 in colour (green ≤3 · amber ≤6 · orange ≤8 · red 10); hidden on mobile
 - **📝 icon** shown in the session name column when a note exists — hover to preview the note text
-- **Responsive columns:** > 1600px shows everything; ≤ 1600px hides Uke, Sko, Høyde, RPE (keeps Mål km, Varighet, ♥ Topp, Søvn); ≤ 900px also hides Mål km, Varighet, ♥ Topp, Søvn; ≤ 600px additionally hides Navn and Plan — all fields accessible via edit form
+- **Responsive columns:** > 1600px shows everything; ≤ 1600px hides only Uke and Sko (keeps Mål km, Varighet, ♥ Topp, Søvn, Høyde, RPE — tested on 14" HiDPI laptop at 150% scaling = 1536px CSS viewport); ≤ 900px also hides Mål km, Varighet, ♥ Topp, Søvn; ≤ 600px additionally hides Navn and Plan — all fields accessible via edit form
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe
 - Edit or delete any row
 - **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; single header row at the top, then one block per session separated by blank lines — if a note exists: `dato: tekst` line, blank line, then the data row; no note: just the data row

@@ -144,7 +144,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 - **Kal (calories) column removed** — still logged in the form and included in TSV export and session detail panel; just not shown in the table
 - **Responsive columns — 4 tiers:**
   - **> 1600px (wide desktop / external monitor):** all columns visible
-  - **901–1600px (laptop incl. HiDPI scaled displays):** hides Uke (3), Sko (13), Høyde (15), RPE (16) — keeps Dato, Type, Navn, Plan, Dist, Mål km, Varighet, Tempo, ♥ Snitt, ♥ Topp, Søvn, actions
+  - **901–1600px (laptop incl. HiDPI scaled displays):** hides only Uke (3) and Sko (13) — keeps Dato, Type, Navn, Plan, Dist, Mål km, Varighet, Tempo, ♥ Snitt, ♥ Topp, Søvn, Høyde, RPE, actions. Verified no horizontal scroll on 14" HiDPI laptop (2304×1536 at 150% scaling = 1536px CSS viewport). Høyde and RPE were originally hidden here but fit fine — Uke is redundant with Dato, Sko is lower priority for at-a-glance review.
   - **601–900px (tablet):** additionally hides Varighet (9), ♥ Topp (12), Søvn (14)
   - **≤ 600px (mobile):** additionally hides Navn (5) and Plan (6) — keeps only Dato, Type, Dist, Tempo, ♥ Snitt, actions. All fields accessible via edit form.
 - Filters: fra/til dato, økt-type, **treningsplan (Plan)**, **løpetype** (Alle / 🏃 Utendørs / ⚙️ Tredemølle), sko — all wired to `fFilterPlan`, `fFilterLopetype` etc.; Nullstill clears all
