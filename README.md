@@ -5,14 +5,14 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 ## Features
 
 ### Logging
-- Log runs with date, session type (Easy / Steady / Long / Tempo / Intervaller / Test / **Race**), training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline % (treadmill) or **elevation gain in metres** (outdoor), shoe, sleep, **run type** (outdoor / treadmill), and **notes** (free-text context for AI analysis)
+- Log runs with date, session type (Easy / Steady / Long / Tempo / Intervaller / Test / **Race**), training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline % (treadmill) or **elevation gain in metres** (outdoor), shoe, sleep, **RPE (1–10)**, **run type** (outdoor / treadmill), and **notes** (free-text context for AI analysis)
 - Auto-calculated fields: duration (summed from zones), pace, avg km/h
 - Edit any past session by clicking it in the log
 
 ### Dashboard (Oversikt)
 - **Yearly goal card** — progress bar with km done, km remaining, year-end projection, and required weekly km to stay on track
 - **Rekorder** — four sub-sections: **main grid** (total distance, total time, avg km/week, longest session by distance and time, best week, best month, best 4-week block, most elevation gain, best aerobic efficiency, lowest avg HR on a run ≥ 5 km, longest streak, current streak); **Pace** (best overall pace, best avg km/h, best Easy/Long/Tempo/Test/Race pace); **Distanse-PR** (5 km, 10 km, half marathon, marathon — fastest session per bracket); **Ytelseskurve** (performance curve for 400 m, 1 km, 5 km, 10 km, 15 km, half marathon, marathon — actual Test/Race sessions where available, Riegel formula estimates otherwise, manual overrides from Innstillinger take highest priority; estimated tiles shown in muted colour); aerobic efficiency and current streak are color-coded (red/amber/green/blue); aerobic efficiency tile has a hover tooltip explaining the scale (Lav < 4.0 · Moderat 4.0–5.5 · God 5.5–7.0 · Høy > 7.0)
-- **Innsikter** — dynamic pool of insight candidates ranked by priority and recency; top 6 shown: km milestones (passed and upcoming), shoe retirement warnings, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month, Easy pace trend (last 8 vs prior 8 weeks), **Easy HR trend** (avg HR last 8 vs prior 8 weeks — rising or falling), **volume trend** (last 4 weeks vs prior 4 weeks), **long run gap** (weeks since last Langtur), **elevation this month** (total høydemeter), **race countdown** (days until next race event — priority 5 when ≤14 days), days since last run, Easy run Zone 2 compliance
+- **Innsikter** — dynamic pool of insight candidates ranked by priority and recency; top 6 shown: km milestones (passed and upcoming), shoe retirement warnings, most-used shoe, heaviest 4-week training block, fastest Easy run, most active month, Easy pace trend (last 8 vs prior 8 weeks), **Easy HR trend** (avg HR last 8 vs prior 8 weeks — rising or falling), **volume trend** (last 4 weeks vs prior 4 weeks), **long run gap** (weeks since last Langtur), **elevation this month** (total høydemeter), **RPE trend** (Easy RPE avg trending easier/harder across last 4 vs prior 4 sessions — threshold 0.5 points), **race countdown** (days until next race event — priority 5 when ≤14 days), days since last run, Easy run Zone 2 compliance
 - **Treningsrytme** — consistency score 0–100 over the last 12 weeks (active-week rate, volume threshold weeks, streak bonus); score breakdown bars show contribution of each component (max 50/30/20 pts); configurable km/run-count thresholds in Settings; monthly active-weeks trend chart
 - **Treningsblokker** — auto-generated training block cards from Plan events; active block is a full-width hero card with consistency progress bar and weekly km sparkline; past blocks shown as compact cards below; click any card for a rich drill-down: weekly progression bars (each row clickable → week detail; badges for Toppuke / Lengste løp / Raskest), auto-generated highlights (best week, longest run, streak, pace trend), consistency breakdown, HR zone distribution (stacked bar with low/high intensity summary), comparison vs previous block, and full run list
 - **Treningsbelastning per uke** — weekly training load scored by zone intensity (Z1=1 … Z5=5 points/min), color-coded bars with 4-week rolling average
@@ -23,6 +23,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 - **Tempo i sone 2** — pace trend over time for Easy + Langtur sessions, with 4-session rolling average; Y-axis inverted so improving pace trends upward; toggle to isolate Easy or Langtur
 - **Søvn vs puls** — scatter plot of sleep duration vs avg HR per session; linear regression trend line; per-type color coding in Alle mode; default filter: Easy
 - **Tempo vs puls** — scatter plot of avg HR vs pace per session; shows whether pace improves at the same or lower HR; same color coding and filter toggle as Søvn vs puls
+- **RPE over tid** — RPE (1–10) trend over time with 4-session rolling average; filter by session type (Easy/Long/Tempo/Alle); hidden when fewer than 2 sessions have RPE data
 - **Interactive charts** — hover any weekly chart for a full week summary (km, løp, tid, tempo, HR); click a bar/point to open a drill-down detail panel for that week; click a shoe bar to open shoe detail; click a heatmap day to open session or week detail
 - **Ute vs inne** — weekly stacked bar splitting km between outdoor (🏃) and treadmill (⚙️); hidden until first treadmill session is logged
 - **Pulssoner** — stacked minutes per zone per week or month (toggle)
@@ -30,7 +31,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 - **Sko oversikt** — total km per shoe pair + per-shoe stats: run count, avg pace, avg HR, last used date
 - **Ukentlig oversikt** — scrollable summary table (sessions, distance, time, avg pace per week)
 
-Dashboard filters: session type, training plan, run type (outdoor/treadmill), **tempo unit (min/km ↔ km/t)**, year pills — all charts update live. The tempo unit toggle switches "Tempo per uke", "Tempo i sone 2", and "Tempo vs puls" between pace and speed simultaneously. **Nullstill** resets all filters including chart-local type pills, the pace unit toggle, and the Pulssoner Uke/Måned toggle.
+Dashboard filters: session type, training plan, run type (outdoor/treadmill), **tempo unit (min/km ↔ km/t)**, year pills — all charts update live. The tempo unit toggle switches "Tempo per uke", "Tempo i sone 2", and "Tempo vs puls" between pace and speed simultaneously. **Nullstill** resets all filters including chart-local type pills, the pace unit toggle, the Pulssoner Uke/Måned toggle, and the RPE type filter.
 
 **Mobile:** all charts resize to fit the screen width — no horizontal page scrolling. The training calendar scrolls horizontally within its own card.
 
@@ -38,6 +39,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - Full sortable table — click any column header to sort
 - **Sleep column** colour-coded at a glance: red `< 6h` · yellow `6–7h` · green `≥ 7h`
 - **Høyde column** shows elevation in metres for outdoor runs and incline % for treadmill runs
+- **RPE column** shows effort rating 1–10 in colour (green ≤3 · amber ≤6 · orange ≤8 · red 10); hidden on mobile
 - **📝 icon** shown in the session name column when a note exists — hover to preview the note text
 - **Mobile:** secondary columns hidden automatically (week, name, plan, target km, duration, max HR, shoe, sleep, elevation); all fields still visible when opening the edit form
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe

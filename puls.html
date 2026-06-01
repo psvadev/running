@@ -136,7 +136,8 @@
     #logTable th:nth-child(12), #logTable td:nth-child(12),
     #logTable th:nth-child(13), #logTable td:nth-child(13),
     #logTable th:nth-child(14), #logTable td:nth-child(14),
-    #logTable th:nth-child(15), #logTable td:nth-child(15) { display: none; }
+    #logTable th:nth-child(15), #logTable td:nth-child(15),
+    #logTable th:nth-child(16), #logTable td:nth-child(16) { display: none; }
     .shoe-bar-row { grid-template-columns: 110px 1fr 44px; }
     .zone-grid { grid-template-columns: repeat(3, 1fr); }
     .records-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
@@ -199,6 +200,13 @@
   /* ── Weekly summary table ── */
   .weekly-table td, .weekly-table th { padding: 8px 14px; }
   .weekly-table tr:last-child td { font-weight: 700; border-top: 2px solid var(--border); }
+
+  /* ── Toast ── */
+  .toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:8px; font-size:13px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:toastIn .2s ease; pointer-events:none; }
+  .toast-error   { background:#c0392b; color:#fff; }
+  .toast-success { background:var(--green); color:#fff; }
+  .toast-info    { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
+  @keyframes toastIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
 
   /* ── Misc ── */
   .empty-state { text-align: center; padding: 48px 24px; color: var(--muted); }
@@ -408,6 +416,10 @@
         <label>Søvn (timer)</label>
         <input type="text" id="fSovn" placeholder="7:30">
       </div>
+      <div class="form-group">
+        <label>RPE (1–10)</label>
+        <input type="number" id="fRpe" min="1" max="10" step="1" placeholder="–">
+      </div>
       <div class="form-group" style="grid-column:1/-1">
         <label>Notater</label>
         <textarea id="fNotater" rows="2" placeholder="Hvordan føltes økten, kontekst for AI-analyse…" style="resize:vertical"></textarea>
@@ -612,6 +624,19 @@
       <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Hvert punkt er én økt. Lavere puls ved samme tempo — eller raskere ved samme puls — tyder på bedre form.</div>
       <div class="chart-wrap" style="height:220px"><canvas id="chartPaceHr"></canvas></div>
     </div>
+    <div class="card span2" id="rpeCard">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0">RPE over tid</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="rpeToggleEasy">Easy</span>
+          <span class="year-pill" id="rpeToggleLong">Long</span>
+          <span class="year-pill" id="rpeToggleTempo">Tempo</span>
+          <span class="year-pill" id="rpeToggleAlle">Alle</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Subjektiv anstrengelse 1–10. Synkende RPE ved samme tempo tyder på bedre form.</div>
+      <div class="chart-wrap" style="height:220px"><canvas id="chartRpe"></canvas></div>
+    </div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">Pulssoner (tt:mm)</div>
@@ -714,6 +739,7 @@
           <th data-col="sko">Sko</th>
           <th data-col="sovn">Søvn <span class="sort-indicator">↕</span></th>
           <th data-col="hoydeMeter">Høyde</th>
+          <th data-col="rpe">RPE</th>
           <th></th>
         </tr>
       </thead>
@@ -1038,7 +1064,7 @@ function formatSessionTsv(sessions) {
   const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
     'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
     'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
-    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn'].join('\t');
+    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn','RPE'].join('\t');
   const blocks = sessions.map(s => {
     const soner = s.soner || [0,0,0,0,0];
     const [y,m,d] = s.dato.split('-');
@@ -1061,10 +1087,19 @@ function formatSessionTsv(sessions) {
       s.hoydeMeter != null ? s.hoydeMeter : '',
       s.sko || '',
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
+      s.rpe || '',
     ].join('\t');
     return s.notater ? `${s.dato}: ${s.notater}\n\n${dataRow}` : dataRow;
   });
   return [HDR, ...blocks].join('\n\n');
+}
+
+function showToast(msg, type = 'info', duration = 4000) {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), duration);
 }
 
 async function copyToClipboard(text) {
@@ -1344,7 +1379,10 @@ const FileIO = {
     this.setSyncSaving();
     const json = Store.toJSON();
     localStorage.setItem('lpl_cache', json);
-    if (DriveIO.isSignedIn()) DriveIO.save().catch(e => console.warn('Drive sync failed', e));
+    if (DriveIO.isSignedIn()) DriveIO.save().then(ok => {
+      if (ok) DriveIO._onSyncOk();
+      else DriveIO._onSyncError();
+    }).catch(e => DriveIO._onSyncError(e.message));
 
     if (this.supportsApi && !DriveIO.isSignedIn()) {
       // No in-memory handle — try to recover from IndexedDB first (handles page-reload case)
@@ -1705,7 +1743,24 @@ const DriveIO = (() => {
     }
   }
 
-  return { init, connect, disconnect, load, save, isSignedIn, handleCallback, _afterConnect };
+  function _onSyncOk() {
+    const ind = document.getElementById('driveIndicator');
+    if (ind && isSignedIn()) {
+      ind.style.color = 'var(--green)';
+      ind.title = 'Google Drive koblet til';
+    }
+  }
+
+  function _onSyncError(msg) {
+    const ind = document.getElementById('driveIndicator');
+    if (ind) {
+      ind.style.color = '#e74c3c';
+      ind.title = `Drive-synk feilet — data er lagret lokalt${msg ? ': ' + msg : ''}`;
+    }
+    showToast('Drive-synk feilet — data er lagret lokalt', 'error');
+  }
+
+  return { init, connect, disconnect, load, save, isSignedIn, handleCallback, _afterConnect, _onSyncOk, _onSyncError };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -1810,6 +1865,7 @@ const Form = {
       sko: document.getElementById('fSko').value,
       løpetype: document.getElementById('fLopetype').value || 'utendors',
       sovn: hhmmToHours(document.getElementById('fSovn').value),
+      rpe: parseInt(document.getElementById('fRpe').value) || null,
       notater: document.getElementById('fNotater').value.trim() || null,
     };
   },
@@ -1840,6 +1896,7 @@ const Form = {
     document.getElementById('hoydeMeterGroup').style.display = !isTM ? '' : 'none';
     document.getElementById('fHoydeMeter').value = !isTM ? (s.hoydeMeter ?? '') : '';
     document.getElementById('fSovn').value = s.sovn ? hoursToHHMM(s.sovn) : '';
+    document.getElementById('fRpe').value = s.rpe || '';
     document.getElementById('fNotater').value = s.notater || '';
     this.refreshShoeDropdown(s.sko);
   },
@@ -1892,7 +1949,7 @@ const Form = {
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
-     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn','fNotater'].forEach(id => {
+     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn','fRpe','fNotater'].forEach(id => {
       document.getElementById(id).value = '';
     });
     document.getElementById('fLopetype').value = 'treadmill';
@@ -1986,6 +2043,7 @@ const Log = {
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${s.sko||''}</td>
         <td style="${s.sovn ? (s.sovn < 6 ? 'color:#e05555;font-weight:600' : s.sovn < 7 ? 'color:#f0c050;font-weight:600' : 'color:#4bbe78;font-weight:600') : ''}">${s.sovn ? hoursToHHMM(s.sovn) : ''}</td>
         <td>${s.hoydeMeter ? s.hoydeMeter+'m' : s.stigning ? s.stigning+'%' : ''}</td>
+        <td>${s.rpe ? `<span style="font-weight:600;color:${s.rpe<=3?'var(--green)':s.rpe<=6?'#f0c050':s.rpe<=8?'#e08040':'#e05555'}">${s.rpe}</span>` : ''}</td>
         <td>
           <button class="btn-icon btn-sm" onclick="Form.editSession('${s.id}')" title="Rediger">✏️</button>
           <button class="btn-icon btn-sm" onclick="Log.delete('${s.id}')" title="Slett" style="color:var(--danger)">🗑️</button>
@@ -2095,6 +2153,7 @@ let aeZ2Filter = 'all';
 let sleepHrTypeFilter = 'Easy';
 let paceHrTypeFilter = 'Easy';
 let z2PaceTypeFilter = 'alle';
+let rpeTypeFilter = 'Easy';
 let paceUnit = 'pace';     // 'pace' | 'kmh' — global unit for all pace charts
 let cachedBlocks = [];
 
@@ -2890,6 +2949,90 @@ function renderPaceHrChart(sessions) {
   });
 }
 
+function renderRpeChart(sessions) {
+  const filtered = sessions.filter(s => {
+    if (!s.rpe) return false;
+    if (rpeTypeFilter !== 'alle' && s.okttype !== rpeTypeFilter) return false;
+    return true;
+  }).sort((a, b) => a.dato.localeCompare(b.dato));
+
+  destroyChart('chartRpe');
+  const card = document.getElementById('rpeCard');
+  const lbl = rpeTypeFilter !== 'alle' ? ` (${rpeTypeFilter})` : '';
+  showChartEmpty('chartRpe', filtered.length < 2, `Trenger minst 2 økter${lbl} med RPE-data.`);
+  if (filtered.length < 2) { if (card) card.style.display = 'none'; return; }
+  if (card) card.style.display = '';
+
+  const labels = filtered.map(s => s.dato);
+  const rpeVals = filtered.map(s => s.rpe);
+
+  // 4-session rolling average
+  const rolling = rpeVals.map((_, i) => {
+    if (i < 3) return null;
+    return +(rpeVals.slice(i - 3, i + 1).reduce((a, v) => a + v, 0) / 4).toFixed(2);
+  });
+
+  Charts.chartRpe = new Chart(document.getElementById('chartRpe'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'RPE',
+          data: rpeVals,
+          borderColor: 'rgba(108,143,255,.5)',
+          backgroundColor: 'rgba(108,143,255,.15)',
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          tension: 0.3,
+          fill: false,
+        },
+        {
+          label: '4-økt snitt',
+          data: rolling,
+          borderColor: 'rgba(240,192,80,.9)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.4,
+          fill: false,
+          spanGaps: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          min: 1, max: 10,
+          ticks: { color: '#8b90a0', stepSize: 1 },
+          grid: { color: 'rgba(255,255,255,.06)' },
+        },
+        x: {
+          ticks: { color: '#8b90a0', maxTicksLimit: 8, maxRotation: 0 },
+          grid: { display: false },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: '#e8eaf0', boxWidth: 10, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            title: ctx => {
+              const s = filtered[ctx[0]?.dataIndex];
+              return s ? (s.oktnavn ? `${s.dato} · ${s.oktnavn}` : s.dato) : '';
+            },
+            label: ctx => {
+              if (ctx.dataset.label === '4-økt snitt') return `Snitt: ${ctx.parsed.y}`;
+              const s = filtered[ctx.dataIndex];
+              return [`RPE: ${ctx.parsed.y}/10`, s?.okttype || ''].filter(Boolean);
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
 function renderInsights(sessions) {
   const el = document.getElementById('insightContent');
   if (!el) return;
@@ -3072,6 +3215,21 @@ function renderInsights(sessions) {
     candidates.push({ icon: '🏁', val: `${daysUntil} dager`,
       sub: `til ${next.title} (${fmtDate(next.date)})`,
       priority: daysUntil <= 14 ? 5 : daysUntil <= 60 ? 4 : 3 });
+  }
+
+  // RPE trend: last 4 Easy sessions vs prior 4
+  const easyWithRpe = sessions.filter(s => s.okttype === 'Easy' && s.rpe).sort((a, b) => a.dato.localeCompare(b.dato));
+  if (easyWithRpe.length >= 8) {
+    const last4 = easyWithRpe.slice(-4).reduce((s, x) => s + x.rpe, 0) / 4;
+    const prev4 = easyWithRpe.slice(-8, -4).reduce((s, x) => s + x.rpe, 0) / 4;
+    const rpeChange = +(last4 - prev4).toFixed(1);
+    if (Math.abs(rpeChange) >= 0.5) {
+      const easier = rpeChange < 0;
+      candidates.push({ icon: easier ? '😊' : '😓',
+        val: `RPE ${easier ? 'ned' : 'opp'} ${Math.abs(rpeChange).toFixed(1)} poeng`,
+        sub: `Easy-løp føles ${easier ? 'lettere' : 'tyngre'} siste 4 vs forrige 4`,
+        priority: easier ? 3 : 2 });
+    }
   }
 
   candidates.sort((a, b) => b.priority - a.priority);
@@ -3452,6 +3610,7 @@ const DetailPanel = {
       ['Høydemeter',     s.hoydeMeter ? s.hoydeMeter+' m' : null],
       ['Sko',            s.sko  || null],
       ['Søvn',           s.sovn ? hoursToHHMM(s.sovn) : null],
+      ['RPE',            s.rpe  ? `${s.rpe}/10` : null],
     ].filter(([,v]) => v);
     const table = rows.map(([l,v]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${v}</span></div>`).join('');
     this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : ''));
@@ -4009,6 +4168,7 @@ function renderDashboard() {
   renderZ2PaceChart(sessions);
   renderSleepHrChart(sessions);
   renderPaceHrChart(sessions);
+  renderRpeChart(sessions);
   renderVenueChart(sessions);
   const hasTreadmill = sessions.some(s => s.løpetype === 'treadmill');
   document.getElementById('venueCard').style.display = hasTreadmill ? '' : 'none';
@@ -5056,6 +5216,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  [['rpeToggleEasy','Easy'],['rpeToggleLong','Long'],['rpeToggleTempo','Tempo'],['rpeToggleAlle','alle']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      rpeTypeFilter = val;
+      document.querySelectorAll('#rpeToggleEasy,#rpeToggleLong,#rpeToggleTempo,#rpeToggleAlle').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderRpeChart(DashFilter.get(Store.data.sessions));
+    });
+  });
+
   [['zoneToggleWeek','week'],['zoneToggleMaaned','month']].forEach(([id, val]) => {
     document.getElementById(id).addEventListener('click', () => {
       zoneGroupBy = val;
@@ -5095,6 +5264,9 @@ document.addEventListener('DOMContentLoaded', () => {
     zoneGroupBy = 'week';
     document.querySelectorAll('#zoneToggleWeek,#zoneToggleMaaned').forEach(el => el.classList.remove('active'));
     document.getElementById('zoneToggleWeek').classList.add('active');
+    rpeTypeFilter = 'Easy';
+    document.querySelectorAll('#rpeToggleEasy,#rpeToggleLong,#rpeToggleTempo,#rpeToggleAlle').forEach(el => el.classList.remove('active'));
+    document.getElementById('rpeToggleEasy').classList.add('active');
     renderDashboard();
   });
 

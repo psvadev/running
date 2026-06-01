@@ -52,6 +52,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
     "sko": "ASICS Novablast 5",
     "løpetype": "utendors",        // "utendors" | "treadmill"; default "utendors" (missing = outdoor)
     "sovn": 6.87,                  // decimal hours (e.g. 6.87 = 6h52m); display via hoursToHHMM()
+    "rpe": 7,                        // subjective effort 1–10 (Apple Fitness scale); null if not entered
     "notater": "Første utendørs økt. Mye vanskeligere..."  // free-text notes; null if not entered
   }],
   "shoes": [
@@ -104,18 +105,19 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
   - **Øktinfo** (5-col auto-fill): Dato, Uke, Øktnavn, Økt-type, Treningsplan, Løpetype
   - **Ytelse** (`form-grid form-grid-4`): Varighet, Distanse, Gj.snittspuls, Toppuls
   - **Pulssoner** (5-col zone-grid): Sone 1–5
-  - **Trailing row** (`form-grid form-grid-4`, 2 rows): Kalorier, Mål distanse, Tempo, Snitt km/t → Stigning, Sko, Søvn, (empty)
+  - **Trailing row** (`form-grid form-grid-4`, 2 rows): Kalorier, Mål distanse, Tempo, Snitt km/t → Stigning, Sko, Søvn, RPE
   - **Mobile (≤600px):** `form-grid-4` drops to 2 columns; `zone-grid` drops to 3 columns
 - Auto-calculated (readonly, shown in accent blue): Varighet (sum of zones), Tempo, Snitt km/t
 - Løpetype defaults to **Tredemølle** on new/clear sessions
 - Stigning: `step="0.5"` — spinner moves in 0.5% increments; **hidden (display:none) when Utendørs is selected** — field and label disappear, value cleared; re-appears when switching back to Tredemølle
 - Shoe dropdown has a `+` button that navigates to Planlegging tab (where the Sko card lives)
+- RPE field (1–10) fills the 4th slot of the trailing row (after Søvn, before Notater)
 - Edit mode: clicking a row in the log pre-fills the form; edit banner shown; "Oppdater økt" replaces "Lagre økt"
 
 ### 📊 Oversikt (dashboard tab — full width)
 - Filter bar at top: økt-type dropdown, treningsplan dropdown, **løpetype radios** (Alle / 🏃 Ute / ⚙️ Inne), **Tempo-enhet radios** (min/km / km/t), year pills (toggle individual years), Nullstill button. **Nullstill resets all filters** including paceUnit radio, venue toggle, all scatter/chart-local type pills, and `zoneGroupBy` (Pulssoner Uke/Måned toggle) back to defaults.
 - **Yearly goal card** (full-width, hidden if no goal set): progress bar, km løpt, km igjen, Prognose (year-end projection), km/uke nødvendig. Green if on track, warning if projected to fall short.
-- Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → **Innsikter** → **Treningsrytme** → PMC → Belastning → Ukentlig distanse + Tempo → **Plan vs faktisk** → Treningskalender → **Ute vs inne** → Årssammenligning → Aerob effektivitet → Pulssoner → **Sko oversikt** + Ukentlig oversikt
+- Charts (all **week-based**, not per-session — except Records). **Card order** (top to bottom): Årsmål → Rekorder → **Innsikter** → **Treningsrytme** → PMC → Belastning → Ukentlig distanse + Tempo → **Plan vs faktisk** → Treningskalender → **Ute vs inne** → Årssammenligning → Aerob effektivitet → Søvn vs puls + Tempo vs puls → **RPE over tid** → Pulssoner → **Sko oversikt** + Ukentlig oversikt
   - **Rekorder** — four sub-sections rendered from `computeRecords()` + `computePerfCurve()`: (1) main grid (`recordsGrid`): total dist/time, avg km/week, longest session, best week/month/4-week block, Mest høydemeter, best aerob eff., lowest avg HR, longest + current streak; (2) **Pace** sub-section (`paceRecordsGrid`): Beste tempo, Beste snitt km/t, Beste Easy/Long/Tempo/Test/Race pace — all use "pace" label to avoid "Tempo-tempo" ambiguity; Steady and Intervaller excluded (Steady too similar to Easy; interval session pace is not meaningful); (3) **Distanse-PR** (`distPRGrid`): 5 km, 10 km, Halvmaraton, Maraton — fastest session per distance bracket; (4) **Ytelseskurve** (`perfCurveGrid`): 400 m, 1 km, 5 km, 10 km, 15 km, Halvmaraton, Maraton — priority: manual override from `Store.data.bestEfforts` > actual Test/Race session in ±10% range > Riegel estimate (`t2 = t1 × (d/d1)^1.06`) from closest Test/Race anchor ≥1 km; 400m never gets a Riegel estimate; estimated tiles styled with `.record-value.estimated` (muted colour). `computeRecords()` returns `bestEasyPace`, `bestLangturPace`, `bestTempoPace`, `bestTestPace`, `bestRacePace`, `bestHoyde`.
   - **Treningsstatus (PMC)** — line chart, last 365 days; three lines: Kondisjon/CTL (42-day exp. avg, blue), Tretthet/ATL (7-day exp. avg, red), Form/TSB (CTL−ATL, green). Always uses `allSessions` regardless of dashboard filter — CTL/ATL require full history to be meaningful (full-width)
   - **Treningsbelastning per uke** — bar chart, weekly load score (zone minutes × zone weight Z1=1…Z5=5); bars color-coded green/amber/red relative to personal max; blue 4-week rolling average line overlay (full-width). Supports event marker lines. **Tooltip shows:** load points + level + km/løp/tid. **Click a bar → `DetailPanel.openWeek`**. Shows "Ingen data å vise" empty state when no sessions have HR zone data.
@@ -137,6 +139,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 - Full-width sortable table (click column headers); columns include **Plan** (treningsplan) after Navn and **Mål km** after Dist
 - **Søvn column** colour-coded: red `< 6h`, yellow `6–7h`, green `≥ 7h`; empty cells unstyled
 - **Høyde column** — shows `hoydeMeter + 'm'` for outdoor runs and `stigning + '%'` for treadmill runs; blank if neither is set
+- **RPE column** (col 16): shows `rpe` value colour-coded (green ≤3, amber ≤6, orange ≤8, red 10); hidden on mobile (nth-child 16)
 - **📝 icon** appended to the session name cell when `notater` is set — `title` attribute shows full note text on hover; not a separate column
 - **Kal (calories) column removed** — still logged in the form and included in TSV export and session detail panel; just not shown in the table
 - **Mobile (≤600px):** 9 secondary columns hidden via CSS `nth-child` — Uke (3), Navn (5), Plan (6), Mål km (8), Varighet (9), ♥ Topp (12), Sko (13), Søvn (14), Høyde (15). Visible: checkbox, Dato, Type, Dist, Tempo, ♥ Snitt, actions. All fields accessible via edit form.
@@ -241,6 +244,11 @@ Global state:
 - If `'denied'` or no handle stored: falls back to cache message
 - Handle is stored to IndexedDB in `open()` and on first successful `save()`
 - `openNew()` clears the stored handle via `HandleDB.clear()`
+
+### Drive sync failure feedback
+- `FileIO.save()` awaits `DriveIO.save()` result; on failure: calls `DriveIO._onSyncError()` which turns the ☁ indicator red and shows a `showToast()` error banner
+- `DriveIO._onSyncOk()` restores the indicator to green on the next successful save
+- `showToast(msg, type, duration)` — global utility that appends a  div to `body` and auto-removes after `duration` ms (default 4s); CSS classes: `toast-error`, `toast-success`, `toast-info`
 
 ### Manual save (💾 Lagre) re-using the existing file
 - **Problem:** After a page reload, `this.handle` is null until `restoreHandle()` completes. If the user clicks Lagre first, `save()` would call `showSaveFilePicker` and prompt for a location — even though the file is known.
