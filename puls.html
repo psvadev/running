@@ -1878,7 +1878,7 @@ const Form = {
       malDistanse: parseFloat(document.getElementById('fMalDistanse').value) || null,
       tempo: mmSsToSecs(document.getElementById('fTempo').value) || null,
       snittkmh: parseFloat(document.getElementById('fSnittkmh').value) || null,  // set by autoCalcPace
-      stigning: parseFloat(document.getElementById('fStigning').value) || null,
+      stigning: Math.min(parseFloat(document.getElementById('fStigning').value) || 0, 20) || null,
       hoydeMeter: parseInt(document.getElementById('fHoydeMeter').value) || null,
       sko: document.getElementById('fSko').value,
       løpetype: document.getElementById('fLopetype').value || 'utendors',
