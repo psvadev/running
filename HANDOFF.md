@@ -109,7 +109,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 - Auto-calculated (readonly, shown in accent blue): Varighet (sum of zones), Tempo, Snitt km/t
 - Løpetype defaults to **Tredemølle** on new/clear sessions
 - Stigning: `step="0.5"` — spinner moves in 0.5% increments; **hidden (display:none) when Utendørs is selected** — field and label disappear, value cleared; re-appears when switching back to Tredemølle
-- Shoe dropdown has a `+` button that navigates to Innstillinger tab
+- Shoe dropdown has a `+` button that navigates to Planlegging tab (where the Sko card lives)
 - Edit mode: clicking a row in the log pre-fills the form; edit banner shown; "Oppdater økt" replaces "Lagre økt"
 
 ### 📊 Oversikt (dashboard tab — full width)
@@ -150,7 +150,6 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
   - Select-all checkbox in header toggles all visible rows; unchecking any row desyncs the select-all
   - Checkboxes and button state reset automatically on every filter change / re-render
   - TSV format matches the original Excel export: 20 columns, Dato as `M/D/YYYY`, Uke as `YYYY-WW`, durations as `H:MM:SS`, zones as `H:MM:SS`, pace as `MM:SS`, sleep as `H:MM`, decimals as dot
-- **"Importer Excel/CSV"** button → SheetJS modal with preview before confirming
 
 ### 📅 Planlegging (planning tab — max 1200px)
 - **Mål**: add yearly km goals (year + km); listed with delete button (with confirm); triggers goal card on dashboard

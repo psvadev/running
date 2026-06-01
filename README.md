@@ -42,7 +42,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Mobile:** secondary columns hidden automatically (week, name, plan, target km, duration, max HR, shoe, sleep, elevation); all fields still visible when opening the edit form
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe
 - Edit or delete any row
-- **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; each session exports as a self-contained block — note line (`dato: tekst`) first, then column headers, then the data row, with blank lines between sessions so notes and data travel together automatically
+- **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; single header row at the top, then one block per session separated by blank lines — if a note exists: `dato: tekst` line, blank line, then the data row; no note: just the data row
 
 ### Import
 - Import from `.xlsx` or `.csv` via SheetJS — available under **⚙️ Innstillinger → Datafil**
@@ -101,7 +101,7 @@ Opening `puls.html` directly as a local file still works fully for offline use �
 
 ### Importing from Excel or CSV
 
-1. Go to **📋 Treningslogg** → click **Importer Excel/CSV**
+1. Go to **⚙️ Innstillinger** → **Datafil** → click **📥 Importer Excel/CSV**
 2. Select your `.xlsx` or `.csv` file — a preview is shown before anything is saved
 3. Duplicates are skipped automatically (matched on date + distance + duration)
 
