@@ -143,8 +143,8 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 - **📝 icon** appended to the session name cell when `notater` is set — `title` attribute shows full note text on hover; not a separate column
 - **Kal (calories) column removed** — still logged in the form and included in TSV export and session detail panel; just not shown in the table
 - **Responsive columns — 3 tiers:**
-  - **≥ 1100px (full desktop):** all columns visible
-  - **601–1099px (tablet / small laptop):** hides Uke (3), Mål km (8), Varighet (9), ♥ Topp (12), Sko (13), Søvn (14), Høyde (15), RPE (16) — keeps Dato, Type, Navn, Plan, Dist, Tempo, ♥ Snitt, actions
+  - **> 1600px (wide desktop / external monitor):** all columns visible including Sko
+  - **601–1600px (tablet / laptop incl. HiDPI scaled displays):** hides Uke (3), Mål km (8), Varighet (9), ♥ Topp (12), Sko (13), Søvn (14), Høyde (15), RPE (16) — keeps Dato, Type, Navn, Plan, Dist, Tempo, ♥ Snitt, actions
   - **≤ 600px (mobile):** additionally hides Navn (5) and Plan (6) — keeps only Dato, Type, Dist, Tempo, ♥ Snitt, actions. All fields accessible via edit form.
 - Filters: fra/til dato, økt-type, **treningsplan (Plan)**, **løpetype** (Alle / 🏃 Utendørs / ⚙️ Tredemølle), sko — all wired to `fFilterPlan`, `fFilterLopetype` etc.; Nullstill clears all
 - Each row shows a 🏃/⚙️ venue badge next to the session type badge (all sessions; untagged = outdoor)
@@ -308,7 +308,7 @@ Global state:
 - `.cs-stat { flex: 1 1 75px }` — consistency stats row shrinks to fit instead of overflowing at 110px minimum
 - `.form-grid-4 { grid-template-columns: repeat(2,1fr) }` — Ytelse and trailing-row form sections drop from 4 to 2 columns
 - `.zone-grid { grid-template-columns: repeat(3,1fr) }` — zone inputs drop from 5 to 3 columns
-- Log table: 9 secondary columns hidden via `nth-child` (see Treningslogg section above)
+- Log table: responsive column hiding via `nth-child` — see Treningslogg section for full tier breakdown
 - Tabs: `overflow-x: auto; flex-wrap: nowrap` — tabs scroll horizontally rather than wrapping
 - `#heatmapContainer { overflow-x: auto }` is applied globally (not just mobile) — heatmap always scrolls within its card
 - `768px` breakpoint (existing): `.dash-grid` already drops to 1 column
