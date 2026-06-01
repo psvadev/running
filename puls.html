@@ -1382,7 +1382,7 @@ const FileIO = {
   },
 
   openNew() {
-    Store.data = { sessions: [], shoes: [{ name: 'ASICS Novablast 5' }, { name: 'Saucony Ride 18' }, { name: 'Adidas trainers' }], goals: {}, events: [], lastUpdated: null };
+    Store.data = { sessions: [], shoes: [], goals: {}, events: [], lastUpdated: null };
     this.handle = null;
     localStorage.removeItem('lpl_cache');
     localStorage.removeItem('lpl_handle_name');
