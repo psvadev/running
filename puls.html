@@ -645,12 +645,7 @@
     <div class="card span2" id="rpeCard">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div class="card-title" style="margin-bottom:0">RPE over tid</div>
-        <div style="display:flex;gap:6px">
-          <span class="year-pill active" id="rpeToggleEasy">Easy</span>
-          <span class="year-pill" id="rpeToggleLong">Long</span>
-          <span class="year-pill" id="rpeToggleTempo">Tempo</span>
-          <span class="year-pill" id="rpeToggleAlle">Alle</span>
-        </div>
+        <div style="display:flex;gap:6px" id="rpePills"></div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:12px">Subjektiv anstrengelse 1–10. Synkende RPE ved samme tempo tyder på bedre form.</div>
       <div class="chart-wrap" style="height:220px"><canvas id="chartRpe"></canvas></div>
@@ -2974,11 +2969,31 @@ function renderRpeChart(sessions) {
     return true;
   }).sort((a, b) => a.dato.localeCompare(b.dato));
 
-  const totalRpe = sessions.filter(s => s.rpe).length;
+  const rpeSessions = sessions.filter(s => s.rpe);
   destroyChart('chartRpe');
   const card = document.getElementById('rpeCard');
-  if (totalRpe < 2) { if (card) card.style.display = 'none'; return; }
+  if (rpeSessions.length < 2) { if (card) card.style.display = 'none'; return; }
   if (card) card.style.display = '';
+
+  // Build pills from types that actually have RPE data
+  const typesWithRpe = [...new Set(rpeSessions.map(s => s.okttype))].sort();
+  if (!typesWithRpe.includes(rpeTypeFilter) && rpeTypeFilter !== 'alle') {
+    rpeTypeFilter = typesWithRpe[0] || 'alle';
+  }
+  const pillTypes = typesWithRpe.length > 1 ? [...typesWithRpe, 'alle'] : typesWithRpe;
+  const pillsEl = document.getElementById('rpePills');
+  if (pillsEl) {
+    pillsEl.innerHTML = pillTypes.map(t =>
+      `<span class="year-pill${rpeTypeFilter === t ? ' active' : ''}" data-rpe="${t}">${t === 'alle' ? 'Alle' : t}</span>`
+    ).join('');
+    pillsEl.querySelectorAll('[data-rpe]').forEach(el => {
+      el.addEventListener('click', () => {
+        rpeTypeFilter = el.dataset.rpe;
+        renderRpeChart(DashFilter.get(Store.data.sessions));
+      });
+    });
+  }
+
   const lbl = rpeTypeFilter !== 'alle' ? ` (${rpeTypeFilter})` : '';
   showChartEmpty('chartRpe', filtered.length < 2, `Trenger minst 2 økter${lbl} med RPE-data.`);
   if (filtered.length < 2) return;
@@ -5236,14 +5251,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  [['rpeToggleEasy','Easy'],['rpeToggleLong','Long'],['rpeToggleTempo','Tempo'],['rpeToggleAlle','alle']].forEach(([id, val]) => {
-    document.getElementById(id).addEventListener('click', () => {
-      rpeTypeFilter = val;
-      document.querySelectorAll('#rpeToggleEasy,#rpeToggleLong,#rpeToggleTempo,#rpeToggleAlle').forEach(el => el.classList.remove('active'));
-      document.getElementById(id).classList.add('active');
-      renderRpeChart(DashFilter.get(Store.data.sessions));
-    });
-  });
+  // RPE pills are rendered dynamically inside renderRpeChart()
 
   [['zoneToggleWeek','week'],['zoneToggleMaaned','month']].forEach(([id, val]) => {
     document.getElementById(id).addEventListener('click', () => {
