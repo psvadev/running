@@ -1062,10 +1062,9 @@ function formatSessionTsv(sessions) {
       s.sko || '',
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
     ].join('\t');
-    const notePart = s.notater ? `${s.dato}: ${s.notater}\n\n` : '';
-    return `${notePart}${HDR}\n${dataRow}`;
+    return s.notater ? `${s.dato}: ${s.notater}\n${dataRow}` : dataRow;
   });
-  return blocks.join('\n\n\n');
+  return [HDR, ...blocks].join('\n\n');
 }
 
 async function copyToClipboard(text) {
