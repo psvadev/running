@@ -408,6 +408,10 @@
         <label>Søvn (timer)</label>
         <input type="text" id="fSovn" placeholder="7:30">
       </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Notater</label>
+        <textarea id="fNotater" rows="2" placeholder="Hvordan føltes økten, kontekst for AI-analyse…" style="resize:vertical"></textarea>
+      </div>
     </div>
   </div>
 
@@ -1034,7 +1038,7 @@ function formatSessionTsv(sessions) {
   const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
     'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
     'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
-    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn'];
+    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn','Notater'];
   const rows = sessions.map(s => {
     const soner = s.soner || [0,0,0,0,0];
     const [y,m,d] = s.dato.split('-');
@@ -1057,6 +1061,7 @@ function formatSessionTsv(sessions) {
       s.hoydeMeter != null ? s.hoydeMeter : '',
       s.sko || '',
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
+      s.notater || '',
     ].join('\t');
   });
   return [HDR.join('\t'), ...rows].join('\n');
@@ -1805,6 +1810,7 @@ const Form = {
       sko: document.getElementById('fSko').value,
       løpetype: document.getElementById('fLopetype').value || 'utendors',
       sovn: hhmmToHours(document.getElementById('fSovn').value),
+      notater: document.getElementById('fNotater').value.trim() || null,
     };
   },
 
@@ -1834,6 +1840,7 @@ const Form = {
     document.getElementById('hoydeMeterGroup').style.display = !isTM ? '' : 'none';
     document.getElementById('fHoydeMeter').value = !isTM ? (s.hoydeMeter ?? '') : '';
     document.getElementById('fSovn').value = s.sovn ? hoursToHHMM(s.sovn) : '';
+    document.getElementById('fNotater').value = s.notater || '';
     this.refreshShoeDropdown(s.sko);
   },
 
@@ -1885,7 +1892,7 @@ const Form = {
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
-     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn'].forEach(id => {
+     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn','fNotater'].forEach(id => {
       document.getElementById(id).value = '';
     });
     document.getElementById('fLopetype').value = 'treadmill';
@@ -1968,7 +1975,7 @@ const Log = {
         <td>${fmtDate(s.dato)}</td>
         <td style="color:var(--muted)">${s.uke||''}</td>
         <td>${badge}${venueBadge}</td>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${s.oktnavn||''}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${s.oktnavn||''}${s.notater ? ` <span title="${s.notater.replace(/"/g,'&quot;')}" style="cursor:default">📝</span>` : ''}</td>
         <td style="color:var(--muted);font-size:11px">${s.treningsplan||''}</td>
         <td>${fmtDist(s.distanse)}</td>
         <td>${malCell(s)}</td>
