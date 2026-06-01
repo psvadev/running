@@ -51,7 +51,8 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
     "malDistanse": 8.0,            // optional km target set at logging time; null if not set
     "sko": "ASICS Novablast 5",
     "løpetype": "utendors",        // "utendors" | "treadmill"; default "utendors" (missing = outdoor)
-    "sovn": 6.87                   // decimal hours (e.g. 6.87 = 6h52m); display via hoursToHHMM()
+    "sovn": 6.87,                  // decimal hours (e.g. 6.87 = 6h52m); display via hoursToHHMM()
+    "notater": "Første utendørs økt. Mye vanskeligere..."  // free-text notes; null if not entered
   }],
   "shoes": [
     { "name": "ASICS Novablast 5", "retirementKm": 650 },
@@ -98,7 +99,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 ## App structure (5 tabs)
 
 ### ➕ Legg til økt (form tab)
-- Fields in **Excel column order**: Dato, Uke (auto), Øktnavn, Økt-type, Treningsplan, Varighet (auto), Distanse, Gj.snittspuls, Toppuls, Sone 1–5, Kalorier, Tempo (auto), Snitt km/t (auto), Stigning, Sko, Søvn
+- Fields in **Excel column order**: Dato, Uke (auto), Øktnavn, Økt-type, Treningsplan, Varighet (auto), Distanse, Gj.snittspuls, Toppuls, Sone 1–5, Kalorier, Tempo (auto), Snitt km/t (auto), Stigning, Sko, Søvn — plus a full-width **Notater** textarea at the bottom for free-text session notes
 - Layout: 4 sections
   - **Øktinfo** (5-col auto-fill): Dato, Uke, Øktnavn, Økt-type, Treningsplan, Løpetype
   - **Ytelse** (`form-grid form-grid-4`): Varighet, Distanse, Gj.snittspuls, Toppuls
@@ -136,6 +137,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 - Full-width sortable table (click column headers); columns include **Plan** (treningsplan) after Navn and **Mål km** after Dist
 - **Søvn column** colour-coded: red `< 6h`, yellow `6–7h`, green `≥ 7h`; empty cells unstyled
 - **Høyde column** — shows `hoydeMeter + 'm'` for outdoor runs and `stigning + '%'` for treadmill runs; blank if neither is set
+- **📝 icon** appended to the session name cell when `notater` is set — `title` attribute shows full note text on hover; not a separate column
 - **Kal (calories) column removed** — still logged in the form and included in TSV export and session detail panel; just not shown in the table
 - **Mobile (≤600px):** 9 secondary columns hidden via CSS `nth-child` — Uke (3), Navn (5), Plan (6), Mål km (8), Varighet (9), ♥ Topp (12), Sko (13), Søvn (14), Høyde (15). Visible: checkbox, Dato, Type, Dist, Tempo, ♥ Snitt, actions. All fields accessible via edit form.
 - Filters: fra/til dato, økt-type, **treningsplan (Plan)**, **løpetype** (Alle / 🏃 Utendørs / ⚙️ Tredemølle), sko — all wired to `fFilterPlan`, `fFilterLopetype` etc.; Nullstill clears all
@@ -210,7 +212,7 @@ A self-contained single-file running tracker web app (`puls.html`) that replaces
 | `calcZoneDistribution(sessions)` | Aggregates `soner` arrays across a session array; returns `{ totals:[s,s,s,s,s], total, pcts:[%,%,%,%,%] }` — used in training block drill-down for the Sonefordeling section |
 | `avgPaceHR(sessions)` | Returns `{ avgPace, avgHR }` (rounded seconds/km and bpm, or null) — shared helper used in `computeBlocks`, `openWeek`, `openShoe` |
 | `toSafeAttr(obj)` | JSON-serializes an object and escapes `&` and `"` for safe embedding in HTML attributes — used by `renderBlocks` for `data-block` |
-| `formatSessionTsv(sessions)` | Returns a TSV string (header + one row per session) in Excel-compatible format: Dato `M/D/YYYY`, Uke `YYYY-WW`, Varighet/zones as `H:MM:SS`, Tempo as `MM:SS`, Søvn as `H:MM`, decimals as dot. 20 columns matching the original Excel log. |
+| `formatSessionTsv(sessions)` | Returns a formatted string for AI export. One header row at the top, then one block per session separated by blank lines. Each block: if `notater` is set, a `dato: notes` line followed by a blank line, then the data row. Sessions without notes are just the data row. 20 data columns (Dato through Søvn); Dato `M/D/YYYY`, Uke `YYYY-WW`, durations as `H:MM:SS`, Tempo as `MM:SS`, Søvn as `H:MM`. |
 | `tsvIsoWeek(dateStr)` | Computes ISO week as `YYYY-WW` string (e.g. `2026-20`) from a `YYYY-MM-DD` date. Used by `formatSessionTsv` — separate from `isoWeek()` which returns a display label. |
 | `copyToClipboard(text)` | Async: tries `navigator.clipboard.writeText`; falls back to `execCommand('copy')` via a hidden textarea. Returns `true` on success. |
 | `showChartEmpty(canvasId, show, msg)` | Unified empty-state helper for all charts. Removes any existing `.chart-no-data` element from the canvas's `.chart-wrap` parent, then either hides the canvas and appends a centred message div (when `show` is truthy) or shows the canvas (when falsy). Default message: `'Ingen data å vise'`. All 8 chart render functions call this instead of duplicating inline DOM logic. |

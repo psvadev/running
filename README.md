@@ -5,7 +5,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 ## Features
 
 ### Logging
-- Log runs with date, session type (Easy / Steady / Long / Tempo / Intervaller / Test / **Race**), training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline % (treadmill) or **elevation gain in metres** (outdoor), shoe, sleep, and **run type** (outdoor / treadmill)
+- Log runs with date, session type (Easy / Steady / Long / Tempo / Intervaller / Test / **Race**), training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline % (treadmill) or **elevation gain in metres** (outdoor), shoe, sleep, **run type** (outdoor / treadmill), and **notes** (free-text context for AI analysis)
 - Auto-calculated fields: duration (summed from zones), pace, avg km/h
 - Edit any past session by clicking it in the log
 
@@ -38,10 +38,11 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - Full sortable table — click any column header to sort
 - **Sleep column** colour-coded at a glance: red `< 6h` · yellow `6–7h` · green `≥ 7h`
 - **Høyde column** shows elevation in metres for outdoor runs and incline % for treadmill runs
+- **📝 icon** shown in the session name column when a note exists — hover to preview the note text
 - **Mobile:** secondary columns hidden automatically (week, name, plan, target km, duration, max HR, shoe, sleep, elevation); all fields still visible when opening the edit form
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe
 - Edit or delete any row
-- **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; TSV format matches the original Excel export (tab-separated, Norwegian headers, same column order and formatting)
+- **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; each session exports as a self-contained block — note line (`dato: tekst`) first, then column headers, then the data row, with blank lines between sessions so notes and data travel together automatically
 
 ### Import
 - Import from `.xlsx` or `.csv` via SheetJS — available under **⚙️ Innstillinger → Datafil**
