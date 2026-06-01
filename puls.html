@@ -115,12 +115,11 @@
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .dash-grid .span2 { grid-column: span 2; }
   @media (max-width: 768px) { .dash-grid { grid-template-columns: 1fr; } .dash-grid .span2 { grid-column: span 1; } }
-  /* ≤1600px — hide least useful columns only; keeps Varighet, Mål km, ♥ Topp, Søvn */
+  /* ≤1600px — hide least useful columns only; keeps Varighet, Mål km, ♥ Topp, Søvn, RPE */
   @media (max-width: 1600px) {
     #logTable th:nth-child(3),  #logTable td:nth-child(3),
     #logTable th:nth-child(13), #logTable td:nth-child(13),
-    #logTable th:nth-child(15), #logTable td:nth-child(15),
-    #logTable th:nth-child(16), #logTable td:nth-child(16) { display: none; }
+    #logTable th:nth-child(15), #logTable td:nth-child(15) { display: none; }
   }
 
   /* ≤900px — also hide Varighet, ♥ Topp, Søvn */
