@@ -1102,7 +1102,9 @@ function formatSessionTsv(sessions) {
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
       s.rpe || '',
     ].join('\t');
-    return s.notater ? `${s.dato}: ${s.notater}\n\n${dataRow}` : dataRow;
+    const distLabel = s.distanse ? ` | ${parseFloat(s.distanse.toFixed(2)).toString()} km` : '';
+    const hdr = `=== ${s.dato}${s.oktnavn ? ` | ${s.oktnavn}` : ''}${distLabel} ===`;
+    return s.notater ? `${hdr}\n${s.notater}\n\n${dataRow}` : `${hdr}\n${dataRow}`;
   });
   return [HDR, ...blocks].join('\n\n');
 }
@@ -1966,6 +1968,8 @@ const Form = {
       document.getElementById(id).value = '';
     });
     document.getElementById('fLopetype').value = 'treadmill';
+    document.getElementById('fStigning').value = '1';
+    document.getElementById('fTreningsplan').value = 'Runna';
     document.getElementById('stigningGroup').style.display = '';
     document.getElementById('hoydeMeterGroup').style.display = 'none';
   }
