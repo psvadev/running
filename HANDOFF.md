@@ -354,3 +354,16 @@ Global state:
 - Go to 📋 Treningslogg → **Importer Excel/CSV**
 - Preview shown before confirming; duplicates are skipped automatically
 - If re-importing to fix data (e.g. søvn), clear sessions first via Innstillinger → Tøm alle data, then re-import
+
+---
+
+## Backlog / deferred ideas
+
+Items discussed and deliberately set aside — not rejected, just not worth the complexity yet. Revisit if circumstances change.
+
+| Item | Why deferred | What it would take |
+|---|---|---|
+| **Dynamic training plans** | User is on Runna long-term; Egentrening covers everything else | Make plan list configurable like shoes — manage in Innstillinger, populate all three `fTreningsplan` dropdowns dynamically from `Store.data.plans`. ~30–45 min. |
+| **GitHub Pages hosting** | Redirect URI already registered; just needs enabling | Repo Settings → Pages → Source: main branch, root folder. App will be at `https://psvadev.github.io/running/puls.html`. |
+| **Aerobic efficiency improvements** | Existing chart is sufficient; further work (HR drift etc.) is sports-science territory | Enhance existing chart rather than build new features on top |
+| **Storytelling / milestones** | Records and Insight cards already cover stat-surfacing | A separate milestone/timeline feature adds complexity on top of what already exists |
