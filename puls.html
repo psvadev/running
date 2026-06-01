@@ -405,7 +405,7 @@
       </div>
       <div class="form-group" id="stigningGroup">
         <label>Stigning (%)</label>
-        <input type="number" id="fStigning" step="0.5" min="0" placeholder="1.0">
+        <input type="number" id="fStigning" step="0.5" min="0" max="20" placeholder="1.0">
       </div>
       <div class="form-group" id="hoydeMeterGroup" style="display:none">
         <label>Høydemeter (m)</label>
@@ -424,7 +424,19 @@
       </div>
       <div class="form-group">
         <label>RPE (1–10)</label>
-        <input type="number" id="fRpe" min="1" max="10" step="1" placeholder="–">
+        <select id="fRpe">
+          <option value="">–</option>
+          <option value="1">1 — Veldig lett</option>
+          <option value="2">2 — Lett</option>
+          <option value="3">3 — Moderat lett</option>
+          <option value="4">4 — Moderat</option>
+          <option value="5">5 — Noe tungt</option>
+          <option value="6">6 — Tungt</option>
+          <option value="7">7 — Veldig tungt</option>
+          <option value="8">8 — Svært tungt</option>
+          <option value="9">9 — Nær maksimalt</option>
+          <option value="10">10 — Maksimalt</option>
+        </select>
       </div>
       <div class="form-group" style="grid-column:1/-1">
         <label>Notater</label>
