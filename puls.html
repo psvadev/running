@@ -1967,11 +1967,13 @@ const Form = {
      'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn','fRpe','fNotater'].forEach(id => {
       document.getElementById(id).value = '';
     });
-    document.getElementById('fLopetype').value = 'treadmill';
+    const lastSession = Store.data.sessions[Store.data.sessions.length - 1];
+    const lastLopetype = lastSession?.løpetype || 'treadmill';
+    document.getElementById('fLopetype').value = lastLopetype;
     document.getElementById('fStigning').value = '1';
     document.getElementById('fTreningsplan').value = 'Runna';
-    document.getElementById('stigningGroup').style.display = '';
-    document.getElementById('hoydeMeterGroup').style.display = 'none';
+    document.getElementById('stigningGroup').style.display = lastLopetype === 'treadmill' ? '' : 'none';
+    document.getElementById('hoydeMeterGroup').style.display = lastLopetype === 'outdoor' ? '' : 'none';
   }
 };
 
