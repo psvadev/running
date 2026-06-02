@@ -295,7 +295,7 @@
 
   <div class="form-section">
     <div class="form-section-title">Øktinfo</div>
-    <div class="form-grid">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
       <div class="form-group">
         <label>Dato</label>
         <input type="date" id="fDato">
@@ -304,6 +304,8 @@
         <label>Uke (auto)</label>
         <input type="text" id="fUke" readonly style="opacity:.6">
       </div>
+    </div>
+    <div class="form-grid">
       <div class="form-group">
         <label>Øktnavn</label>
         <input type="text" id="fOktnavn" placeholder="f.eks. Runna easy run">
