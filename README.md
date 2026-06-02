@@ -44,7 +44,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Responsive columns:** > 1600px shows everything; ≤ 1600px hides only Uke and Sko (keeps Mål km, Varighet, ♥ Topp, Søvn, Høyde, RPE — tested on 14" HiDPI laptop at 150% scaling = 1536px CSS viewport); ≤ 900px also hides Mål km, Varighet, ♥ Topp, Søvn; ≤ 600px additionally hides Navn and Plan — all fields accessible via edit form
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe
 - Edit or delete any row
-- **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; single header row at the top, then one block per session separated by blank lines — if a note exists: `dato: tekst` line, blank line, then the data row; no note: just the data row
+- **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; single header row at the top, then one block per session: `=== YYYY-MM-DD | Øktnavn | dist km ===` header, note text (if any) + blank line, then the data row; blocks separated by blank lines
 
 ### Import
 - Import from `.xlsx` or `.csv` via SheetJS — available under **⚙️ Innstillinger → Datafil**
@@ -64,7 +64,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 
 ## Getting started
 
-Open `puls.html` in your browser — no install needed.
+Open `puls.html` in your browser — no install needed. Or use the hosted version at **[psvadev.github.io/running/puls.html](https://psvadev.github.io/running/puls.html)** (navigating to the root redirects automatically).
 
 ### First time (no existing data)
 
