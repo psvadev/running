@@ -5048,7 +5048,7 @@ const Settings = {
       else if (parts.length === 2) secs = parts[0]*60 + parts[1];
       Store.data.bestEfforts[key] = secs > 0 ? secs : null;
     });
-    Store.save();
+    FileIO.save();
     renderDashboard();
     const msg = document.getElementById('bestEffortsMsg');
     if (msg) { msg.textContent = 'Lagret ✓'; setTimeout(() => { msg.textContent = ''; }, 2000); }
