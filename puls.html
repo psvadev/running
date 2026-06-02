@@ -1970,6 +1970,13 @@ const Form = {
     const lastSession = Store.data.sessions[Store.data.sessions.length - 1];
     const lastLopetype = lastSession?.løpetype || 'treadmill';
     document.getElementById('fLopetype').value = lastLopetype;
+    const todayDow = new Date().getDay();
+    const sameDaySessions = Store.data.sessions.filter(s => new Date(s.dato).getDay() === todayDow && s.okttype);
+    if (sameDaySessions.length >= 3) {
+      const freq = {};
+      sameDaySessions.forEach(s => { freq[s.okttype] = (freq[s.okttype] || 0) + 1; });
+      document.getElementById('fOkttype').value = Object.entries(freq).sort((a,b) => b[1]-a[1])[0][0];
+    }
     document.getElementById('fStigning').value = '1';
     document.getElementById('fTreningsplan').value = 'Runna';
     document.getElementById('stigningGroup').style.display = lastLopetype === 'treadmill' ? '' : 'none';
