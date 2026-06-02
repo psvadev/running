@@ -4318,12 +4318,9 @@ function renderDashboard() {
   // Shoe bar chart
   const shoeMap = {};
   sessions.forEach(s => { if (s.sko) { shoeMap[s.sko] = (shoeMap[s.sko]||0) + (s.distanse||0); } });
-  const shoeEntries = Object.entries(shoeMap).sort((a,b) => {
-    const aRetired = Store.data.shoes.find(s => s.name === a[0])?.retired || false;
-    const bRetired = Store.data.shoes.find(s => s.name === b[0])?.retired || false;
-    if (aRetired !== bRetired) return aRetired ? 1 : -1;
-    return b[1] - a[1];
-  });
+  const shoeEntries = Object.entries(shoeMap)
+    .filter(([name]) => !Store.data.shoes.find(s => s.name === name)?.retired)
+    .sort((a,b) => b[1]-a[1]);
   const maxKm = shoeEntries[0]?.[1] || 1;
   const shoeObjects = Store.data.shoes;
   const shoeStats = {};
@@ -4339,10 +4336,9 @@ function renderDashboard() {
   document.getElementById('shoeBarChart').innerHTML = `<div class="shoe-bar-wrap">${
     shoeEntries.map(([name, km]) => {
       const shoe = shoeObjects.find(s => s.name === name);
-      const isRetired = shoe?.retired || false;
       const retKm = shoe?.retirementKm;
       const pct = retKm ? km / retKm : null;
-      const warn = !isRetired && pct != null && pct >= 0.9 ? (pct >= 1 ? ' 🔴' : ' ⚠️') : '';
+      const warn = pct != null && pct >= 0.9 ? (pct >= 1 ? ' 🔴' : ' ⚠️') : '';
       const st = shoeStats[name] || {};
       const chips = [];
       if (st.count)     chips.push(`<span class="shoe-stat"><span class="sv">${st.count}</span><span class="sl">løp</span></span>`);
@@ -4351,12 +4347,11 @@ function renderDashboard() {
       if (st.lastDate)  chips.push(`<span class="shoe-stat"><span class="sl">sist</span><span class="sv">${fmtDate(st.lastDate)}</span></span>`);
       const metaLine = chips.length ? `<div class="shoe-meta">${chips.join('')}</div>` : '';
       const nameEsc = name.replace(/'/g,"\\'");
-      const retiredBadge = isRetired ? `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:20px;background:rgba(255,255,255,.08);color:var(--muted);margin-left:6px">Pensjonert</span>` : '';
       return `
-      <div style="cursor:pointer;${isRetired ? 'opacity:0.45' : ''}" onclick="DetailPanel.openShoe('${nameEsc}')">
+      <div style="cursor:pointer" onclick="DetailPanel.openShoe('${nameEsc}')">
         <div class="shoe-bar-row">
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}${retiredBadge}</span>
-          <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%;${isRetired ? 'opacity:0.4' : ''}"></div></div>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}</span>
+          <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>
           <span style="text-align:right">${km.toFixed(0)} km${warn}</span>
         </div>${metaLine}
       </div>`;
