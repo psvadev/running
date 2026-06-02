@@ -4471,7 +4471,7 @@ function computePerfCurve(sessions) {
     const manual = Store.data.bestEfforts?.[key];
     if (manual) {
       const pace = Math.round(manual / km);
-      return { label, value: secsToHms(manual), sub: `${secsToMmSs(pace)} /km · Manuell`, estimated: false };
+      return { label, value: secsToHms(manual), sub: `${secsToMmSs(pace)} /km · Faktisk tid`, estimated: false };
     }
     // 2. Actual Test session in ±10% range
     const actual = testSessions
