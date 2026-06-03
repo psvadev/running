@@ -5132,15 +5132,19 @@ const Settings = {
 // ═══════════════════════════════════════════════════════
 // TABS & REFRESH
 // ═══════════════════════════════════════════════════════
-function switchTab(name) {
+const tabScrollPos = {};
+function switchTab(name, skipHistory = false) {
+  const currentTab = document.querySelector('.panel.active')?.id?.replace('panel-', '');
+  if (currentTab) tabScrollPos[currentTab] = window.scrollY;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-'+name));
   document.body.classList.toggle('is-dash', name === 'dash');
-  history.replaceState(null, '', '#' + name);
+  if (!skipHistory) history.pushState({ tab: name }, '', '#' + name);
   if (name === 'dash') renderDashboard();
   if (name === 'log') Log.render();
   if (name === 'plan') Settings.render();
   if (name === 'settings') Settings.render();
+  window.scrollTo(0, tabScrollPos[name] || 0);
 }
 
 function refreshAll() {
@@ -5161,8 +5165,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => switchTab(tab.dataset.tab));
   });
+  window.addEventListener('popstate', e => {
+    const tab = e.state?.tab || window.location.hash.slice(1);
+    switchTab(VALID_TABS.includes(tab) ? tab : 'form', true);
+  });
   const hashTab = window.location.hash.slice(1);
-  switchTab(VALID_TABS.includes(hashTab) ? hashTab : 'form');
+  const initialTab = VALID_TABS.includes(hashTab) ? hashTab : 'form';
+  history.replaceState({ tab: initialTab }, '', '#' + initialTab);
+  switchTab(initialTab, true);
 
   // Table sort
   document.querySelectorAll('#logTable th[data-col]').forEach(th => {
