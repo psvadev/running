@@ -264,6 +264,18 @@
   /* ── Shoe retirement progress bar ── */
   .shoe-retire-bar-bg { background:var(--surface2); border-radius:4px; height:6px; overflow:hidden; flex:1; }
   .shoe-retire-bar-fill { height:100%; border-radius:4px; transition:width .4s; }
+
+  /* ── Scroll-to-top button ── */
+  #scrollTopBtn {
+    position:fixed; bottom:24px; right:20px; z-index:900;
+    width:40px; height:40px; border-radius:50%;
+    background:var(--surface2); border:1px solid var(--border);
+    color:var(--muted); font-size:18px; line-height:1;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    opacity:0; pointer-events:none; transition:opacity .2s;
+  }
+  #scrollTopBtn.visible { opacity:1; pointer-events:auto; }
+  #scrollTopBtn:hover { background:var(--surface3); color:var(--text); }
 </style>
 </head>
 <body>
@@ -5174,6 +5186,11 @@ document.addEventListener('DOMContentLoaded', () => {
   history.replaceState({ tab: initialTab }, '', '#' + initialTab);
   switchTab(initialTab, true);
 
+  // Scroll-to-top button visibility
+  window.addEventListener('scroll', () => {
+    document.getElementById('scrollTopBtn').classList.toggle('visible', window.scrollY > 300);
+  }, { passive: true });
+
   // Table sort
   document.querySelectorAll('#logTable th[data-col]').forEach(th => {
     th.addEventListener('click', () => {
@@ -5430,5 +5447,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 <div id="hmTooltip"></div>
+<button id="scrollTopBtn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Til toppen">↑</button>
 </body>
 </html>
