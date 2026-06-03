@@ -1689,6 +1689,7 @@ const DriveIO = (() => {
         Store.load(json);
         localStorage.setItem('lpl_cache', json);
         refreshAll();
+        if (!Form.editId) Form.clear();
         _setStatus('✓ Lastet fra Drive');
         if (!FileIO.handle) {
           document.getElementById('fileStatus').style.display = 'none';
@@ -1732,6 +1733,7 @@ const DriveIO = (() => {
           Store.load(json);
           localStorage.setItem('lpl_cache', json);
           refreshAll();
+          if (!Form.editId) Form.clear();
           if (!FileIO.handle) {
           document.getElementById('fileStatus').style.display = 'none';
           document.getElementById('syncStatus').style.display = 'none';
@@ -5422,7 +5424,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Load from cache immediately, then try to silently reattach the file handle
   // Skip local file restore if Drive is connected — Drive is the source of truth
-  if (FileIO.loadCache()) refreshAll();
+  if (FileIO.loadCache()) { refreshAll(); if (!Form.editId) Form.clear(); }
   if (!DriveIO.isSignedIn()) FileIO.restoreHandle();
 
   // Client ID + Secret fields — persist to localStorage
