@@ -558,7 +558,13 @@
       <div class="chart-wrap"><canvas id="chartLoad"></canvas></div>
     </div>
     <div class="card">
-      <div class="card-title">Ukentlig distanse (km)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="card-title" id="weeklyDistTitle" style="margin-bottom:0">Ukentlig distanse (km)</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="distToggleWeek">Uke</span>
+          <span class="year-pill" id="distToggleMaaned">Måned</span>
+        </div>
+      </div>
       <div class="chart-wrap"><canvas id="chartWeeklyDist"></canvas></div>
     </div>
     <div class="card">
@@ -1088,7 +1094,7 @@ function tsvIsoWeek(dateStr) {
 }
 
 function formatSessionTsv(sessions) {
-  const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Varighet',
+  const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Løpetype','Varighet',
     'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
     'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
     'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn','RPE'].join('\t');
@@ -1101,6 +1107,7 @@ function formatSessionTsv(sessions) {
       s.oktnavn || '',
       s.okttype || '',
       s.treningsplan || '',
+      s.løpetype === 'treadmill' ? 'Tredemølle' : 'Utendørs',
       s.varighet ? secsToHms(s.varighet) : '',
       s.distanse != null ? s.distanse.toFixed(2) : '',
       s.gjsnittspuls || '',
@@ -2190,6 +2197,7 @@ function buildYearPills(allSessions) {
 }
 
 let zoneGroupBy = 'week';
+let distGroupBy = 'week';
 let aeVenueFilter = 'all';
 let aeZ2Filter = 'all';
 let sleepHrTypeFilter = 'Easy';
@@ -4143,37 +4151,40 @@ function renderDashboard() {
 
   renderPMCChart(allSessions);
 
-  // Weekly distance chart (last 20 weeks)
-  const weekMap = {};
-  const weekDetails = {};
+  // Weekly/monthly distance chart
+  const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+  const distMap = {};
+  const distDetails = {};
   sessions.forEach(s => {
-    const wk = s.uke || isoWeek(s.dato);
-    if (!weekMap[wk]) weekMap[wk] = 0;
-    weekMap[wk] += s.distanse || 0;
-    if (!weekDetails[wk]) weekDetails[wk] = { km:0, runs:0, secs:0, paceSum:0, paceCount:0, hrSum:0, hrCount:0 };
-    weekDetails[wk].km   += s.distanse||0;
-    weekDetails[wk].runs += 1;
-    weekDetails[wk].secs += s.varighet||0;
-    if (s.tempo)        { weekDetails[wk].paceSum += s.tempo;        weekDetails[wk].paceCount++; }
-    if (s.gjsnittspuls) { weekDetails[wk].hrSum   += s.gjsnittspuls; weekDetails[wk].hrCount++;   }
+    const key = distGroupBy === 'week' ? (s.uke || isoWeek(s.dato)) : s.dato.slice(0,7);
+    if (!distMap[key]) distMap[key] = 0;
+    distMap[key] += s.distanse || 0;
+    if (!distDetails[key]) distDetails[key] = { km:0, runs:0, secs:0, paceSum:0, paceCount:0, hrSum:0, hrCount:0 };
+    distDetails[key].km   += s.distanse||0;
+    distDetails[key].runs += 1;
+    distDetails[key].secs += s.varighet||0;
+    if (s.tempo)        { distDetails[key].paceSum += s.tempo;        distDetails[key].paceCount++; }
+    if (s.gjsnittspuls) { distDetails[key].hrSum   += s.gjsnittspuls; distDetails[key].hrCount++;   }
   });
-  const weeks = Object.keys(weekMap).sort().slice(-20);
+  const distKeys = Object.keys(distMap).sort().slice(distGroupBy === 'week' ? -20 : -12);
+  const fmtDistKey = k => distGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
+  document.getElementById('weeklyDistTitle').textContent = distGroupBy === 'week' ? 'Ukentlig distanse (km)' : 'Månedlig distanse (km)';
   destroyChart('weeklyDist');
-  showChartEmpty('chartWeeklyDist', !weeks.length);
-  if (weeks.length) {
+  showChartEmpty('chartWeeklyDist', !distKeys.length);
+  if (distKeys.length) {
     Charts.weeklyDist = new Chart(document.getElementById('chartWeeklyDist'), {
       type:'bar',
       data:{
-        _rawLabels: weeks,
-        labels: weeks.map(fmtWeekLabel),
-        datasets:[{ data: weeks.map(w => weekMap[w].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
+        _rawLabels: distKeys,
+        labels: distKeys.map(fmtDistKey),
+        datasets:[{ data: distKeys.map(k => distMap[k].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
       },
       options:{
         plugins:{ legend:{display:false}, tooltip:{ callbacks:{
-          title: items => fmtWeekLabel(weeks[items[0].dataIndex]),
+          title: items => fmtDistKey(distKeys[items[0].dataIndex]),
           label: () => null,
           afterBody: items => {
-            const d = weekDetails[weeks[items[0].dataIndex]];
+            const d = distDetails[distKeys[items[0].dataIndex]];
             if (!d) return [];
             const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
             if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
@@ -4182,7 +4193,7 @@ function renderDashboard() {
           }
         }}},
         scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} },
-        onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(weeks[elements[0].index], Store.data.sessions); },
+        onClick: (evt, elements) => { if (elements.length && distGroupBy === 'week') DetailPanel.openWeek(distKeys[elements[0].index], Store.data.sessions); },
         responsive:true, maintainAspectRatio:false
       }
     });
@@ -5343,6 +5354,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  [['distToggleWeek','week'],['distToggleMaaned','month']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      distGroupBy = val;
+      document.querySelectorAll('#distToggleWeek,#distToggleMaaned').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderDashboard();
+    });
+  });
+
   // Dashboard filters
   document.getElementById('dfType').addEventListener('change', e => { DashFilter.type = e.target.value; renderDashboard(); });
   document.getElementById('dfPlan').addEventListener('change', e => { DashFilter.plan = e.target.value; renderDashboard(); });
@@ -5373,6 +5393,9 @@ document.addEventListener('DOMContentLoaded', () => {
     zoneGroupBy = 'week';
     document.querySelectorAll('#zoneToggleWeek,#zoneToggleMaaned').forEach(el => el.classList.remove('active'));
     document.getElementById('zoneToggleWeek').classList.add('active');
+    distGroupBy = 'week';
+    document.querySelectorAll('#distToggleWeek,#distToggleMaaned').forEach(el => el.classList.remove('active'));
+    document.getElementById('distToggleWeek').classList.add('active');
     rpeTypeFilter = 'Easy';
     document.querySelectorAll('#rpeToggleEasy,#rpeToggleLong,#rpeToggleTempo,#rpeToggleAlle').forEach(el => el.classList.remove('active'));
     document.getElementById('rpeToggleEasy').classList.add('active');
