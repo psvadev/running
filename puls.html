@@ -3950,6 +3950,55 @@ const DetailPanel = {
   },
 };
 
+function renderWeeklyDistChart(sessions) {
+  const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+  const distMap = {};
+  const distDetails = {};
+  sessions.forEach(s => {
+    const key = distGroupBy === 'week' ? (s.uke || isoWeek(s.dato)) : s.dato.slice(0,7);
+    if (!distMap[key]) distMap[key] = 0;
+    distMap[key] += s.distanse || 0;
+    if (!distDetails[key]) distDetails[key] = { km:0, runs:0, secs:0, paceSum:0, paceCount:0, hrSum:0, hrCount:0 };
+    distDetails[key].km   += s.distanse||0;
+    distDetails[key].runs += 1;
+    distDetails[key].secs += s.varighet||0;
+    if (s.tempo)        { distDetails[key].paceSum += s.tempo;        distDetails[key].paceCount++; }
+    if (s.gjsnittspuls) { distDetails[key].hrSum   += s.gjsnittspuls; distDetails[key].hrCount++;   }
+  });
+  const distKeys = Object.keys(distMap).sort().slice(distGroupBy === 'week' ? -20 : -12);
+  const fmtDistKey = k => distGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
+  document.getElementById('weeklyDistTitle').textContent = distGroupBy === 'week' ? 'Ukentlig distanse (km)' : 'Månedlig distanse (km)';
+  destroyChart('weeklyDist');
+  showChartEmpty('chartWeeklyDist', !distKeys.length);
+  if (distKeys.length) {
+    Charts.weeklyDist = new Chart(document.getElementById('chartWeeklyDist'), {
+      type:'bar',
+      data:{
+        _rawLabels: distKeys,
+        labels: distKeys.map(fmtDistKey),
+        datasets:[{ data: distKeys.map(k => distMap[k].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
+      },
+      options:{
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+          title: items => fmtDistKey(distKeys[items[0].dataIndex]),
+          label: () => null,
+          afterBody: items => {
+            const d = distDetails[distKeys[items[0].dataIndex]];
+            if (!d) return [];
+            const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+            if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
+            if (d.hrCount)   lines.push(`HR: ${Math.round(d.hrSum/d.hrCount)}`);
+            return lines;
+          }
+        }}},
+        scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} },
+        onClick: (evt, elements) => { if (elements.length && distGroupBy === 'week') DetailPanel.openWeek(distKeys[elements[0].index], Store.data.sessions); },
+        responsive:true, maintainAspectRatio:false
+      }
+    });
+  }
+}
+
 function renderPaceWeekChart(sessions) {
   const paceWeekMap = {};
   const paceWeekDetails = {};
@@ -4151,53 +4200,7 @@ function renderDashboard() {
 
   renderPMCChart(allSessions);
 
-  // Weekly/monthly distance chart
-  const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
-  const distMap = {};
-  const distDetails = {};
-  sessions.forEach(s => {
-    const key = distGroupBy === 'week' ? (s.uke || isoWeek(s.dato)) : s.dato.slice(0,7);
-    if (!distMap[key]) distMap[key] = 0;
-    distMap[key] += s.distanse || 0;
-    if (!distDetails[key]) distDetails[key] = { km:0, runs:0, secs:0, paceSum:0, paceCount:0, hrSum:0, hrCount:0 };
-    distDetails[key].km   += s.distanse||0;
-    distDetails[key].runs += 1;
-    distDetails[key].secs += s.varighet||0;
-    if (s.tempo)        { distDetails[key].paceSum += s.tempo;        distDetails[key].paceCount++; }
-    if (s.gjsnittspuls) { distDetails[key].hrSum   += s.gjsnittspuls; distDetails[key].hrCount++;   }
-  });
-  const distKeys = Object.keys(distMap).sort().slice(distGroupBy === 'week' ? -20 : -12);
-  const fmtDistKey = k => distGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
-  document.getElementById('weeklyDistTitle').textContent = distGroupBy === 'week' ? 'Ukentlig distanse (km)' : 'Månedlig distanse (km)';
-  destroyChart('weeklyDist');
-  showChartEmpty('chartWeeklyDist', !distKeys.length);
-  if (distKeys.length) {
-    Charts.weeklyDist = new Chart(document.getElementById('chartWeeklyDist'), {
-      type:'bar',
-      data:{
-        _rawLabels: distKeys,
-        labels: distKeys.map(fmtDistKey),
-        datasets:[{ data: distKeys.map(k => distMap[k].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
-      },
-      options:{
-        plugins:{ legend:{display:false}, tooltip:{ callbacks:{
-          title: items => fmtDistKey(distKeys[items[0].dataIndex]),
-          label: () => null,
-          afterBody: items => {
-            const d = distDetails[distKeys[items[0].dataIndex]];
-            if (!d) return [];
-            const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
-            if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
-            if (d.hrCount)   lines.push(`HR: ${Math.round(d.hrSum/d.hrCount)}`);
-            return lines;
-          }
-        }}},
-        scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} },
-        onClick: (evt, elements) => { if (elements.length && distGroupBy === 'week') DetailPanel.openWeek(distKeys[elements[0].index], Store.data.sessions); },
-        responsive:true, maintainAspectRatio:false
-      }
-    });
-  }
+  renderWeeklyDistChart(sessions);
 
   renderPaceWeekChart(sessions);
 
@@ -5359,7 +5362,7 @@ document.addEventListener('DOMContentLoaded', () => {
       distGroupBy = val;
       document.querySelectorAll('#distToggleWeek,#distToggleMaaned').forEach(el => el.classList.remove('active'));
       document.getElementById(id).classList.add('active');
-      renderDashboard();
+      renderWeeklyDistChart(DashFilter.get(Store.data.sessions));
     });
   });
 
