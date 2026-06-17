@@ -4107,6 +4107,9 @@ function renderDashboard() {
     { label:'Beste måned', value: recs.besteMåned ? recs.besteMånedKm.toFixed(1)+' km' : '–', sub: recs.besteMåned ? (['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'][+recs.besteMåned.slice(5,7)-1]+' '+recs.besteMåned.slice(0,4)) : '' },
     { label:'Beste 4-ukersperiode', value: recs.beste4Blokk ? recs.beste4Blokk.toFixed(1)+' km' : '–', sub: 'Rullerende 4 uker' },
     { label:'Mest høydemeter', value: recs.bestHoyde ? recs.bestHoyde.hoydeMeter+' m' : '–', sub: recs.bestHoyde ? `${fmtDist(recs.bestHoyde.distanse)} km · ${fmtDate(recs.bestHoyde.dato)}` : '' },
+    { label:'Totalt høydemeter', value: recs.totalHoyde ? recs.totalHoyde+' m' : '–', sub: recs.totalHoyde ? `${(recs.totalHoyde/8849).toFixed(2)}× Everest` : '' },
+    { label:'Utendørs km', value: recs.totalOutdoorKm ? recs.totalOutdoorKm+' km' : '–', sub: recs.totalDist ? `${Math.round(recs.totalOutdoorKm/recs.totalDist*100)}% av totalt` : '' },
+    { label:'Innendørs km', value: recs.totalIndoorKm ? recs.totalIndoorKm+' km' : '–', sub: recs.totalDist ? `${Math.round(recs.totalIndoorKm/recs.totalDist*100)}% av totalt` : '' },
     { label:'Beste aerob eff.', value: recs.bestAerobEff ? recs.bestAerobEff.ae.toFixed(2) : '–', sub: recs.bestAerobEff ? `${(+recs.bestAerobEff.kmh).toFixed(1)} km/t · ${recs.bestAerobEff.gjsnittspuls} bpm · ${fmtDate(recs.bestAerobEff.dato)}` : '', color: recs.bestAerobEff ? (recs.bestAerobEff.ae >= 7 ? '#6c8fff' : recs.bestAerobEff.ae >= 5.5 ? 'var(--green)' : recs.bestAerobEff.ae >= 4 ? 'rgba(240,192,80,.9)' : '#f87171') : null, tooltip: 'Aerob effektivitet = fart ÷ puls × 100\nLav: < 4.0 · Moderat: 4.0–5.5 · God: 5.5–7.0 · Høy: > 7.0' },
     { label:'Lavest gj.snittspuls', value: recs.lavPuls ? recs.lavPuls.gjsnittspuls+' bpm' : '–', sub: recs.lavPuls ? `${fmtDist(recs.lavPuls.distanse)} km · ${fmtDate(recs.lavPuls.dato)}` : '' },
     { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
@@ -4422,12 +4425,15 @@ function computeRecords(sessions) {
   let bestePace=null, longestDist=null, longestTime=null, bestKmh=null;
   let bestEasyPace=null, bestLangturPace=null, bestTempoPace=null, bestTestPace=null, bestRacePace=null, bestAerobEff=null, lavPuls=null;
   let bestHoyde=null;
-  let totalDist=0, totalTime=0;
+  let totalDist=0, totalTime=0, totalHoyde=0, totalOutdoorKm=0, totalIndoorKm=0;
   const weekKm = {}, monthKm = {}, absWeekKm = {};
   const absWeekSet = new Set();
   sessions.forEach(s => {
     totalDist += s.distanse||0;
     totalTime += s.varighet||0;
+    totalHoyde += s.hoydeMeter||0;
+    if ((s.løpetype||'utendors') === 'treadmill') totalIndoorKm += s.distanse||0;
+    else totalOutdoorKm += s.distanse||0;
     if (s.tempo && (!bestePace || s.tempo < bestePace.tempo)) bestePace=s;
     if (s.distanse && (!longestDist || s.distanse > longestDist.distanse)) longestDist=s;
     if (s.varighet && (!longestTime || s.varighet > longestTime.varighet)) longestTime=s;
@@ -4492,7 +4498,7 @@ function computeRecords(sessions) {
     if (!candidates.length) return { label: b.label, session: null };
     return { label: b.label, session: candidates.reduce((a, s) => s.tempo < a.tempo ? s : a) };
   });
-  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLangturPace, bestTempoPace, bestTestPace, bestRacePace, bestHoyde, bestAerobEff, lavPuls, distPRs };
+  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, totalHoyde, totalOutdoorKm:+totalOutdoorKm.toFixed(1), totalIndoorKm:+totalIndoorKm.toFixed(1), besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLangturPace, bestTempoPace, bestTestPace, bestRacePace, bestHoyde, bestAerobEff, lavPuls, distPRs };
 }
 
 function computePerfCurve(sessions) {
