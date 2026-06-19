@@ -3177,7 +3177,7 @@ function renderInsights(sessions) {
   const nextMilestone = MILESTONES.find(m => m > totalKm);
   if (nextMilestone) {
     const rem = (nextMilestone - totalKm).toFixed(0);
-    candidates.push({ icon:'📍', val:`${rem} km igjen`, sub:`til ${nextMilestone} km-merket`, priority: nextMilestone - totalKm < 50 ? 4 : 2 });
+    candidates.push({ icon:'📍', val:`${rem} km igjen`, sub:`til ${nextMilestone} km-merket`, priority: nextMilestone - totalKm < 50 ? 4 : nextMilestone - totalKm < 100 ? 2 : 1 });
   }
 
   // Most used shoe
