@@ -1948,7 +1948,7 @@ const Form = {
     document.getElementById('editBanner').classList.remove('hidden');
     document.getElementById('editLabel').textContent = s.oktnavn || fmtDate(s.dato);
     document.getElementById('btnSaveSession').textContent = '💾 Oppdater økt';
-    document.getElementById('btnClearForm').classList.add('hidden');
+    document.getElementById('btnClearForm').style.display = 'none';
     switchTab('form');
     window.scrollTo(0, 0);
   },
@@ -1960,7 +1960,7 @@ const Form = {
     this.clear();
     document.getElementById('editBanner').classList.add('hidden');
     document.getElementById('btnSaveSession').textContent = '💾 Lagre økt';
-    document.getElementById('btnClearForm').classList.remove('hidden');
+    document.getElementById('btnClearForm').style.display = '';
     if (ret) switchTab(ret);
   },
 
