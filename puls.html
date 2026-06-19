@@ -597,8 +597,14 @@
       <div id="heatmapStats" style="margin-top:10px;font-size:11px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap"></div>
     </div>
     <div class="card span2" id="venueCard">
-      <div class="card-title">Ute vs inne — ukentlig distanse (km)</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Siste 20 uker. 🏃 Utendørs · ⚙️ Tredemølle</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0">Ute vs inne — distanse (km)</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="venueToggleWeek">Uke</span>
+          <span class="year-pill" id="venueToggleMaaned">Måned</span>
+        </div>
+      </div>
+      <div id="venueSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 20 uker. 🏃 Utendørs · ⚙️ Tredemølle</div>
       <div class="chart-wrap"><canvas id="chartVenue"></canvas></div>
     </div>
     <div class="card span2" id="yearCompCard">
@@ -2201,6 +2207,7 @@ function buildYearPills(allSessions) {
 
 let zoneGroupBy = 'week';
 let distGroupBy = 'week';
+let venueGroupBy = 'week';
 let aeVenueFilter = 'all';
 let aeZ2Filter = 'all';
 let sleepHrTypeFilter = 'Easy';
@@ -3622,25 +3629,32 @@ function renderVenueChart(sessions) {
   const el = document.getElementById('chartVenue');
   if (!el) return;
 
-  const weekKm = {};
+  const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+  const km = {};
   sessions.forEach(s => {
     if (!s.dato || !s.distanse) return;
-    const w = isoWeek(s.dato);
+    const key = venueGroupBy === 'week' ? isoWeek(s.dato) : s.dato.slice(0, 7);
     const venue = (s.løpetype || 'utendors') === 'treadmill' ? 'inne' : 'ute';
-    if (!weekKm[w]) weekKm[w] = { ute: 0, inne: 0 };
-    weekKm[w][venue] += s.distanse;
+    if (!km[key]) km[key] = { ute: 0, inne: 0 };
+    km[key][venue] += s.distanse;
   });
 
-  const weeks = Object.keys(weekKm).sort().slice(-20);
-  if (!weeks.length) return;
+  const keys = Object.keys(km).sort().slice(venueGroupBy === 'week' ? -26 : -12);
+  const fmtKey = k => venueGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
+  const subtitle = document.getElementById('venueSubtitle');
+  if (subtitle) subtitle.textContent = venueGroupBy === 'week'
+    ? 'Siste 26 uker. 🏃 Utendørs · ⚙️ Tredemølle'
+    : 'Siste 12 måneder. 🏃 Utendørs · ⚙️ Tredemølle';
+
+  if (!keys.length) return;
 
   Charts.venue = new Chart(document.getElementById('chartVenue'), {
     type: 'bar',
     data: {
-      labels: weeks,
+      labels: keys.map(fmtKey),
       datasets: [
-        { label: '🏃 Utendørs', data: weeks.map(w => +(weekKm[w]?.ute || 0).toFixed(2)), backgroundColor: 'rgba(75,190,120,.75)', stack: 'venue' },
-        { label: '⚙️ Tredemølle', data: weeks.map(w => +(weekKm[w]?.inne || 0).toFixed(2)), backgroundColor: 'rgba(99,179,237,.75)', stack: 'venue' }
+        { label: '🏃 Utendørs', data: keys.map(k => +(km[k]?.ute || 0).toFixed(2)), backgroundColor: 'rgba(75,190,120,.75)', stack: 'venue' },
+        { label: '⚙️ Tredemølle', data: keys.map(k => +(km[k]?.inne || 0).toFixed(2)), backgroundColor: 'rgba(99,179,237,.75)', stack: 'venue' }
       ]
     },
     options: {
@@ -5410,6 +5424,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  [['venueToggleWeek','week'],['venueToggleMaaned','month']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      venueGroupBy = val;
+      document.querySelectorAll('#venueToggleWeek,#venueToggleMaaned').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderVenueChart(DashFilter.get(Store.data.sessions));
+    });
+  });
+
   // Dashboard filters
   document.getElementById('dfType').addEventListener('change', e => { DashFilter.type = e.target.value; renderDashboard(); });
   document.getElementById('dfPlan').addEventListener('change', e => { DashFilter.plan = e.target.value; renderDashboard(); });
@@ -5443,6 +5466,9 @@ document.addEventListener('DOMContentLoaded', () => {
     distGroupBy = 'week';
     document.querySelectorAll('#distToggleWeek,#distToggleMaaned').forEach(el => el.classList.remove('active'));
     document.getElementById('distToggleWeek').classList.add('active');
+    venueGroupBy = 'week';
+    document.querySelectorAll('#venueToggleWeek,#venueToggleMaaned').forEach(el => el.classList.remove('active'));
+    document.getElementById('venueToggleWeek').classList.add('active');
     rpeTypeFilter = 'Easy';
     document.querySelectorAll('#rpeToggleEasy,#rpeToggleLong,#rpeToggleTempo,#rpeToggleAlle').forEach(el => el.classList.remove('active'));
     document.getElementById('rpeToggleEasy').classList.add('active');
