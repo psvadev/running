@@ -3205,7 +3205,6 @@ function renderInsights(sessions) {
     const b4 = [0,1,2,3].reduce((s, j) => s + (loadByWeek[sortedWks[i+j]] || 0), 0);
     if (b4 > maxBlock) maxBlock = b4;
   }
-  if (maxBlock > 0) candidates.push({ icon:'⚡', val:`${Math.round(maxBlock)} pkt`, sub:'tyngste 4-ukers blokk · S1=1 → S5=5 pkt/min', priority: 1 });
 
   // Fastest Easy session
   const easyWithPace = sessions.filter(s => s.okttype === 'Easy' && s.tempo > 0);
