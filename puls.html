@@ -604,6 +604,7 @@
     <div class="card span2" id="yearCompCard">
       <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
       <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
+      <div id="yearCompTable"></div>
     </div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
@@ -4345,6 +4346,41 @@ function renderDashboard() {
       interaction: { mode: 'index', intersect: false },
     }
   });
+
+  // Year summary table
+  const yearStats = {};
+  sessions.forEach(s => {
+    if (!s.dato || !s.distanse) return;
+    const year = s.dato.slice(0, 4);
+    if (!yearStats[year]) yearStats[year] = { km: 0, runs: 0, weeks: new Set() };
+    yearStats[year].km += s.distanse;
+    yearStats[year].runs++;
+    const d2 = new Date(s.dato); d2.setHours(12);
+    const day2 = d2.getDay() || 7;
+    d2.setDate(d2.getDate() + 4 - day2);
+    const ys = new Date(d2.getFullYear(), 0, 1);
+    yearStats[year].weeks.add(Math.ceil(((d2 - ys) / 86400000 + 1) / 7));
+  });
+  document.getElementById('yearCompTable').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px">
+      <thead><tr style="color:var(--muted)">
+        <th style="padding:4px 8px;text-align:left">År</th>
+        <th style="padding:4px 8px;text-align:right">Total km</th>
+        <th style="padding:4px 8px;text-align:right">Løp</th>
+        <th style="padding:4px 8px;text-align:right">Snitt km/uke</th>
+      </tr></thead>
+      <tbody>${compYears.map((year, i) => {
+        const st = yearStats[year] || {};
+        const totalKm = (st.km || 0).toFixed(1);
+        const avgKm = st.weeks?.size ? (st.km / st.weeks.size).toFixed(1) : '–';
+        return `<tr>
+          <td style="padding:4px 8px;font-weight:600;color:${YEAR_COLORS[i%YEAR_COLORS.length]}">${year}</td>
+          <td style="padding:4px 8px;text-align:right">${totalKm} km</td>
+          <td style="padding:4px 8px;text-align:right">${st.runs || 0}</td>
+          <td style="padding:4px 8px;text-align:right">${avgKm} km</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
 
   renderHeatmap(sessions);
   renderInsights(sessions);
