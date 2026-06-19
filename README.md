@@ -25,9 +25,9 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 - **Tempo vs puls** — scatter plot of avg HR vs pace per session; shows whether pace improves at the same or lower HR; same color coding and filter toggle as Søvn vs puls
 - **RPE over tid** — RPE (1–10) trend over time with 4-session rolling average; filter pills show only session types that have RPE data logged; hidden until at least 2 sessions have RPE data
 - **Interactive charts** — hover any weekly chart for a full week summary (km, løp, tid, tempo, HR); click a bar/point to open a drill-down detail panel for that week; click a shoe bar to open shoe detail; click a heatmap day to open session or week detail
-- **Ute vs inne** — weekly stacked bar splitting km between outdoor (🏃) and treadmill (⚙️); hidden until first treadmill session is logged
+- **Ute vs inne** — stacked bar splitting km between outdoor (🏃) and treadmill (⚙️); Uke/Måned toggle (week = last 26 weeks, month = last 12 months); hidden until first treadmill session is logged
 - **Pulssoner** — stacked minutes per zone per week or month (toggle)
-- **Årssammenligning** — cumulative km by week number, one line per year
+- **Årssammenligning** — cumulative km by week number, one line per year; summary table below the chart shows total km, run count, and avg km per active week per year (color-coded to match chart lines)
 - **Sko oversikt** — total km per shoe pair + per-shoe stats: run count, avg pace, avg HR, last used date
 - **Ukentlig oversikt** — scrollable summary table (sessions, distance, time, avg pace per week)
 
