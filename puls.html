@@ -3069,7 +3069,7 @@ function renderRpeChart(sessions) {
   if (!typesWithRpe.includes(rpeTypeFilter) && rpeTypeFilter !== 'alle') {
     rpeTypeFilter = typesWithRpe[0] || 'alle';
   }
-  const pillTypes = typesWithRpe.length > 1 ? [...typesWithRpe, 'alle'] : typesWithRpe;
+  const pillTypes = typesWithRpe.length > 1 ? ['alle', ...typesWithRpe] : typesWithRpe;
   const pillsEl = document.getElementById('rpePills');
   if (pillsEl) {
     pillsEl.innerHTML = pillTypes.map(t =>
