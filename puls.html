@@ -1139,7 +1139,7 @@ function formatSessionTsv(sessions) {
     const metaParts = [];
     if (s.beskrivelse) metaParts.push(`[Øktbeskrivelse]\n${s.beskrivelse}`);
     if (s.notater) metaParts.push(s.notater);
-    return metaParts.length ? `${hdr}\n${metaParts.join('\n\n')}\n\n${dataRow}` : `${hdr}\n${dataRow}`;
+    return metaParts.length ? `${hdr}\n\n${metaParts.join('\n\n')}\n\n${dataRow}` : `${hdr}\n${dataRow}`;
   });
   return [HDR, ...blocks].join('\n\n');
 }
