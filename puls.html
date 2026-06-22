@@ -334,7 +334,7 @@
       </div>
       <div class="form-group">
         <label>Treningsplan</label>
-        <select id="fTreningsplan">
+        <select id="fTreningsplan" onchange="document.getElementById('beskrevelseGroup').style.display=this.value==='Runna'?'':'none'">
           <option>Egentrening</option>
           <option selected>Runna</option>
         </select>
@@ -450,8 +450,8 @@
           <option value="10">10 — Maksimalt</option>
         </select>
       </div>
-      <div class="form-group" style="grid-column:1/-1">
-        <label>Øktbeskrivelse <span style="color:var(--muted);font-size:10px">valgfri</span></label>
+      <div class="form-group" id="beskrevelseGroup" style="grid-column:1/-1">
+        <label>Øktbeskrivelse</label>
         <textarea id="fBeskrivelse" rows="4" placeholder="Runna-program, intervalloppsett, øktstruktur…" style="resize:vertical"></textarea>
       </div>
       <div class="form-group" style="grid-column:1/-1">
@@ -1950,6 +1950,7 @@ const Form = {
     document.getElementById('fHoydeMeter').value = !isTM ? (s.hoydeMeter ?? '') : '';
     document.getElementById('fSovn').value = s.sovn ? hoursToHHMM(s.sovn) : '';
     document.getElementById('fRpe').value = s.rpe || '';
+    document.getElementById('beskrevelseGroup').style.display = s.treningsplan === 'Runna' ? '' : 'none';
     document.getElementById('fBeskrivelse').value = s.beskrivelse || '';
     document.getElementById('fNotater').value = s.notater || '';
     this.refreshShoeDropdown(s.sko);
@@ -2020,6 +2021,7 @@ const Form = {
     }
     document.getElementById('fStigning').value = '1';
     document.getElementById('fTreningsplan').value = 'Runna';
+    document.getElementById('beskrevelseGroup').style.display = '';
     document.getElementById('stigningGroup').style.display = lastLopetype === 'treadmill' ? '' : 'none';
     document.getElementById('hoydeMeterGroup').style.display = lastLopetype === 'outdoor' ? '' : 'none';
   }
