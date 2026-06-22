@@ -3260,15 +3260,15 @@ function renderInsights(sessions) {
     }
   }
 
-  // Easy run compliance: % of Easy runs with avg HR inside Zone 2
+  // Easy run compliance: % of Runna Easy runs with avg HR inside Zone 2
   const z2 = (Store.data.settings.zones || [])[1];
-  const easyWithHR = sessions.filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0);
+  const easyWithHR = sessions.filter(s => s.okttype === 'Easy' && s.treningsplan === 'Runna' && s.gjsnittspuls > 0);
   if (easyWithHR.length >= 3 && z2?.min && z2?.max) {
     const inZ2  = easyWithHR.filter(s => s.gjsnittspuls >= z2.min && s.gjsnittspuls <= z2.max).length;
     const pct   = Math.round(inZ2 / easyWithHR.length * 100);
     const avgHR = Math.round(easyWithHR.reduce((sum, s) => sum + s.gjsnittspuls, 0) / easyWithHR.length);
     const label = pct >= 75 ? 'god kontroll' : pct >= 50 ? 'litt høy' : 'ofte for høy';
-    candidates.push({ icon:'🫀', val:`${pct}% Easy i sone 2`, sub:`${inZ2} av ${easyWithHR.length} Easy-løp · snitt ${avgHR} bpm · ${label}`, priority: pct < 50 ? 3 : 2 });
+    candidates.push({ icon:'🫀', val:`${pct}% Easy i sone 2`, sub:`${inZ2} av ${easyWithHR.length} Runna Easy-løp · snitt ${avgHR} bpm · ${label}`, priority: pct < 50 ? 3 : 2 });
   }
 
   // Days since last run (show if >= 10 days)
