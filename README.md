@@ -6,7 +6,8 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 
 ### Logging
 - Log runs with date, session type (Easy / Steady / Long / Tempo / Intervaller / Test / **Race**), training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline % (treadmill) or **elevation gain in metres** (outdoor), shoe, sleep, **RPE (1–10)**, **run type** (outdoor / treadmill), **workout description** (only shown when Treningsplan = Runna — paste Runna programs or interval structures; appears above notes in the form and as `[Øktbeskrivelse]` in AI exports), and **notes** (free-text post-run context for AI analysis)
-- Auto-calculated fields: duration (summed from zones), pace, avg km/h
+- Auto-calculated fields: duration (summed from zones), pace, avg km/h — check **Uten pulsdata** in the Pulssoner header to hide zones and enter duration manually (e.g. when running without a watch)
+- After saving a new session, the app jumps to the session log automatically
 - Edit any past session by clicking it in the log
 
 ### Dashboard (Oversikt)
