@@ -353,7 +353,7 @@
     <div class="form-section-title">Ytelse</div>
     <div class="form-grid form-grid-4">
       <div class="form-group">
-        <label>Varighet (tt:mm:ss) <span style="color:var(--accent);font-size:10px">auto fra soner</span></label>
+        <label>Varighet (tt:mm:ss) <span id="varighetHint" style="color:var(--accent);font-size:10px">auto fra soner</span></label>
         <input type="text" id="fVarighet" placeholder="–" class="time-input" readonly>
       </div>
       <div class="form-group">
@@ -372,8 +372,13 @@
   </div>
 
   <div class="form-section">
-    <div class="form-section-title">Pulssoner (tt:mm:ss per sone)</div>
-    <div class="zone-grid">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="form-section-title" style="margin-bottom:0">Pulssoner (tt:mm:ss per sone)</div>
+      <label style="font-size:12px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="fUtenPuls" onchange="Form.togglePulsdata()"> Uten pulsdata
+      </label>
+    </div>
+    <div class="zone-grid" id="sonerGrid">
       <div class="form-group">
         <label style="color:var(--zone1)">Sone 1</label>
         <input type="text" id="fSone1" placeholder="0:00:00" class="time-input">
@@ -1848,7 +1853,18 @@ const Form = {
     document.getElementById('fDistanse').addEventListener('input', () => this.autoCalcPace());
   },
 
+  togglePulsdata() {
+    const manual = document.getElementById('fUtenPuls').checked;
+    document.getElementById('sonerGrid').style.display = manual ? 'none' : '';
+    const fVar = document.getElementById('fVarighet');
+    fVar.readOnly = !manual;
+    fVar.placeholder = manual ? '0:00:00' : '–';
+    document.getElementById('varighetHint').textContent = manual ? 'manuell' : 'auto fra soner';
+    if (!manual) { fVar.value = ''; this.autoCalcVarighet(); }
+  },
+
   autoCalcVarighet() {
+    if (document.getElementById('fUtenPuls').checked) return;
     const zones = ['fSone1','fSone2','fSone3','fSone4','fSone5'];
     const total = zones.reduce((sum, id) => sum + hmsToSecs(document.getElementById(id).value), 0);
     if (total > 0) {
@@ -1933,6 +1949,9 @@ const Form = {
     document.getElementById('fDistanse').value = s.distanse || '';
     document.getElementById('fGjpuls').value = s.gjsnittspuls || '';
     document.getElementById('fToppuls').value = s.toppuls || '';
+    const hasZones = s.soner?.some(z => z > 0);
+    document.getElementById('fUtenPuls').checked = !hasZones;
+    this.togglePulsdata();
     document.getElementById('fSone1').value = secsToHms(s.soner?.[0]);
     document.getElementById('fSone2').value = secsToHms(s.soner?.[1]);
     document.getElementById('fSone3').value = secsToHms(s.soner?.[2]);
@@ -1992,11 +2011,13 @@ const Form = {
       showMsg('Økt oppdatert!');
     } else {
       Store.addSession(s);
-      // Remember shoe and date for next entry
       const sko = s.sko;
       this.clear();
       this.refreshShoeDropdown(sko);
       showMsg('Økt lagret!');
+      refreshAll();
+      switchTab('log');
+      return;
     }
     refreshAll();
   },
@@ -2020,6 +2041,8 @@ const Form = {
       document.getElementById('fOkttype').value = Object.entries(freq).sort((a,b) => b[1]-a[1])[0][0];
     }
     document.getElementById('fStigning').value = '1';
+    document.getElementById('fUtenPuls').checked = false;
+    this.togglePulsdata();
     document.getElementById('fTreningsplan').value = 'Runna';
     document.getElementById('beskrevelseGroup').style.display = '';
     document.getElementById('stigningGroup').style.display = lastLopetype === 'treadmill' ? '' : 'none';
