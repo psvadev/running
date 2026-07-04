@@ -1,0 +1,6 @@
+name = "puls-strava-auth"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+# STRAVA_CLIENT_SECRET is NOT set here. Set it after first deploy with:
+#   npx wrangler secret put STRAVA_CLIENT_SECRET

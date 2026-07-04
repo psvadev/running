@@ -287,6 +287,7 @@
   <button class="btn-secondary btn-sm" id="btnHeaderSave" style="margin-left:12px">💾 Lagre</button>
   <span id="syncStatus" style="font-size:12px;color:var(--muted);margin-left:16px"><span class="sync-dot" id="syncDot"></span><span id="syncText">Klar</span></span>
   <span id="driveIndicator" style="font-size:11px;color:var(--muted);margin-left:10px" title="Google Drive ikke koblet til">☁ Drive</span>
+  <span id="stravaIndicator" style="font-size:11px;color:var(--muted);margin-left:10px" title="Strava ikke koblet til">🏃 Strava</span>
   <input type="file" id="fileInput" accept=".json" style="display:none">
 </header>
 
@@ -303,6 +304,13 @@
   <div class="edit-banner hidden" id="editBanner">
     ✏️ Redigerer økt — <strong id="editLabel"></strong>
     <button class="btn-secondary btn-sm" id="btnCancelEdit">Avbryt</button>
+  </div>
+
+  <div class="form-section" id="stravaFetchSection" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="form-section-title" style="margin-bottom:0">Strava</div>
+      <button class="btn-secondary btn-sm" id="btnFetchStrava">📥 Hent fra Strava</button>
+    </div>
   </div>
 
   <div class="form-section">
@@ -971,6 +979,20 @@
       <div id="driveStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
       <button class="btn-secondary btn-sm" id="driveSignInBtn">Koble til Google Drive</button>
     </div>
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Strava</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Hent inn distanse, tid og puls fra Strava når du logger en økt.</p>
+      <div style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Client ID</label>
+        <input type="text" id="stravaClientId" placeholder="Fra Strava API-innstillinger" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Worker URL</label>
+        <input type="text" id="stravaWorkerUrl" placeholder="https://xxx.workers.dev" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+      </div>
+      <div id="stravaStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+      <button class="btn-secondary btn-sm" id="stravaConnectBtn">Koble til Strava</button>
+    </div>
   </div>
 
 </div>
@@ -1007,6 +1029,17 @@
       <button class="btn-secondary btn-sm" id="btnDetailClose">✕</button>
     </div>
     <div class="modal-body" id="detailBody" style="padding-top:14px"></div>
+  </div>
+</div>
+
+<!-- ══════════════ STRAVA ACTIVITY PICKER ══════════════ -->
+<div class="modal-backdrop" id="stravaModal">
+  <div class="modal" style="max-width:600px">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <h2 style="font-size:15px;font-weight:600">Velg Strava-aktivitet</h2>
+      <button class="btn-secondary btn-sm" id="btnStravaModalClose">✕</button>
+    </div>
+    <div class="modal-body" id="stravaActivityList" style="padding-top:14px"></div>
   </div>
 </div>
 
@@ -1746,7 +1779,8 @@ const DriveIO = (() => {
       redirect_uri: redirectUri,
       response_type: 'code', scope: SCOPES,
       code_challenge: challenge, code_challenge_method: 'S256',
-      access_type: 'offline', prompt: 'consent'
+      access_type: 'offline', prompt: 'consent',
+      state: 'drive'
     });
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   }
@@ -1932,6 +1966,166 @@ const DriveIO = (() => {
   return { init, connect, disconnect, load, save, isSignedIn, handleCallback, _afterConnect, _onSyncOk, _onSyncError };
 })();
 
+const StravaIO = (() => {
+  const _clientId  = () => localStorage.getItem('pulsStravaClientId') || '';
+  const _workerUrl = () => (localStorage.getItem('pulsStravaWorkerUrl') || '').replace(/\/$/, '');
+  const _getStoredToken = () => { try { return JSON.parse(localStorage.getItem('pulsStravaToken') || 'null'); } catch { return null; } };
+  const _saveStoredToken = t => localStorage.setItem('pulsStravaToken', JSON.stringify(t));
+
+  function isSignedIn() { return !!_getStoredToken()?.refresh_token; }
+
+  function _tokenFromResponse(d, fallbackRefreshToken) {
+    return {
+      access_token: d.access_token,
+      refresh_token: d.refresh_token || fallbackRefreshToken,
+      expires_at: d.expires_at ? d.expires_at * 1000 : Date.now() + (d.expires_in || 21600) * 1000
+    };
+  }
+
+  async function _validToken() {
+    const t = _getStoredToken();
+    if (!t) return null;
+    if (Date.now() < t.expires_at - 60000) return t.access_token;
+    if (!t.refresh_token) return null;
+    let res;
+    try {
+      res = await fetch(`${_workerUrl()}/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: _clientId(), refresh_token: t.refresh_token })
+      });
+    } catch {
+      return null; // Worker unreachable — transient, don't clear the stored token
+    }
+    const d = await res.json().catch(() => ({}));
+    if (d.access_token) {
+      const fresh = _tokenFromResponse(d, t.refresh_token);
+      _saveStoredToken(fresh);
+      return fresh.access_token;
+    }
+    // Strava rejected the refresh (revoked/expired) — clear so the UI prompts reconnect
+    _saveStoredToken(null);
+    _updateBtn();
+    return null;
+  }
+
+  function connect() {
+    if (!_clientId()) { alert('Legg inn Client ID i innstillingene først.'); return; }
+    if (!_workerUrl()) { alert('Legg inn Worker URL i innstillingene først.'); return; }
+    const redirectUri = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams({
+      client_id: _clientId(),
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'activity:read_all',
+      approval_prompt: 'auto',
+      state: 'strava'
+    });
+    window.location.href = `https://www.strava.com/oauth/authorize?${params}`;
+  }
+
+  async function handleCallback(code) {
+    try {
+      const res = await fetch(`${_workerUrl()}/exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: _clientId(), code })
+      });
+      const d = await res.json();
+      if (d.access_token) {
+        _saveStoredToken(_tokenFromResponse(d));
+        localStorage.setItem('pulsStravaConnected', '1');
+        return true;
+      }
+      console.error('Strava token exchange failed', d);
+      return false;
+    } catch (e) {
+      console.error('Strava token exchange failed', e);
+      return false;
+    }
+  }
+
+  function disconnect() {
+    const t = _getStoredToken();
+    if (t?.access_token) fetch(`https://www.strava.com/oauth/deauthorize?access_token=${t.access_token}`, { method: 'POST' }).catch(() => {});
+    localStorage.removeItem('pulsStravaToken');
+    localStorage.removeItem('pulsStravaConnected');
+    _setStatus('');
+    _updateBtn();
+  }
+
+  function init() {
+    _updateBtn();
+    if (isSignedIn()) {
+      _setStatus('✓ Koblet til Strava');
+    } else if (localStorage.getItem('pulsStravaConnected')) {
+      _setStatus('Klikk for å koble til på nytt');
+    }
+  }
+
+  async function fetchActivities(perPage = 10) {
+    const token = await _validToken();
+    if (!token) return null;
+    try {
+      const res = await fetch(`https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.status === 429) { showToast('Strava-grense nådd — prøv igjen senere', 'error'); return null; }
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function fetchZones(activityId) {
+    const token = await _validToken();
+    if (!token) return null;
+    try {
+      const res = await fetch(`https://www.strava.com/api/v3/activities/${activityId}/zones`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) return null;
+      const zones = await res.json();
+      return zones.find(z => z.type === 'heartrate')?.distribution_buckets || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function _setStatus(msg) {
+    const el = document.getElementById('stravaStatus');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = msg.startsWith('✓') ? 'var(--green)' : 'var(--muted)';
+  }
+
+  function _updateBtn() {
+    const wasConnected = !!localStorage.getItem('pulsStravaConnected');
+    const btn = document.getElementById('stravaConnectBtn');
+    if (btn) {
+      btn.textContent = isSignedIn() ? 'Koble fra Strava' : wasConnected ? 'Koble til Strava på nytt' : 'Koble til Strava';
+      btn.onclick = isSignedIn() ? disconnect : connect;
+    }
+    const ind = document.getElementById('stravaIndicator');
+    if (ind) {
+      if (isSignedIn()) {
+        ind.style.color = 'var(--green)'; ind.title = 'Strava koblet til';
+        ind.style.cursor = ''; ind.onclick = null;
+      } else if (wasConnected) {
+        ind.style.color = 'rgba(240,192,80,.9)'; ind.title = 'Strava frakoblet — klikk for å koble til på nytt';
+        ind.style.cursor = 'pointer'; ind.onclick = () => switchTab('settings');
+      } else {
+        ind.style.color = 'var(--muted)'; ind.title = 'Strava ikke koblet til';
+        ind.style.cursor = ''; ind.onclick = null;
+      }
+    }
+    updateStravaFetchVisibility();
+  }
+
+  return { init, connect, disconnect, isSignedIn, handleCallback, fetchActivities, fetchZones };
+})();
+
 // ═══════════════════════════════════════════════════════
 // FORM
 // ═══════════════════════════════════════════════════════
@@ -2113,6 +2307,7 @@ const Form = {
     const s = Store.data.sessions.find(x => x.id === id);
     if (!s) return;
     this.editId = id;
+    updateStravaFetchVisibility();
     this.returnTab = document.querySelector('.panel.active')?.id?.replace('panel-', '') || null;
     this.populate(s);
     document.getElementById('editBanner').classList.remove('hidden');
@@ -2183,6 +2378,7 @@ const Form = {
     document.getElementById('hoydeMeterGroup').style.display = lastLopetype === 'outdoor' ? '' : 'none';
     this.lastAutoOktnavn = '';
     this.maybeAutoName();
+    updateStravaFetchVisibility();
   }
 };
 
@@ -4968,6 +5164,113 @@ const Import = {
   }
 };
 
+function updateStravaFetchVisibility() {
+  const el = document.getElementById('stravaFetchSection');
+  if (el) el.style.display = (StravaIO.isSignedIn() && !Form.editId) ? '' : 'none';
+}
+
+const StravaImport = {
+  activities: [],
+
+  init() {
+    document.getElementById('btnFetchStrava').addEventListener('click', () => this.open());
+    document.getElementById('btnStravaModalClose').addEventListener('click', () => this.close());
+  },
+
+  async open() {
+    document.getElementById('stravaModal').classList.add('open');
+    document.getElementById('stravaActivityList').innerHTML = '<p style="color:var(--muted)">Henter aktiviteter…</p>';
+    try {
+      const acts = await StravaIO.fetchActivities(10);
+      if (!acts) { this._showError('Kunne ikke hente aktiviteter — sjekk tilkobling i Innstillinger.'); return; }
+      this.activities = acts.filter(a => a.type === 'Run' || a.sport_type === 'Run');
+      if (!this.activities.length) { this._showError('Fant ingen nylige løpeøkter på Strava.'); return; }
+      this._render();
+    } catch (e) {
+      this._showError('Noe gikk galt: ' + (e.message || 'ukjent feil'));
+    }
+  },
+
+  close() {
+    document.getElementById('stravaModal').classList.remove('open');
+  },
+
+  _render() {
+    document.getElementById('stravaActivityList').innerHTML = this.activities.map((a, i) => `
+      <div class="dp-session-row" onclick="StravaImport.select(${i})">
+        <span style="min-width:80px;color:var(--muted)">${fmtDate(a.start_date_local)}</span>
+        <span style="flex:1">${a.name}</span>
+        <span style="min-width:60px;text-align:right">${(a.distance/1000).toFixed(1)} km</span>
+      </div>`).join('');
+  },
+
+  async select(idx) {
+    const a = this.activities[idx];
+    this.close();
+    await this._populate(a);
+  },
+
+  async _populate(a) {
+    try {
+      document.getElementById('fDistanse').value = (a.distance / 1000).toFixed(2);
+
+      // Løpetype first — dispatching 'change' reuses the existing inline handler that
+      // shows/hides stigningGroup/hoydeMeterGroup and clears the other, so this must
+      // happen before elevation/stigning are set below or they'd get wiped.
+      document.getElementById('fLopetype').value = a.trainer ? 'treadmill' : 'utendors';
+      document.getElementById('fLopetype').dispatchEvent(new Event('change'));
+
+      if (a.has_heartrate) {
+        document.getElementById('fUtenPuls').checked = false;
+        Form.togglePulsdata();
+        document.getElementById('fGjpuls').value = a.average_heartrate ? Math.round(a.average_heartrate) : '';
+        document.getElementById('fToppuls').value = a.max_heartrate ? Math.round(a.max_heartrate) : '';
+        const buckets = await StravaIO.fetchZones(a.id);
+        if (buckets) {
+          ['fSone1','fSone2','fSone3','fSone4','fSone5'].forEach((id, i) => {
+            document.getElementById(id).value = secsToHms(buckets[i]?.time || 0);
+          });
+        } else {
+          this._setNoHrState();
+        }
+      } else {
+        this._setNoHrState();
+      }
+
+      // Set last so it reflects Strava's own moving time, not a zone-bucket resum
+      document.getElementById('fVarighet').value = secsToHms(a.moving_time);
+
+      if (a.average_speed) {
+        const kmh = a.average_speed * 3.6;
+        document.getElementById('fSnittkmh').value = kmh.toFixed(2);
+        document.getElementById('fTempo').value = secsToMmSs(Math.round(3600 / kmh));
+      } else if (a.distance && a.moving_time) {
+        const kmh = (a.distance / 1000) / (a.moving_time / 3600);
+        document.getElementById('fSnittkmh').value = kmh.toFixed(2);
+        document.getElementById('fTempo').value = secsToMmSs(Math.round(a.moving_time / (a.distance / 1000)));
+      }
+
+      if (!a.trainer && a.total_elevation_gain) {
+        document.getElementById('fHoydeMeter').value = Math.round(a.total_elevation_gain);
+      }
+    } catch (e) {
+      console.error('Strava field population failed', e);
+      showToast('Noe gikk galt under utfylling — sjekk feltene manuelt', 'error');
+    }
+  },
+
+  _setNoHrState() {
+    document.getElementById('fUtenPuls').checked = true;
+    Form.togglePulsdata();
+    document.getElementById('fGjpuls').value = '';
+    document.getElementById('fToppuls').value = '';
+  },
+
+  _showError(msg) {
+    document.getElementById('stravaActivityList').innerHTML = `<p style="color:#e74c3c">${msg}</p>`;
+  }
+};
+
 // ═══════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════
@@ -5705,6 +6008,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Init form, import & settings
   Form.init();
   Import.init();
+  StravaImport.init();
   Settings.init();
   CustomLists.refreshDropdowns();
 
@@ -5760,16 +6064,41 @@ document.addEventListener('DOMContentLoaded', () => {
     _driveSecretEl.addEventListener('change', () => localStorage.setItem('pulsDriveSecret', _driveSecretEl.value.trim()));
   }
 
-  // Handle OAuth redirect callback (?code=...) — strip all query params on entry
-  const _oauthCode = new URLSearchParams(window.location.search).get('code');
+  // Strava Client ID + Worker URL fields — persist to localStorage
+  const _stravaClientIdEl = document.getElementById('stravaClientId');
+  if (_stravaClientIdEl) {
+    _stravaClientIdEl.value = localStorage.getItem('pulsStravaClientId') || '';
+    _stravaClientIdEl.addEventListener('change', () => localStorage.setItem('pulsStravaClientId', _stravaClientIdEl.value.trim()));
+  }
+  const _stravaWorkerUrlEl = document.getElementById('stravaWorkerUrl');
+  if (_stravaWorkerUrlEl) {
+    _stravaWorkerUrlEl.value = localStorage.getItem('pulsStravaWorkerUrl') || '';
+    _stravaWorkerUrlEl.addEventListener('change', () => localStorage.setItem('pulsStravaWorkerUrl', _stravaWorkerUrlEl.value.trim()));
+  }
+
+  // Handle OAuth redirect callback (?code=...) — strip all query params on entry.
+  // `state` disambiguates which provider (Drive or Strava) the code belongs to,
+  // since both redirect back to this same page. Missing/unrecognized state falls
+  // back to Drive for backward compatibility with any pre-existing in-flight redirect.
+  const _oauthParams = new URLSearchParams(window.location.search);
+  const _oauthCode = _oauthParams.get('code');
+  const _oauthState = _oauthParams.get('state');
   if (window.location.search) window.history.replaceState({}, '', window.location.pathname);
-  if (_oauthCode) {
+  if (_oauthCode && _oauthState === 'strava') {
+    StravaIO.handleCallback(_oauthCode).then(ok => {
+      StravaIO.init();
+      if (ok) showToast('Strava koblet til', 'success');
+    });
+    DriveIO.init();
+  } else if (_oauthCode) {
     DriveIO.handleCallback(_oauthCode).then(async ok => {
       if (ok) await DriveIO._afterConnect();
       else DriveIO.init();
     });
+    StravaIO.init();
   } else {
     DriveIO.init();
+    StravaIO.init();
   }
 });
 </script>
