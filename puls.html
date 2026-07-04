@@ -334,7 +334,7 @@
       </div>
       <div class="form-group">
         <label>Treningsplan</label>
-        <select id="fTreningsplan" onchange="document.getElementById('beskrevelseGroup').style.display=this.value==='Runna'?'':'none'">
+        <select id="fTreningsplan">
           <option>Egentrening</option>
           <option selected>Runna</option>
         </select>
@@ -358,15 +358,15 @@
       </div>
       <div class="form-group">
         <label>Distanse (km)</label>
-        <input type="number" id="fDistanse" step="0.01" min="0" placeholder="6.50">
+        <input type="number" id="fDistanse" step="0.01" min="0" placeholder="6.50" inputmode="decimal">
       </div>
       <div class="form-group">
         <label>Gj.snittspuls</label>
-        <input type="number" id="fGjpuls" min="0" max="250" placeholder="145">
+        <input type="number" id="fGjpuls" min="0" max="250" placeholder="145" inputmode="numeric">
       </div>
       <div class="form-group">
         <label>Toppuls</label>
-        <input type="number" id="fToppuls" min="0" max="250" placeholder="170">
+        <input type="number" id="fToppuls" min="0" max="250" placeholder="170" inputmode="numeric">
       </div>
     </div>
   </div>
@@ -406,11 +406,11 @@
     <div class="form-grid form-grid-4">
       <div class="form-group">
         <label>Kalorier</label>
-        <input type="number" id="fKalorier" min="0" placeholder="500">
+        <input type="number" id="fKalorier" min="0" placeholder="500" inputmode="numeric">
       </div>
       <div class="form-group">
         <label>Mål distanse (km)</label>
-        <input type="number" id="fMalDistanse" min="0" step="0.01" placeholder="–">
+        <input type="number" id="fMalDistanse" min="0" step="0.01" placeholder="–" inputmode="decimal">
       </div>
       <div class="form-group">
         <label>Tempo (mm:ss /km) <span style="color:var(--accent);font-size:10px">auto</span></label>
@@ -422,11 +422,11 @@
       </div>
       <div class="form-group" id="stigningGroup">
         <label>Stigning (%)</label>
-        <input type="number" id="fStigning" step="0.5" min="0" max="20" placeholder="1.0">
+        <input type="number" id="fStigning" step="0.5" min="0" max="20" placeholder="1.0" inputmode="decimal">
       </div>
       <div class="form-group" id="hoydeMeterGroup" style="display:none">
         <label>Høydemeter (m)</label>
-        <input type="number" id="fHoydeMeter" step="1" min="0" placeholder="250">
+        <input type="number" id="fHoydeMeter" step="1" min="0" placeholder="250" inputmode="numeric">
       </div>
       <div class="form-group" id="shoeGroup">
         <label>Sko</label>
@@ -914,6 +914,28 @@
     <span id="consistencyMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
   </div>
 
+  <!-- Økttyper -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Økttyper</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">De 7 standard øktypene dekker de fleste løpeøkter og kan ikke fjernes. Legg til egne typer her, f.eks. Bakkeløp, Terrengløp eller Fartlek.</p>
+    <div id="customOkttypeList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="newCustomOkttype" placeholder="Ny økttype (f.eks. Bakkeløp)" style="flex:1;min-width:200px;max-width:340px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <button class="btn-primary btn-sm" id="btnAddCustomOkttype">+ Legg til</button>
+    </div>
+  </div>
+
+  <!-- Treningsplan -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Treningsplan</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Runna og Egentrening er standard og kan ikke fjernes. Legg til egne planer her hvis du følger andre opplegg.</p>
+    <div id="customPlanList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="newCustomPlan" placeholder="Ny treningsplan" style="flex:1;min-width:200px;max-width:340px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <button class="btn-primary btn-sm" id="btnAddCustomPlan">+ Legg til</button>
+    </div>
+  </div>
+
   <!-- Datafil -->
   <div class="card">
     <div class="card-title">Datafil</div>
@@ -1142,6 +1164,7 @@ function formatSessionTsv(sessions) {
     const distLabel = s.distanse ? ` | ${parseFloat(s.distanse.toFixed(2)).toString()} km` : '';
     const hdr = `=== ${s.dato}${s.oktnavn ? ` | ${s.oktnavn}` : ''}${distLabel} ===`;
     const metaParts = [];
+    if (!(s.soner?.some(z => z > 0))) metaParts.push('[Uten pulsdata]');
     if (s.beskrivelse) metaParts.push(`[Øktbeskrivelse]\n${s.beskrivelse}`);
     if (s.notater) metaParts.push(s.notater);
     return metaParts.length ? `${hdr}\n\n${metaParts.join('\n\n')}\n\n${dataRow}` : `${hdr}\n${dataRow}`;
@@ -1195,7 +1218,7 @@ function parseSovn(val) {
 // DATA STORE
 // ═══════════════════════════════════════════════════════
 const Store = {
-  data: { sessions: [], shoes: [], goals: {}, events: [], consistencySettings: { kmThreshold: 15, runThreshold: 2 }, lastUpdated: null },
+  data: { sessions: [], shoes: [], goals: {}, events: [], consistencySettings: { kmThreshold: 15, runThreshold: 2 }, customSessionTypes: [], customPlans: [], lastUpdated: null },
 
   load(json) {
     try {
@@ -1213,6 +1236,8 @@ const Store = {
     if (!this.data.goals) this.data.goals = {};
     if (!this.data.events) this.data.events = [];
     if (!this.data.bestEfforts) this.data.bestEfforts = {};
+    if (!this.data.customSessionTypes) this.data.customSessionTypes = [];
+    if (!this.data.customPlans) this.data.customPlans = [];
     // Migrate shoes from string array to object array
     if (this.data.shoes.length && typeof this.data.shoes[0] === 'string') {
       this.data.shoes = this.data.shoes.map(s => ({ name: s }));
@@ -1299,6 +1324,91 @@ const Store = {
     FileIO.save();
     return added;
   }
+};
+
+// ═══════════════════════════════════════════════════════
+// CUSTOM ØKTTYPE / TRENINGSPLAN LISTS
+// ═══════════════════════════════════════════════════════
+const CORE_OKTTYPER = ['Easy','Steady','Long','Tempo','Intervaller','Test','Race'];
+const CORE_PLANER   = ['Egentrening','Runna'];
+
+function refreshCustomOptionSelects(selectIds, values) {
+  selectIds.forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const prev = sel.value;
+    sel.querySelectorAll('option[data-custom]').forEach(o => o.remove());
+    values.forEach(v => {
+      const opt = document.createElement('option');
+      opt.textContent = v;
+      opt.dataset.custom = '1';
+      sel.appendChild(opt);
+    });
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  });
+}
+
+const CustomLists = {
+  _cfg: {
+    okttype: { storeKey: 'customSessionTypes', core: CORE_OKTTYPER, selects: ['fOkttype','dfType','fFilterType'], listId: 'customOkttypeList', inputId: 'newCustomOkttype' },
+    plan:    { storeKey: 'customPlans', core: CORE_PLANER, selects: ['fTreningsplan','dfPlan','fFilterPlan'], listId: 'customPlanList', inputId: 'newCustomPlan' },
+  },
+
+  add(kind) {
+    const cfg = this._cfg[kind];
+    const input = document.getElementById(cfg.inputId);
+    const name = input.value.trim();
+    if (!name) return;
+    const existing = [...cfg.core, ...Store.data[cfg.storeKey]];
+    if (existing.some(v => v.toLowerCase() === name.toLowerCase())) {
+      alert(`"${name}" finnes allerede.`);
+      return;
+    }
+    Store.data[cfg.storeKey].push(name);
+    FileIO.save();
+    input.value = '';
+    this.renderList(kind);
+    this.refreshDropdowns();
+  },
+
+  delete(kind, name) {
+    const cfg = this._cfg[kind];
+    if (!confirm(`Slette "${name}"?`)) return;
+    Store.data[cfg.storeKey] = Store.data[cfg.storeKey].filter(v => v !== name);
+    FileIO.save();
+    this.renderList(kind);
+    this.refreshDropdowns();
+  },
+
+  renderList(kind) {
+    const cfg = this._cfg[kind];
+    const container = document.getElementById(cfg.listId);
+    if (!container) return;
+    const coreHtml = cfg.core.map(v => `
+      <div style="display:flex;gap:12px;align-items:center">
+        <span style="font-size:13px;flex:1">${v}</span>
+        <span style="font-size:11px;color:var(--muted)">Standard</span>
+      </div>`).join('');
+    const customHtml = (Store.data[cfg.storeKey] || []).map(v => `
+      <div style="display:flex;gap:12px;align-items:center">
+        <span style="font-size:13px;flex:1">${v}</span>
+        <button class="btn-secondary btn-sm" data-del-kind="${kind}" data-del-name="${v.replace(/"/g,'&quot;')}" style="padding:4px 8px">🗑️</button>
+      </div>`).join('');
+    container.innerHTML = coreHtml + customHtml;
+    container.querySelectorAll('[data-del-kind]').forEach(btn => {
+      btn.addEventListener('click', () => this.delete(btn.dataset.delKind, btn.dataset.delName));
+    });
+  },
+
+  renderAll() {
+    this.renderList('okttype');
+    this.renderList('plan');
+  },
+
+  refreshDropdowns() {
+    refreshCustomOptionSelects(this._cfg.okttype.selects, Store.data.customSessionTypes || []);
+    refreshCustomOptionSelects(this._cfg.plan.selects, Store.data.customPlans || []);
+  },
 };
 
 // ═══════════════════════════════════════════════════════
@@ -1422,7 +1532,7 @@ const FileIO = {
   },
 
   openNew() {
-    Store.data = { sessions: [], shoes: [], goals: {}, events: [], lastUpdated: null };
+    Store.data = { sessions: [], shoes: [], goals: {}, events: [], customSessionTypes: [], customPlans: [], lastUpdated: null };
     this.handle = null;
     localStorage.removeItem('lpl_cache');
     localStorage.removeItem('lpl_handle_name');
@@ -1826,6 +1936,7 @@ const DriveIO = (() => {
 const Form = {
   editId: null,
   returnTab: null,
+  lastAutoOktnavn: '',
 
   init() {
     document.getElementById('fDato').valueAsDate = new Date();
@@ -1837,6 +1948,14 @@ const Form = {
     document.getElementById('btnClearForm').addEventListener('click', () => this.clear());
     document.getElementById('btnCancelEdit').addEventListener('click', () => this.cancelEdit());
     document.getElementById('btnAddShoe').addEventListener('click', () => switchTab('plan'));
+
+    // Treningsplan change: toggle Øktbeskrivelse visibility + auto-name
+    document.getElementById('fTreningsplan').addEventListener('change', () => {
+      const plan = document.getElementById('fTreningsplan').value;
+      document.getElementById('beskrevelseGroup').style.display = plan !== 'Egentrening' ? '' : 'none';
+      this.maybeAutoName();
+    });
+    document.getElementById('fOkttype').addEventListener('change', () => this.maybeAutoName());
 
     // Auto-format time inputs on blur, then recalc
     document.querySelectorAll('.time-input').forEach(el => {
@@ -1851,6 +1970,19 @@ const Form = {
 
     // Recalc pace when distance changes
     document.getElementById('fDistanse').addEventListener('input', () => this.autoCalcPace());
+  },
+
+  maybeAutoName() {
+    if (this.editId) return;
+    const type = document.getElementById('fOkttype').value;
+    const plan = document.getElementById('fTreningsplan').value;
+    if (!type || !plan || plan === 'Egentrening') return;
+    const generated = `${plan} ${type}`;
+    const nameEl = document.getElementById('fOktnavn');
+    if (!nameEl.value.trim() || nameEl.value === this.lastAutoOktnavn) {
+      nameEl.value = generated;
+      this.lastAutoOktnavn = generated;
+    }
   },
 
   togglePulsdata() {
@@ -1969,7 +2101,7 @@ const Form = {
     document.getElementById('fHoydeMeter').value = !isTM ? (s.hoydeMeter ?? '') : '';
     document.getElementById('fSovn').value = s.sovn ? hoursToHHMM(s.sovn) : '';
     document.getElementById('fRpe').value = s.rpe || '';
-    document.getElementById('beskrevelseGroup').style.display = s.treningsplan === 'Runna' ? '' : 'none';
+    document.getElementById('beskrevelseGroup').style.display = s.treningsplan !== 'Egentrening' ? '' : 'none';
     document.getElementById('fBeskrivelse').value = s.beskrivelse || '';
     document.getElementById('fNotater').value = s.notater || '';
     this.refreshShoeDropdown(s.sko);
@@ -2044,9 +2176,11 @@ const Form = {
     document.getElementById('fUtenPuls').checked = false;
     this.togglePulsdata();
     document.getElementById('fTreningsplan').value = 'Runna';
-    document.getElementById('beskrevelseGroup').style.display = '';
+    document.getElementById('beskrevelseGroup').style.display = document.getElementById('fTreningsplan').value !== 'Egentrening' ? '' : 'none';
     document.getElementById('stigningGroup').style.display = lastLopetype === 'treadmill' ? '' : 'none';
     document.getElementById('hoydeMeterGroup').style.display = lastLopetype === 'outdoor' ? '' : 'none';
+    this.lastAutoOktnavn = '';
+    this.maybeAutoName();
   }
 };
 
@@ -2115,7 +2249,15 @@ const Log = {
     document.getElementById('logCount').textContent = `Viser ${sessions.length} økt${sessions.length !== 1 ? 'er' : ''}`;
 
     tbody.innerHTML = sessions.map(s => {
-      const badge = `<span class="badge badge-${(s.okttype||'').toLowerCase()}">${s.okttype||'–'}</span>`;
+      let badge;
+      if (CORE_OKTTYPER.includes(s.okttype)) {
+        badge = `<span class="badge badge-${(s.okttype||'').toLowerCase()}">${s.okttype||'–'}</span>`;
+      } else if (s.okttype) {
+        const c = getCustomTypeColor(s.okttype);
+        badge = `<span class="badge" style="background:${c.bg};color:${c.fg}">${s.okttype}</span>`;
+      } else {
+        badge = `<span class="badge">–</span>`;
+      }
       const venueBadge = (s.løpetype || 'utendors') === 'treadmill'
         ? `<span class="badge badge-indoor" title="Tredemølle">⚙️</span>`
         : `<span class="badge badge-outdoor" title="Utendørs">🏃</span>`;
@@ -2194,6 +2336,22 @@ const TYPE_COLORS = {
   Easy:'#4caf87', Steady:'#7aa8f0', Long:'#c07af0',
   Tempo:'#f0c060', Intervaller:'#e05555', Test:'#5bc8f5', Race:'#f5a623'
 };
+
+// Stable color assignment for user-added custom Økttyper (not in TYPE_COLORS/TYPE_HUE)
+const EXTRA_TYPE_PALETTE = [
+  { rgba:'rgba(91,200,245,.85)',  bg:'#12303a', fg:'#5bc8f5' },
+  { rgba:'rgba(192,192,96,.85)',  bg:'#2a2a1a', fg:'#c8c86a' },
+  { rgba:'rgba(122,217,160,.85)', bg:'#1a2a20', fg:'#7ad9a0' },
+  { rgba:'rgba(224,143,224,.85)', bg:'#2a1a2a', fg:'#e08fe0' },
+  { rgba:'rgba(240,160,96,.85)',  bg:'#2a2016', fg:'#f0a060' },
+  { rgba:'rgba(154,160,245,.85)', bg:'#1a1a2e', fg:'#9aa0f5' },
+];
+function hashTypeIndex(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return h % EXTRA_TYPE_PALETTE.length;
+}
+function getCustomTypeColor(name) { return EXTRA_TYPE_PALETTE[hashTypeIndex(name)]; }
 
 function destroyChart(id) {
   if (Charts[id]) { Charts[id].destroy(); delete Charts[id]; }
@@ -2517,7 +2675,7 @@ function renderHeatmap(sessions) {
           if (d2.zones[domZone] > 0) attrs += ` data-zone="${domZone + 1}"`;
         } else if (metric === 'type') {
           const dominant = Object.entries(d2.types).sort((a, b) => b[1] - a[1])[0]?.[0];
-          if (dominant) attrs += ` style="background:${TYPE_HUE[dominant] || 'rgba(160,160,180,.85)'}"`;
+          if (dominant) attrs += ` style="background:${TYPE_HUE[dominant] || getCustomTypeColor(dominant).rgba}"`;
         } else {
           const lv = metric === 'load' ? getLevel(d2.load, loadQ) : getLevel(d2.distance, distQ);
           if (lv > 0) attrs += ` data-level="${lv}"`;
@@ -2536,7 +2694,7 @@ function renderHeatmap(sessions) {
     if (typesPresent.size) {
       html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--muted)">';
       [...typesPresent].sort().forEach(t => {
-        const c = TYPE_HUE[t] || 'rgba(160,160,180,.85)';
+        const c = TYPE_HUE[t] || getCustomTypeColor(t).rgba;
         html += `<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:${c};display:inline-block"></span>${t}</span>`;
       });
       html += '</div>';
@@ -4715,15 +4873,16 @@ const Import = {
         const mapped = headers.map(h => COL_MAP[h] || null);
 
         importParsed = [];
+        let skipBlank = 0, skipNoDate = 0, skipInvalidDist = 0;
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
-          if (row.every(v => v === '' || v == null)) continue;
+          if (row.every(v => v === '' || v == null)) { skipBlank++; continue; }
           const obj = {};
           headers.forEach((_, j) => { if (mapped[j]) obj[mapped[j]] = row[j]; });
 
           // Skip summary rows (no recognizable date)
           const dato = parseExcelDate(obj.dato);
-          if (!dato || dato.length < 8) continue;
+          if (!dato || dato.length < 8) { skipNoDate++; continue; }
 
           const s = {
             id: genId(),
@@ -4751,16 +4910,32 @@ const Import = {
             sko: String(obj.sko||'').trim(),
             sovn: parseSovn(obj.sovn),
           };
-          if (s.distanse > 0) importParsed.push(s);
+          if (s.distanse > 0) importParsed.push(s); else skipInvalidDist++;
         }
 
+        // Preview-time duplicate dry-run (mirrors Store.mergeSessions' match rule,
+        // including same-batch duplicates via the growing dryRun array)
+        const dryRun = [...Store.data.sessions];
+        importParsed.forEach(s => {
+          s._dup = dryRun.some(x => x.dato === s.dato &&
+            Math.abs(x.distanse - s.distanse) < 0.05 && Math.abs(x.varighet - s.varighet) < 30);
+          if (!s._dup) dryRun.push(s);
+        });
+        const dupCount = importParsed.filter(s => s._dup).length;
+
         // Preview
-        document.getElementById('importSummary').textContent =
-          `Fant ${importParsed.length} gyldige rader i "${file.name}". Forhåndsvisning (maks 10):`;
+        const skipParts = [];
+        if (skipBlank) skipParts.push(`${skipBlank} tomme`);
+        if (skipNoDate) skipParts.push(`${skipNoDate} uten dato`);
+        if (skipInvalidDist) skipParts.push(`${skipInvalidDist} uten distanse`);
+        const skipText = skipParts.length ? ` · ${skipParts.join(', ')} hoppet over` : '';
+        const dupText = dupCount ? ` · ${dupCount} mulig${dupCount === 1 ? '' : 'e'} duplikat${dupCount === 1 ? '' : 'er'}` : '';
+        document.getElementById('importSummary').innerHTML =
+          `Fant ${importParsed.length} gyldige rader i "${file.name}"${skipText}${dupText}. Forhåndsvisning (maks 10):`;
         const headRow = document.getElementById('importPreviewHead');
-        headRow.innerHTML = '<th>Dato</th><th>Type</th><th>Navn</th><th>Distanse</th><th>Varighet</th><th>Sko</th>';
+        headRow.innerHTML = '<th>Dato</th><th>Type</th><th>Navn</th><th>Distanse</th><th>Varighet</th><th>Sko</th><th>Duplikat?</th>';
         document.getElementById('importPreviewBody').innerHTML = importParsed.slice(0,10).map(s =>
-          `<tr><td>${fmtDate(s.dato)}</td><td>${s.okttype}</td><td>${s.oktnavn}</td><td>${fmtDist(s.distanse)} km</td><td>${secsToHms(s.varighet)}</td><td>${s.sko}</td></tr>`
+          `<tr><td>${fmtDate(s.dato)}</td><td>${s.okttype}</td><td>${s.oktnavn}</td><td>${fmtDist(s.distanse)} km</td><td>${secsToHms(s.varighet)}</td><td>${s.sko}</td><td>${s._dup ? '⚠️ Mulig duplikat' : ''}</td></tr>`
         ).join('');
         document.getElementById('importPreviewWrap').style.display = '';
         document.getElementById('btnImportConfirm').disabled = importParsed.length === 0;
@@ -4777,11 +4952,17 @@ const Import = {
   },
 
   confirm() {
-    const added = Store.mergeSessions(importParsed);
+    const totalParsed = importParsed.length;
+    const clean = importParsed.map(({ _dup, ...s }) => s);
+    const added = Store.mergeSessions(clean);
     this.close();
     refreshAll();
     Form.refreshShoeDropdown();
-    alert(`Import fullført! ${added} nye økter lagt til.`);
+    const skippedAsDup = totalParsed - added;
+    const msg = skippedAsDup > 0
+      ? `Import fullført: ${added} nye økter lagt til, ${skippedAsDup} hoppet over som duplikat.`
+      : `Import fullført: ${added} nye økter lagt til.`;
+    showToast(msg, 'success', 7000);
   }
 };
 
@@ -4815,6 +4996,12 @@ const Settings = {
     // Treningsrytme thresholds
     document.getElementById('btnSaveConsistency').addEventListener('click', () => this.saveConsistency());
 
+    // Custom økttyper / treningsplan
+    document.getElementById('btnAddCustomOkttype').addEventListener('click', () => CustomLists.add('okttype'));
+    document.getElementById('newCustomOkttype').addEventListener('keydown', e => { if (e.key === 'Enter') CustomLists.add('okttype'); });
+    document.getElementById('btnAddCustomPlan').addEventListener('click', () => CustomLists.add('plan'));
+    document.getElementById('newCustomPlan').addEventListener('keydown', e => { if (e.key === 'Enter') CustomLists.add('plan'); });
+
     // File controls
     document.getElementById('btnOpen').addEventListener('click', async () => {
       const ok = await FileIO.open();
@@ -4838,6 +5025,7 @@ const Settings = {
   render() {
     this.renderGoalList();
     this.renderShoeList();
+    CustomLists.renderAll();
     this.renderZoneEditor();
     this.loadProfileFields();
     this.loadConsistencyFields();
@@ -5273,6 +5461,7 @@ function switchTab(name, skipHistory = false) {
 function refreshAll() {
   Log.render();
   Form.refreshShoeDropdown();
+  CustomLists.refreshDropdowns();
   if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
   if (document.getElementById('panel-plan').classList.contains('active') ||
       document.getElementById('panel-settings').classList.contains('active')) Settings.render();
@@ -5515,6 +5704,7 @@ document.addEventListener('DOMContentLoaded', () => {
   Form.init();
   Import.init();
   Settings.init();
+  CustomLists.refreshDropdowns();
 
   // DetailPanel close
   document.getElementById('btnDetailClose').addEventListener('click', () => DetailPanel.close());
