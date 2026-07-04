@@ -307,7 +307,7 @@
 
   <div class="form-section">
     <div class="form-section-title">Øktinfo</div>
-    <div class="form-grid">
+    <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:420px">
       <div class="form-group">
         <label>Dato</label>
         <input type="date" id="fDato" style="max-width:200px">
@@ -316,6 +316,8 @@
         <label>Uke (auto)</label>
         <input type="text" id="fUke" readonly style="opacity:.6">
       </div>
+    </div>
+    <div class="form-grid form-grid-4" style="margin-top:14px">
       <div class="form-group">
         <label>Økt-type</label>
         <select id="fOkttype">
