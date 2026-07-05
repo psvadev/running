@@ -5904,10 +5904,13 @@ const Settings = {
     if (data.error === 401 || data.error === 403) { setMsg('Koble til Strava på nytt for å gi tilgang til pulssoner', false); return; }
     const zones = data.heart_rate?.zones;
     if (!zones || !zones.length) { setMsg('Ingen pulssoner funnet på Strava', false); return; }
+    const maxHR = parseInt(document.getElementById('sMaxHR').value) || '';
     zones.forEach((z, i) => {
       if (i > 4) return;
       document.getElementById(`zMin${i}`).value = z.min;
-      document.getElementById(`zMax${i}`).value = z.max;
+      // Strava's top zone has no real ceiling and uses max: -1 to mean "unbounded" —
+      // fall back to the athlete's configured max HR so the field shows a real number.
+      document.getElementById(`zMax${i}`).value = z.max > 0 ? z.max : maxHR;
     });
     setMsg('Hentet fra Strava ✓', true);
   },
