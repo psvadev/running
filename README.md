@@ -7,6 +7,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 ### Logging
 - Log runs with date, session type (Easy / Steady / Long / Tempo / Intervaller / Test / **Race**), training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline % (treadmill) or **elevation gain in metres** (outdoor), shoe, sleep, **RPE (1–10)**, **run type** (outdoor / treadmill), **workout description** (only shown when Treningsplan = Runna — paste Runna programs or interval structures; appears above notes in the form and as `[Øktbeskrivelse]` in AI exports), and **notes** (free-text post-run context for AI analysis)
 - Auto-calculated fields: duration (summed from zones), pace, avg km/h — check **Uten pulsdata** in the Pulssoner header to hide zones and enter duration manually (e.g. when running without a watch)
+- **Hent fra Strava** *(optional, requires Strava connection)* — button in the form pulls distance, duration, HR, HR zones, pace, and elevation from a recent Strava activity; auto-selects automatically if exactly one run matches the date being logged, otherwise shows a picker (with a "Vis alle økter" link to always see the full list); only fills in fields — you still review and save manually
 - After saving a new session, the app jumps to the session log automatically
 - Edit any past session by clicking it in the log
 
@@ -54,8 +55,9 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 
 ### Settings (Innstillinger)
 - **Yearly goals** — set a km target per year; tracked on the dashboard
-- **Profil & Puls** — max HR, resting HR, 5 zone boundaries; auto-calculate zones from max HR; zone boundaries drive HR zone analysis in training block drill-downs, Easy run Zone 2 compliance insights, and the Zone 2 efficiency filter — set them to match your watch or training app (Strava, Apple Fitness) for consistent results
-- **Beste innsats** — manually enter GPS-derived best effort times from Strava or Runna (400 m, 1 km, 5 km, 10 km, 15 km, halvmaraton, maraton); these override Riegel estimates in the Ytelseskurve
+- **Profil & Puls** — max HR, resting HR, 5 zone boundaries; auto-calculate zones from max HR, or import your real boundaries directly from Strava *(requires Strava connection)*; zone boundaries drive HR zone analysis in training block drill-downs, Easy run Zone 2 compliance insights, and the Zone 2 efficiency filter
+- **Beste innsats** — manually enter GPS-derived best effort times (400 m, 1 km, 5 km, 10 km, 15 km, halvmaraton, maraton), or sync them automatically from your full Strava history *(requires Strava connection)* — a full historical scan runs in rate-limit-safe batches and shows a review-before-applying comparison; these override Riegel estimates in the Ytelseskurve
+- **Strava** — connect via OAuth to enable the Hent fra Strava form helper, zone import, and Beste innsats sync; requires a small Cloudflare Worker for the OAuth token exchange (Strava's API needs a client secret that can't live in browser code) — see [worker/README.md](worker/README.md) for deploy steps, entirely through Cloudflare's dashboard with no local tooling required; paste your Client ID and the Worker's URL, then click "Koble til Strava"
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
 - **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
 - **Datafil** — open, create, download, import Excel/CSV, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore
@@ -101,6 +103,20 @@ If you open the app on a new device, repeat steps 1–3 once; the same Drive fil
   - `https://<your-username>.github.io/<repo>/puls.html`
 
 Opening `puls.html` directly as a local file still works fully for offline use — only the Drive sync feature requires HTTP.
+
+---
+
+### Strava integration (optional)
+
+1. Register a Strava API application at [strava.com/settings/api](https://www.strava.com/settings/api) — copy the **Client ID** and **Client Secret**
+2. Deploy the OAuth token-exchange Worker — see [worker/README.md](worker/README.md) for full steps; works entirely through Cloudflare's dashboard, no local tooling required
+3. Go to **⚙️ Innstillinger → Strava**, paste in your **Client ID** and the Worker's URL, then click **Koble til Strava**
+4. Once connected:
+   - **Hent fra Strava** appears in the logging form to pull in distance/duration/HR/pace/elevation from a recent run
+   - **Fra Strava** appears next to the zone auto-calc button in Profil & Puls
+   - **Synkroniser fra Strava** appears in Beste innsats to pull your all-time best efforts
+
+The Client Secret never leaves the Worker — only the Client ID and Worker URL are stored (in localStorage, same as Google Drive's credentials).
 
 ---
 
@@ -159,3 +175,4 @@ Single `.html` file — no build step, no framework, no install.
 - File System Access API — local file read/write (Edge/Chrome)
 - IndexedDB — persists the file handle across page reloads so the file re-attaches automatically
 - Google Drive API (via fetch) + OAuth 2.0 PKCE — optional cross-device sync; refresh token stored in localStorage for silent reconnect
+- Strava API (via fetch) + OAuth 2.0 — optional form-fill helper, zone import, and best-efforts sync; token exchange handled by a small Cloudflare Worker (see `worker/`)
