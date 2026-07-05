@@ -5924,13 +5924,14 @@ const Settings = {
     const msg = document.getElementById('profileMsg');
     const setMsg = (text, ok) => { if (!msg) return; msg.textContent = text; msg.style.color = ok ? 'var(--green)' : '#e05555'; };
     if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava i Innstillinger først', false); return; }
+    const maxHR = parseInt(document.getElementById('sMaxHR').value) || Store.data.settings?.maxHR || null;
+    if (!maxHR) { alert('Fyll inn maks puls først — Strava oppgir ingen øvre grense for Sone 5, så den må settes herfra.'); return; }
     setMsg('Henter…', true);
     const data = await StravaIO.fetchAthleteZones();
     if (!data) { setMsg('Kunne ikke hente soner fra Strava', false); return; }
     if (data.error === 401 || data.error === 403) { setMsg('Koble til Strava på nytt for å gi tilgang til pulssoner', false); return; }
     const zones = data.heart_rate?.zones;
     if (!zones || !zones.length) { setMsg('Ingen pulssoner funnet på Strava', false); return; }
-    const maxHR = parseInt(document.getElementById('sMaxHR').value) || Store.data.settings?.maxHR || '';
     // Strava defines zones with touching boundaries (zone N's max === zone N+1's min).
     // The app's own zone editor uses non-overlapping "+1" gaps (matching Auto-beregn's
     // output) — normalize to that convention so imported and calculated zones look the same.
