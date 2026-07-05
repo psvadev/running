@@ -888,7 +888,10 @@
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <span class="form-section-title" style="margin-bottom:0;border:none">Pulssoner (BPM-grenser)</span>
-      <button class="btn-secondary btn-sm" id="btnAutoZones">⚡ Auto-beregn fra maks puls</button>
+      <span style="display:flex;gap:8px">
+        <button class="btn-secondary btn-sm" id="btnAutoZones">⚡ Auto-beregn fra maks puls</button>
+        <button class="btn-secondary btn-sm" id="btnStravaZones">📥 Fra Strava</button>
+      </span>
     </div>
     <div id="zoneEditor" style="display:flex;flex-direction:column;gap:8px"></div>
     <div style="margin-top:14px">
@@ -904,6 +907,11 @@
     <div id="bestEffortsForm"></div>
     <button class="btn" style="margin-top:10px" onclick="Settings.saveBestEfforts()">Lagre</button>
     <span id="bestEffortsMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+      <button class="btn-secondary btn-sm" id="btnSyncBestEfforts">🔄 Synkroniser fra Strava</button>
+      <span id="bestEffortsSyncMsg" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+      <div id="bestEffortsReview"></div>
+    </div>
   </div>
 
   <!-- Treningsrytme -->
@@ -2017,7 +2025,7 @@ const StravaIO = (() => {
       client_id: _clientId(),
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: 'activity:read_all',
+      scope: 'activity:read_all,profile:read_all',
       approval_prompt: 'auto',
       state: 'strava'
     });
@@ -2093,6 +2101,53 @@ const StravaIO = (() => {
     }
   }
 
+  async function fetchActivitiesPage({ before, after, perPage = 200 } = {}) {
+    const token = await _validToken();
+    if (!token) return null;
+    const params = new URLSearchParams({ per_page: String(perPage) });
+    if (before) params.set('before', String(before));
+    if (after) params.set('after', String(after));
+    try {
+      const res = await fetch(`https://www.strava.com/api/v3/athlete/activities?${params}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.status === 429) return { error: 429 };
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function fetchActivityDetail(activityId) {
+    const token = await _validToken();
+    if (!token) return null;
+    try {
+      const res = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.status === 429) return { error: 429 };
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function fetchAthleteZones() {
+    const token = await _validToken();
+    if (!token) return null;
+    try {
+      const res = await fetch('https://www.strava.com/api/v3/athlete/zones', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) return { error: res.status };
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
   function _setStatus(msg) {
     const el = document.getElementById('stravaStatus');
     if (!el) return;
@@ -2123,7 +2178,7 @@ const StravaIO = (() => {
     updateStravaFetchVisibility();
   }
 
-  return { init, connect, disconnect, isSignedIn, handleCallback, fetchActivities, fetchZones };
+  return { init, connect, disconnect, isSignedIn, handleCallback, fetchActivities, fetchZones, fetchAthleteZones, fetchActivitiesPage, fetchActivityDetail };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -5271,6 +5326,136 @@ const StravaImport = {
   }
 };
 
+const StravaBestEfforts = {
+  MAX_CALLS_PER_BATCH: 80,
+  _nameMap: { '400m':'400m', '1k':'1k', '5k':'5k', '10k':'10k', '15k':'15k', 'half-marathon':'half', 'marathon':'marathon' },
+  _dists: [
+    { label:'400 m', key:'400m' }, { label:'1 km', key:'1k' },
+    { label:'5 km', key:'5k' }, { label:'10 km', key:'10k' },
+    { label:'15 km', key:'15k' }, { label:'Halvmaraton', key:'half' },
+    { label:'Maraton', key:'marathon' },
+  ],
+
+  _found() { try { return JSON.parse(localStorage.getItem('pulsStravaBEFound') || '{}'); } catch { return {}; } },
+  _saveFound(f) { localStorage.setItem('pulsStravaBEFound', JSON.stringify(f)); },
+
+  async runBatch() {
+    const msgEl = document.getElementById('bestEffortsSyncMsg');
+    const setMsg = t => { if (msgEl) msgEl.textContent = t; };
+    if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava i Innstillinger først'); return; }
+
+    const found = this._found();
+    let complete = localStorage.getItem('pulsStravaBEScanComplete') === '1';
+    let cursorBefore = localStorage.getItem('pulsStravaBEOldestScanned') || undefined;
+    let cursorAfter = localStorage.getItem('pulsStravaBENewestScanned') || undefined;
+    let calls = 0, scanned = 0;
+
+    setMsg('Skanner…');
+    try {
+      while (calls < this.MAX_CALLS_PER_BATCH) {
+        const page = await StravaIO.fetchActivitiesPage(
+          complete ? { after: cursorAfter, perPage: 200 } : { before: cursorBefore, perPage: 200 }
+        );
+        calls++;
+        if (page && page.error === 429) { setMsg(`Nådd Strava-grense — prøv igjen om ~15 min (${scanned} skannet)`); return; }
+        if (!page) { setMsg('Kunne ikke hente aktiviteter fra Strava'); return; }
+
+        // Capture the true "newest activity at scan start" exactly once, before any
+        // backward paging begins — this becomes the watermark for future incremental
+        // syncs, and correctly includes anything logged during a multi-session scan.
+        if (!complete && !cursorAfter && page.length) {
+          cursorAfter = String(Math.max(...page.map(a => Math.floor(new Date(a.start_date).getTime() / 1000))));
+          localStorage.setItem('pulsStravaBENewestScanned', cursorAfter);
+        }
+
+        if (!page.length) {
+          if (!complete) {
+            localStorage.setItem('pulsStravaBEScanComplete', '1');
+            complete = true;
+            setMsg(`Full historikk skannet (${scanned} denne økten) — alt synkronisert.`);
+          } else {
+            setMsg('Ingen nye aktiviteter siden sist.');
+          }
+          this.showReview();
+          return;
+        }
+
+        const runs = page.filter(a => (a.type === 'Run' || a.sport_type === 'Run') && a.distance >= 400);
+        for (const act of runs) {
+          if (calls >= this.MAX_CALLS_PER_BATCH) break;
+          const detail = await StravaIO.fetchActivityDetail(act.id);
+          calls++; scanned++;
+          if (detail && detail.error === 429) {
+            this._saveFound(found);
+            setMsg(`Nådd Strava-grense — prøv igjen om ~15 min (${scanned} skannet)`);
+            return;
+          }
+          if (detail && Array.isArray(detail.best_efforts)) {
+            detail.best_efforts.forEach(be => {
+              const key = this._nameMap[(be.name || '').toLowerCase()];
+              if (key && (!found[key] || be.moving_time < found[key])) found[key] = be.moving_time;
+            });
+          }
+          this._saveFound(found);
+        }
+
+        const epochs = page.map(a => Math.floor(new Date(a.start_date).getTime() / 1000));
+        if (complete) {
+          cursorAfter = String(Math.max(...epochs));
+          localStorage.setItem('pulsStravaBENewestScanned', cursorAfter);
+        } else {
+          cursorBefore = String(Math.min(...epochs));
+          localStorage.setItem('pulsStravaBEOldestScanned', cursorBefore);
+        }
+        setMsg(`Skanner… (${scanned} denne økten)`);
+      }
+      setMsg(`Pause for å holde meg under Strava sin grense (${scanned} skannet) — klikk igjen for å fortsette.`);
+      this.showReview();
+    } catch (e) {
+      setMsg('Noe gikk galt: ' + (e.message || 'ukjent feil'));
+    }
+  },
+
+  showReview() {
+    const found = this._found();
+    const current = Store.data.bestEfforts || {};
+    const diffRows = this._dists.filter(({ key }) => found[key] && found[key] !== current[key]);
+    const el = document.getElementById('bestEffortsReview');
+    if (!el) return;
+    if (!diffRows.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `
+      <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+        ${diffRows.map(({ label, key }) => `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <span style="width:100px;font-size:13px">${label}</span>
+            <span style="font-size:12px;color:var(--muted)">${current[key] ? secsToHms(current[key]) : '–'} → <b style="color:var(--text)">${secsToHms(found[key])}</b></span>
+            <button class="btn-secondary btn-sm" onclick="StravaBestEfforts.applyOne('${key}')">Bruk</button>
+          </div>`).join('')}
+        <button class="btn-primary btn-sm" style="margin-top:4px" onclick="StravaBestEfforts.applyAll()">Bruk alle</button>
+      </div>`;
+  },
+
+  applyOne(key) {
+    const found = this._found();
+    if (!found[key]) return;
+    document.getElementById(`be_${key}`).value = secsToHms(found[key]);
+    Settings.saveBestEfforts();
+    Settings.renderBestEfforts();
+    this.showReview();
+  },
+
+  applyAll() {
+    const found = this._found();
+    Object.keys(found).forEach(key => {
+      const input = document.getElementById(`be_${key}`);
+      if (input) input.value = secsToHms(found[key]);
+    });
+    Settings.saveBestEfforts();
+    Settings.renderBestEfforts();
+    this.showReview();
+  }
+};
+
 // ═══════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════
@@ -5297,6 +5482,8 @@ const Settings = {
     // Profile / zones
     document.getElementById('btnSaveProfile').addEventListener('click', () => this.saveProfile());
     document.getElementById('btnAutoZones').addEventListener('click', () => this.autoZones());
+    document.getElementById('btnStravaZones').addEventListener('click', () => this.importZonesFromStrava());
+    document.getElementById('btnSyncBestEfforts').addEventListener('click', () => StravaBestEfforts.runBatch());
 
     // Treningsrytme thresholds
     document.getElementById('btnSaveConsistency').addEventListener('click', () => this.saveConsistency());
@@ -5337,6 +5524,7 @@ const Settings = {
     this.renderEventList();
     this.renderRaceHistory();
     this.renderBestEfforts();
+    StravaBestEfforts.showReview();
     this.renderBackupList();
     // Pre-fill goal year with current year if empty
     const yr = document.getElementById('newGoalYear');
@@ -5704,6 +5892,24 @@ const Settings = {
       document.getElementById(`zMin${i}`).value = Math.round(maxHR * lo);
       document.getElementById(`zMax${i}`).value = Math.round(maxHR * hi);
     });
+  },
+
+  async importZonesFromStrava() {
+    const msg = document.getElementById('profileMsg');
+    const setMsg = (text, ok) => { if (!msg) return; msg.textContent = text; msg.style.color = ok ? 'var(--green)' : '#e05555'; };
+    if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava i Innstillinger først', false); return; }
+    setMsg('Henter…', true);
+    const data = await StravaIO.fetchAthleteZones();
+    if (!data) { setMsg('Kunne ikke hente soner fra Strava', false); return; }
+    if (data.error === 401 || data.error === 403) { setMsg('Koble til Strava på nytt for å gi tilgang til pulssoner', false); return; }
+    const zones = data.heart_rate?.zones;
+    if (!zones || !zones.length) { setMsg('Ingen pulssoner funnet på Strava', false); return; }
+    zones.forEach((z, i) => {
+      if (i > 4) return;
+      document.getElementById(`zMin${i}`).value = z.min;
+      document.getElementById(`zMax${i}`).value = z.max;
+    });
+    setMsg('Hentet fra Strava ✓', true);
   },
 
   loadProfileFields() {
