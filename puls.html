@@ -311,6 +311,7 @@
       <div class="form-section-title" style="margin-bottom:0">Strava</div>
       <button class="btn-secondary btn-sm" id="btnFetchStrava">📥 Hent fra Strava</button>
     </div>
+    <div id="stravaFetchMsg" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
   </div>
 
   <div class="form-section">
@@ -2434,6 +2435,8 @@ const Form = {
     this.lastAutoOktnavn = '';
     this.maybeAutoName();
     updateStravaFetchVisibility();
+    const stravaMsg = document.getElementById('stravaFetchMsg');
+    if (stravaMsg) stravaMsg.innerHTML = '';
   }
 };
 
@@ -5232,18 +5235,41 @@ const StravaImport = {
     document.getElementById('btnStravaModalClose').addEventListener('click', () => this.close());
   },
 
-  async open() {
+  async open(forceAll = false) {
     document.getElementById('stravaModal').classList.add('open');
     document.getElementById('stravaActivityList').innerHTML = '<p style="color:var(--muted)">Henter aktiviteter…</p>';
     try {
       const acts = await StravaIO.fetchActivities(10);
       if (!acts) { this._showError('Kunne ikke hente aktiviteter — sjekk tilkobling i Innstillinger.'); return; }
-      this.activities = acts.filter(a => a.type === 'Run' || a.sport_type === 'Run');
-      if (!this.activities.length) { this._showError('Fant ingen nylige løpeøkter på Strava.'); return; }
+      const runs = acts.filter(a => a.type === 'Run' || a.sport_type === 'Run');
+      if (!runs.length) { this._showError('Fant ingen nylige løpeøkter på Strava.'); return; }
+
+      // If exactly one run matches the date being logged, skip the picker entirely —
+      // populating doesn't save anything, so this is safe to do without confirmation.
+      // The forceAll override (from "Vis alle økter") always shows the full list instead.
+      if (!forceAll) {
+        const logDate = document.getElementById('fDato').value;
+        const sameDate = runs.filter(a => a.start_date_local.slice(0, 10) === logDate);
+        if (sameDate.length === 1) {
+          this.close();
+          await this._populate(sameDate[0]);
+          this._showAutoPicked(sameDate[0].name);
+          return;
+        }
+        this.activities = sameDate.length > 1 ? sameDate : runs;
+      } else {
+        this.activities = runs;
+      }
       this._render();
     } catch (e) {
       this._showError('Noe gikk galt: ' + (e.message || 'ukjent feil'));
     }
+  },
+
+  _showAutoPicked(name) {
+    showToast(`Hentet automatisk: ${name}`, 'success');
+    const el = document.getElementById('stravaFetchMsg');
+    if (el) el.innerHTML = `Hentet: ${name} · <a href="#" onclick="event.preventDefault(); StravaImport.open(true)" style="color:inherit">Vis alle økter</a>`;
   },
 
   close() {
