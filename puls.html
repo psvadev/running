@@ -5924,8 +5924,6 @@ const Settings = {
     const msg = document.getElementById('profileMsg');
     const setMsg = (text, ok) => { if (!msg) return; msg.textContent = text; msg.style.color = ok ? 'var(--green)' : '#e05555'; };
     if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava i Innstillinger først', false); return; }
-    const maxHR = parseInt(document.getElementById('sMaxHR').value) || Store.data.settings?.maxHR || null;
-    if (!maxHR) { alert('Fyll inn maks puls først — Strava oppgir ingen øvre grense for Sone 5, så den må settes herfra.'); return; }
     setMsg('Henter…', true);
     const data = await StravaIO.fetchAthleteZones();
     if (!data) { setMsg('Kunne ikke hente soner fra Strava', false); return; }
@@ -5935,13 +5933,16 @@ const Settings = {
     // Strava defines zones with touching boundaries (zone N's max === zone N+1's min).
     // The app's own zone editor uses non-overlapping "+1" gaps (matching Auto-beregn's
     // output) — normalize to that convention so imported and calculated zones look the same.
+    // Strava's top zone has no real ceiling (max: -1) — left blank rather than guessed,
+    // since it isn't read by any calculation (only Sone 2 matters), just edit it manually
+    // if you want a real number there (e.g. from a watch or other measurement).
     let prevMax = null;
     zones.forEach((z, i) => {
       if (i > 4) return;
-      const max = z.max > 0 ? z.max : maxHR;
+      const max = z.max > 0 ? z.max : '';
       document.getElementById(`zMin${i}`).value = prevMax === null ? z.min : prevMax + 1;
       document.getElementById(`zMax${i}`).value = max;
-      prevMax = max;
+      prevMax = max || null;
     });
     setMsg('Hentet fra Strava ✓', true);
   },
