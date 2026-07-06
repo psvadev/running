@@ -5353,6 +5353,12 @@ const StravaImport = {
       if (detail?.calories) {
         document.getElementById('fKalorier').value = Math.round(detail.calories);
       }
+      // Runna pushes its workout program (pace targets, interval structure) into the
+      // Strava activity's description — never overwrite something already typed manually.
+      const beskrivelseEl = document.getElementById('fBeskrivelse');
+      if (detail?.description && !beskrivelseEl.value) {
+        beskrivelseEl.value = detail.description;
+      }
     } catch (e) {
       console.error('Strava field population failed', e);
       showToast('Noe gikk galt under utfylling — sjekk feltene manuelt', 'error');
