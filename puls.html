@@ -5311,6 +5311,10 @@ const StravaImport = {
       document.getElementById('fLopetype').value = a.trainer ? 'treadmill' : 'utendors';
       document.getElementById('fLopetype').dispatchEvent(new Event('change'));
 
+      // Calories only live on the detail endpoint, not the list Strava was fetched from —
+      // kick it off now so it runs alongside the zones fetch below instead of adding latency after.
+      const detailPromise = StravaIO.fetchActivityDetail(a.id);
+
       if (a.has_heartrate) {
         document.getElementById('fUtenPuls').checked = false;
         Form.togglePulsdata();
@@ -5343,6 +5347,11 @@ const StravaImport = {
 
       if (!a.trainer && a.total_elevation_gain) {
         document.getElementById('fHoydeMeter').value = Math.round(a.total_elevation_gain);
+      }
+
+      const detail = await detailPromise;
+      if (detail?.calories) {
+        document.getElementById('fKalorier').value = Math.round(detail.calories);
       }
     } catch (e) {
       console.error('Strava field population failed', e);
