@@ -1350,14 +1350,16 @@ const Store = {
     FileIO.save();
   },
 
+  isDuplicate(a, b) {
+    return a.dato === b.dato &&
+      Math.abs(a.distanse - b.distanse) < 0.05 &&
+      Math.abs(a.varighet - b.varighet) < 30;
+  },
+
   mergeSessions(incoming) {
     let added = 0;
     incoming.forEach(s => {
-      const dup = this.data.sessions.find(x =>
-        x.dato === s.dato &&
-        Math.abs(x.distanse - s.distanse) < 0.05 &&
-        Math.abs(x.varighet - s.varighet) < 30
-      );
+      const dup = this.data.sessions.find(x => this.isDuplicate(x, s));
       if (!dup) {
         this.data.sessions.push(s);
         added++;
@@ -1972,7 +1974,13 @@ const DriveIO = (() => {
     showToast('Drive-synk feilet — data er lagret lokalt', 'error');
   }
 
-  return { init, connect, disconnect, load, save, isSignedIn, handleCallback, _afterConnect, _onSyncOk, _onSyncError };
+  // Called by the shared OAuth bootstrap when a redirect's state matches this provider.
+  async function handleOAuthCallback(code) {
+    const ok = await handleCallback(code);
+    if (ok) await _afterConnect(); else init();
+  }
+
+  return { init, connect, disconnect, load, save, isSignedIn, handleCallback, handleOAuthCallback, _afterConnect, _onSyncOk, _onSyncError };
 })();
 
 const StravaIO = (() => {
@@ -2072,81 +2080,58 @@ const StravaIO = (() => {
     }
   }
 
-  async function fetchActivities(perPage = 10) {
+  // Shared scaffold for every authed Strava GET: resolve a valid token, fetch with the
+  // bearer header, parse JSON, and normalize failures (no token, network error, bad
+  // JSON) to one consistent shape. status:0 means "no token or request never completed"
+  // — never a real HTTP status — so callers can tell it apart from a genuine error code.
+  async function _authedFetch(url) {
     const token = await _validToken();
-    if (!token) return null;
+    if (!token) return { ok: false, status: 0, data: null };
     try {
-      const res = await fetch(`https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.status === 429) { showToast('Strava-grense nådd — prøv igjen senere', 'error'); return null; }
-      if (!res.ok) return null;
-      return await res.json();
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      let data = null;
+      try { data = await res.json(); } catch {}
+      return { ok: res.ok, status: res.status, data };
     } catch {
-      return null;
+      return { ok: false, status: 0, data: null };
     }
+  }
+
+  async function fetchActivities(perPage = 10) {
+    const { ok, status, data } = await _authedFetch(`https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}`);
+    if (status === 429) { showToast('Strava-grense nådd — prøv igjen senere', 'error'); return null; }
+    if (!ok) return null;
+    return data;
   }
 
   async function fetchZones(activityId) {
-    const token = await _validToken();
-    if (!token) return null;
-    try {
-      const res = await fetch(`https://www.strava.com/api/v3/activities/${activityId}/zones`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) return null;
-      const zones = await res.json();
-      return zones.find(z => z.type === 'heartrate')?.distribution_buckets || null;
-    } catch {
-      return null;
-    }
+    const { ok, data } = await _authedFetch(`https://www.strava.com/api/v3/activities/${activityId}/zones`);
+    if (!ok || !data) return null;
+    return data.find(z => z.type === 'heartrate')?.distribution_buckets || null;
   }
 
   async function fetchActivitiesPage({ before, after, perPage = 200 } = {}) {
-    const token = await _validToken();
-    if (!token) return null;
     const params = new URLSearchParams({ per_page: String(perPage) });
     if (before) params.set('before', String(before));
     if (after) params.set('after', String(after));
-    try {
-      const res = await fetch(`https://www.strava.com/api/v3/athlete/activities?${params}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.status === 429) return { error: 429 };
-      if (!res.ok) return null;
-      return await res.json();
-    } catch {
-      return null;
-    }
+    const { ok, status, data } = await _authedFetch(`https://www.strava.com/api/v3/athlete/activities?${params}`);
+    if (status === 429) return { error: 429 };
+    if (!ok) return null;
+    return data;
   }
 
   async function fetchActivityDetail(activityId) {
-    const token = await _validToken();
-    if (!token) return null;
-    try {
-      const res = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.status === 429) return { error: 429 };
-      if (!res.ok) return null;
-      return await res.json();
-    } catch {
-      return null;
-    }
+    const { ok, status, data } = await _authedFetch(`https://www.strava.com/api/v3/activities/${activityId}`);
+    if (status === 429) return { error: 429 };
+    if (!ok) return null;
+    return data;
   }
 
   async function fetchAthleteZones() {
-    const token = await _validToken();
-    if (!token) return null;
-    try {
-      const res = await fetch('https://www.strava.com/api/v3/athlete/zones', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) return { error: res.status };
-      return await res.json();
-    } catch {
-      return null;
-    }
+    const { ok, status, data } = await _authedFetch('https://www.strava.com/api/v3/athlete/zones');
+    if (status === 0) return null; // no token, or request never completed
+    if (!ok) return { error: status };
+    return data;
   }
 
   function _setStatus(msg) {
@@ -2179,7 +2164,14 @@ const StravaIO = (() => {
     updateStravaFetchVisibility();
   }
 
-  return { init, connect, disconnect, isSignedIn, handleCallback, fetchActivities, fetchZones, fetchAthleteZones, fetchActivitiesPage, fetchActivityDetail };
+  // Called by the shared OAuth bootstrap when a redirect's state matches this provider.
+  async function handleOAuthCallback(code) {
+    const ok = await handleCallback(code);
+    init();
+    if (ok) showToast('Strava koblet til', 'success');
+  }
+
+  return { init, connect, disconnect, isSignedIn, handleCallback, handleOAuthCallback, fetchActivities, fetchZones, fetchAthleteZones, fetchActivitiesPage, fetchActivityDetail };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -5169,12 +5161,12 @@ const Import = {
           if (s.distanse > 0) importParsed.push(s); else skipInvalidDist++;
         }
 
-        // Preview-time duplicate dry-run (mirrors Store.mergeSessions' match rule,
-        // including same-batch duplicates via the growing dryRun array)
+        // Preview-time duplicate dry-run (uses Store.isDuplicate, the same match rule
+        // Store.mergeSessions applies on confirm; dryRun grows so same-batch duplicates
+        // are caught too)
         const dryRun = [...Store.data.sessions];
         importParsed.forEach(s => {
-          s._dup = dryRun.some(x => x.dato === s.dato &&
-            Math.abs(x.distanse - s.distanse) < 0.05 && Math.abs(x.varighet - s.varighet) < 30);
+          s._dup = dryRun.some(x => Store.isDuplicate(x, s));
           if (!s._dup) dryRun.push(s);
         });
         const dupCount = importParsed.filter(s => s._dup).length;
@@ -5352,18 +5344,33 @@ const StravaImport = {
   }
 };
 
+const BEST_EFFORT_DISTS = [
+  { label:'400 m', key:'400m' }, { label:'1 km', key:'1k' },
+  { label:'5 km', key:'5k' }, { label:'10 km', key:'10k' },
+  { label:'15 km', key:'15k' }, { label:'Halvmaraton', key:'half' },
+  { label:'Maraton', key:'marathon' },
+];
+
 const StravaBestEfforts = {
   MAX_CALLS_PER_BATCH: 80,
   _nameMap: { '400m':'400m', '1k':'1k', '5k':'5k', '10k':'10k', '15k':'15k', 'half-marathon':'half', 'marathon':'marathon' },
-  _dists: [
-    { label:'400 m', key:'400m' }, { label:'1 km', key:'1k' },
-    { label:'5 km', key:'5k' }, { label:'10 km', key:'10k' },
-    { label:'15 km', key:'15k' }, { label:'Halvmaraton', key:'half' },
-    { label:'Maraton', key:'marathon' },
-  ],
+  _dists: BEST_EFFORT_DISTS,
 
   _found() { try { return JSON.parse(localStorage.getItem('pulsStravaBEFound') || '{}'); } catch { return {}; } },
   _saveFound(f) { localStorage.setItem('pulsStravaBEFound', JSON.stringify(f)); },
+
+  _checkpoint() {
+    return {
+      complete: localStorage.getItem('pulsStravaBEScanComplete') === '1',
+      before: localStorage.getItem('pulsStravaBEOldestScanned') || undefined,
+      after: localStorage.getItem('pulsStravaBENewestScanned') || undefined,
+    };
+  },
+  _saveCheckpoint({ complete, before, after }) {
+    if (complete) localStorage.setItem('pulsStravaBEScanComplete', '1');
+    if (before !== undefined) localStorage.setItem('pulsStravaBEOldestScanned', before);
+    if (after !== undefined) localStorage.setItem('pulsStravaBENewestScanned', after);
+  },
 
   async runBatch() {
     const msgEl = document.getElementById('bestEffortsSyncMsg');
@@ -5371,9 +5378,7 @@ const StravaBestEfforts = {
     if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava i Innstillinger først'); return; }
 
     const found = this._found();
-    let complete = localStorage.getItem('pulsStravaBEScanComplete') === '1';
-    let cursorBefore = localStorage.getItem('pulsStravaBEOldestScanned') || undefined;
-    let cursorAfter = localStorage.getItem('pulsStravaBENewestScanned') || undefined;
+    let { complete, before: cursorBefore, after: cursorAfter } = this._checkpoint();
     let calls = 0, scanned = 0;
 
     setMsg('Skanner…');
@@ -5391,13 +5396,13 @@ const StravaBestEfforts = {
         // syncs, and correctly includes anything logged during a multi-session scan.
         if (!complete && !cursorAfter && page.length) {
           cursorAfter = String(Math.max(...page.map(a => Math.floor(new Date(a.start_date).getTime() / 1000))));
-          localStorage.setItem('pulsStravaBENewestScanned', cursorAfter);
+          this._saveCheckpoint({ after: cursorAfter });
         }
 
         if (!page.length) {
           if (!complete) {
-            localStorage.setItem('pulsStravaBEScanComplete', '1');
             complete = true;
+            this._saveCheckpoint({ complete: true });
             setMsg(`Full historikk skannet (${scanned} denne økten) — alt synkronisert.`);
           } else {
             setMsg('Ingen nye aktiviteter siden sist.');
@@ -5428,10 +5433,10 @@ const StravaBestEfforts = {
         const epochs = page.map(a => Math.floor(new Date(a.start_date).getTime() / 1000));
         if (complete) {
           cursorAfter = String(Math.max(...epochs));
-          localStorage.setItem('pulsStravaBENewestScanned', cursorAfter);
+          this._saveCheckpoint({ after: cursorAfter });
         } else {
           cursorBefore = String(Math.min(...epochs));
-          localStorage.setItem('pulsStravaBEOldestScanned', cursorBefore);
+          this._saveCheckpoint({ before: cursorBefore });
         }
         setMsg(`Skanner… (${scanned} denne økten)`);
       }
@@ -5859,14 +5864,8 @@ const Settings = {
   renderBestEfforts() {
     const el = document.getElementById('bestEffortsForm');
     if (!el) return;
-    const DISTS = [
-      { label:'400 m', key:'400m' }, { label:'1 km', key:'1k' },
-      { label:'5 km', key:'5k' }, { label:'10 km', key:'10k' },
-      { label:'15 km', key:'15k' }, { label:'Halvmaraton', key:'half' },
-      { label:'Maraton', key:'marathon' },
-    ];
     const be = Store.data.bestEfforts || {};
-    el.innerHTML = DISTS.map(({ label, key }) => {
+    el.innerHTML = BEST_EFFORT_DISTS.map(({ label, key }) => {
       const secs = be[key];
       const val = secs ? secsToHms(secs) : '';
       return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
@@ -5878,7 +5877,7 @@ const Settings = {
   },
 
   saveBestEfforts() {
-    const KEYS = ['400m','1k','5k','10k','15k','half','marathon'];
+    const KEYS = BEST_EFFORT_DISTS.map(d => d.key);
     if (!Store.data.bestEfforts) Store.data.bestEfforts = {};
     KEYS.forEach(key => {
       const raw = document.getElementById('be_' + key)?.value.trim();
@@ -5930,19 +5929,16 @@ const Settings = {
     if (data.error === 401 || data.error === 403) { setMsg('Koble til Strava på nytt for å gi tilgang til pulssoner', false); return; }
     const zones = data.heart_rate?.zones;
     if (!zones || !zones.length) { setMsg('Ingen pulssoner funnet på Strava', false); return; }
-    // Strava defines zones with touching boundaries (zone N's max === zone N+1's min).
-    // The app's own zone editor uses non-overlapping "+1" gaps (matching Auto-beregn's
-    // output) — normalize to that convention so imported and calculated zones look the same.
+    // Strava's zones already touch (zone N's max === zone N+1's min) — same convention
+    // Auto-beregn produces, since ZONE_PCT's adjacent tuples share the same percentage
+    // (e.g. [0.50,0.60],[0.60,0.70]). No normalization needed, just fill directly.
     // Strava's top zone has no real ceiling (max: -1) — left blank rather than guessed,
     // since it isn't read by any calculation (only Sone 2 matters), just edit it manually
     // if you want a real number there (e.g. from a watch or other measurement).
-    let prevMax = null;
     zones.forEach((z, i) => {
       if (i > 4) return;
-      const max = z.max > 0 ? z.max : '';
-      document.getElementById(`zMin${i}`).value = prevMax === null ? z.min : prevMax + 1;
-      document.getElementById(`zMax${i}`).value = max;
-      prevMax = max || null;
+      document.getElementById(`zMin${i}`).value = z.min;
+      document.getElementById(`zMax${i}`).value = z.max > 0 ? z.max : '';
     });
     setMsg('Hentet fra Strava ✓', true);
   },
@@ -6318,29 +6314,21 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Handle OAuth redirect callback (?code=...) — strip all query params on entry.
-  // `state` disambiguates which provider (Drive or Strava) the code belongs to,
-  // since both redirect back to this same page. Missing/unrecognized state falls
-  // back to Drive for backward compatibility with any pre-existing in-flight redirect.
+  // `state` disambiguates which provider the code belongs to, since every provider
+  // redirects back to this same page. Missing/unrecognized state falls back to Drive
+  // for backward compatibility with any pre-existing in-flight redirect. Each provider
+  // owns its own post-callback behavior via handleOAuthCallback(); adding a new OAuth
+  // provider only means adding an entry here, no edits to this dispatch logic itself.
+  const OAUTH_PROVIDERS = { drive: DriveIO, strava: StravaIO };
   const _oauthParams = new URLSearchParams(window.location.search);
   const _oauthCode = _oauthParams.get('code');
   const _oauthState = _oauthParams.get('state');
   if (window.location.search) window.history.replaceState({}, '', window.location.pathname);
-  if (_oauthCode && _oauthState === 'strava') {
-    StravaIO.handleCallback(_oauthCode).then(ok => {
-      StravaIO.init();
-      if (ok) showToast('Strava koblet til', 'success');
-    });
-    DriveIO.init();
-  } else if (_oauthCode) {
-    DriveIO.handleCallback(_oauthCode).then(async ok => {
-      if (ok) await DriveIO._afterConnect();
-      else DriveIO.init();
-    });
-    StravaIO.init();
-  } else {
-    DriveIO.init();
-    StravaIO.init();
-  }
+  const _matchedKey = _oauthCode && OAUTH_PROVIDERS[_oauthState] ? _oauthState : 'drive';
+  Object.entries(OAUTH_PROVIDERS).forEach(([key, provider]) => {
+    if (_oauthCode && key === _matchedKey) provider.handleOAuthCallback(_oauthCode);
+    else provider.init();
+  });
 
   loadAppVersion();
 });
