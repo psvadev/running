@@ -50,7 +50,8 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 
 ### Import
 - Import from `.xlsx` or `.csv` via SheetJS — available under **⚙️ Innstillinger → Datafil**
-- Preview before confirming; duplicates skipped automatically (matched on date + distance + duration)
+- Preview before confirming, with a skip-reason breakdown (blank rows, missing date, missing/invalid distance) and a **Duplikat?** column flagging likely duplicates (matched on date + distance + duration, including duplicates within the same import batch)
+- On confirm, a toast summarizes how many sessions were added vs skipped as duplicates
 - Maps all Norwegian column headers from the original Excel workbook
 
 ### Settings (Innstillinger)
@@ -173,6 +174,6 @@ Single `.html` file — no build step, no framework, no install.
 - [Chart.js 4.4.0](https://www.chartjs.org/) — charts
 - [SheetJS xlsx 0.18.5](https://sheetjs.com/) — Excel/CSV import
 - File System Access API — local file read/write (Edge/Chrome)
-- IndexedDB — persists the file handle across page reloads so the file re-attaches automatically
+- IndexedDB — persists the file handle across page reloads so the file re-attaches automatically; also stores automatic daily local backups (last 7 days, one-click restore)
 - Google Drive API (via fetch) + OAuth 2.0 PKCE — optional cross-device sync; refresh token stored in localStorage for silent reconnect
 - Strava API (via fetch) + OAuth 2.0 — optional form-fill helper, zone import, and best-efforts sync; token exchange handled by a small Cloudflare Worker (see `worker/`)
