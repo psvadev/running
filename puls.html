@@ -3599,6 +3599,8 @@ function renderInsights(sessions) {
   const mNames    = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
   const totalKm   = sessions.reduce((s, x) => s + (x.distanse || 0), 0);
   const candidates = [];
+  // Populated by the Easy pace/HR/RPE trend blocks below; reused by the decoupling check inside the RPE block.
+  let easyPacePct = null, easyHrDiff = null, easyRpeChange = null;
 
   // Km milestone passed
   const MILESTONES = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000];
@@ -3682,10 +3684,10 @@ function renderInsights(sessions) {
   if (recentEasy.length >= 3 && priorEasy.length >= 3) {
     const avgR = recentEasy.reduce((s, x) => s + x.tempo, 0) / recentEasy.length;
     const avgP = priorEasy.reduce((s,  x) => s + x.tempo, 0) / priorEasy.length;
-    const pct  = (avgP - avgR) / avgP * 100; // positive = faster
-    if (Math.abs(pct) >= 3) {
-      const improving = pct > 0;
-      candidates.push({ icon: improving ? '📈' : '📉', val:`${Math.abs(pct).toFixed(1)}% ${improving ? 'raskere' : 'tregere'}`, sub:`Easy-tempo siste 8 uker vs. forrige 8`, priority: improving ? 3 : 2 });
+    easyPacePct = (avgP - avgR) / avgP * 100; // positive = faster
+    if (Math.abs(easyPacePct) >= 3) {
+      const improving = easyPacePct > 0;
+      candidates.push({ icon: improving ? '📈' : '📉', val:`${Math.abs(easyPacePct).toFixed(1)}% ${improving ? 'raskere' : 'tregere'}`, sub:`Easy-tempo siste 8 uker vs. forrige 8`, priority: improving ? 3 : 2 });
     }
   }
 
@@ -3739,10 +3741,10 @@ function renderInsights(sessions) {
   if (recentEasyHR.length >= 3 && priorEasyHR.length >= 3) {
     const avgRhr = Math.round(recentEasyHR.reduce((sum, x) => sum + x.gjsnittspuls, 0) / recentEasyHR.length);
     const avgPhr = Math.round(priorEasyHR.reduce((sum,  x) => sum + x.gjsnittspuls, 0) / priorEasyHR.length);
-    const hrDiff = avgPhr - avgRhr; // positive = HR going down = improving
-    if (Math.abs(hrDiff) >= 3) {
-      const improving = hrDiff > 0;
-      candidates.push({ icon: improving ? '💚' : '🔴', val: `${Math.abs(hrDiff)} bpm ${improving ? 'lavere' : 'høyere'}`,
+    easyHrDiff = avgPhr - avgRhr; // positive = HR going down = improving
+    if (Math.abs(easyHrDiff) >= 3) {
+      const improving = easyHrDiff > 0;
+      candidates.push({ icon: improving ? '💚' : '🔴', val: `${Math.abs(easyHrDiff)} bpm ${improving ? 'lavere' : 'høyere'}`,
         sub: `Easy-puls siste 8 uker (${avgRhr} bpm) vs. forrige 8 (${avgPhr} bpm)`,
         priority: 3 });
     }
@@ -3769,17 +3771,33 @@ function renderInsights(sessions) {
       priority: daysUntil <= 14 ? 5 : daysUntil <= 60 ? 4 : 3 });
   }
 
-  // RPE trend: last 4 Easy sessions vs prior 4
-  const easyWithRpe = sessions.filter(s => s.okttype === 'Easy' && s.rpe).sort((a, b) => a.dato.localeCompare(b.dato));
-  if (easyWithRpe.length >= 8) {
-    const last4 = easyWithRpe.slice(-4).reduce((s, x) => s + x.rpe, 0) / 4;
-    const prev4 = easyWithRpe.slice(-8, -4).reduce((s, x) => s + x.rpe, 0) / 4;
-    const rpeChange = +(last4 - prev4).toFixed(1);
-    if (Math.abs(rpeChange) >= 0.5) {
-      const easier = rpeChange < 0;
+  // Easy RPE trend: last 8 weeks vs prior 8 weeks (uses w8ago/w16ago already declared above)
+  const recentEasyRpe = sessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w8ago);
+  const priorEasyRpe  = sessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w16ago && s.dato < w8ago);
+  if (recentEasyRpe.length >= 3 && priorEasyRpe.length >= 3) {
+    const avgRrpe = recentEasyRpe.reduce((s, x) => s + x.rpe, 0) / recentEasyRpe.length;
+    const avgPrpe = priorEasyRpe.reduce((s, x) => s + x.rpe, 0) / priorEasyRpe.length;
+    easyRpeChange = +(avgRrpe - avgPrpe).toFixed(1); // positive = RPE up = feels harder
+
+    // Decoupling: pace/HR held steady-or-better while RPE got meaningfully worse
+    const paceOk     = easyPacePct === null || easyPacePct >= -2;
+    const hrOk       = easyHrDiff  === null || easyHrDiff  >= -2;
+    const hasSupport = easyPacePct !== null || easyHrDiff !== null;
+
+    if (easyRpeChange >= 0.5 && paceOk && hrOk && hasSupport) {
+      const both  = easyPacePct !== null && easyHrDiff !== null;
+      const label = both ? 'Fart og puls' : easyPacePct !== null ? 'Farten' : 'Pulsen';
+      candidates.push({
+        icon: '🚩',
+        val: `RPE opp ${easyRpeChange.toFixed(1)} poeng`,
+        sub: `${label} henger med, men det føles tyngre siste 8 uker`,
+        priority: 4,
+      });
+    } else if (Math.abs(easyRpeChange) >= 0.5) {
+      const easier = easyRpeChange < 0;
       candidates.push({ icon: easier ? '😊' : '😓',
-        val: `RPE ${easier ? 'ned' : 'opp'} ${Math.abs(rpeChange).toFixed(1)} poeng`,
-        sub: `Easy-løp føles ${easier ? 'lettere' : 'tyngre'} siste 4 vs forrige 4`,
+        val: `RPE ${easier ? 'ned' : 'opp'} ${Math.abs(easyRpeChange).toFixed(1)} poeng`,
+        sub: `Easy-løp føles ${easier ? 'lettere' : 'tyngre'} siste 8 uker vs forrige 8`,
         priority: easier ? 3 : 2 });
     }
   }
