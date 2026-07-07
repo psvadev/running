@@ -306,9 +306,7 @@
     <button class="btn-secondary btn-sm" id="btnCancelEdit">Avbryt</button>
   </div>
 
-  <div class="edit-banner" id="welcomeBanner">
-    <span>👋 Velkommen! Fyll ut en økt under og trykk Lagre — du velger da hvor <code>puls.json</code>-filen din skal lagres, og det er all data du trenger. Google Drive-synk og Strava-integrasjon er valgfritt og kan settes opp senere i ⚙️ Innstillinger.</span>
-  </div>
+  <div class="edit-banner" id="welcomeBanner"></div>
 
   <div class="form-section" id="stravaFetchSection" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between">
@@ -6052,6 +6050,12 @@ function refreshAll() {
 // INIT
 // ═══════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
+  // Welcome banner copy depends on browser capability (File System Access API vs Firefox's
+  // download/re-open fallback) — set once here since it never changes during a session.
+  document.getElementById('welcomeBanner').innerHTML = FileIO.supportsApi
+    ? `<span>👋 Velkommen! Fyll ut en økt under og trykk Lagre — du velger da hvor <code>puls.json</code>-filen din skal lagres, og det er all data du trenger. Google Drive-synk og Strava-integrasjon er valgfritt og kan settes opp senere i ⚙️ Innstillinger.</span>`
+    : `<span>👋 Velkommen! Fyll ut en økt under og trykk Lagre. Nettleseren din støtter ikke automatisk fillagring — gå til ⚙️ Innstillinger → ⬇️ Last ned etter hver økt for å laste ned <code>puls.json</code>, og åpne den igjen neste gang med 📂 Åpne fil. Google Drive-synk fungerer i alle nettlesere og er et enklere alternativ — kan settes opp i ⚙️ Innstillinger sammen med Strava-integrasjon (begge valgfrie).</span>`;
+
   // Tab switching
   const VALID_TABS = ['form','dash','log','plan','settings'];
   document.querySelectorAll('.tab').forEach(tab => {
