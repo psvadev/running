@@ -68,7 +68,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 
 ## Getting started
 
-Open `puls.html` in your browser — no install needed. Or use the hosted version at **[psvadev.github.io/running/puls.html](https://psvadev.github.io/running/puls.html)** (navigating to the root redirects automatically).
+Open `puls.html` in your browser — no install needed. Or use the hosted version at **[psvadev.github.io/running/puls.html](https://psvadev.github.io/running/puls.html)** (navigating to the root redirects automatically). A small footer at the bottom of the page shows the currently deployed commit (fetched live from GitHub), so you can confirm you're on the latest version.
 
 ### First time (no existing data)
 
@@ -113,7 +113,7 @@ Opening `puls.html` directly as a local file still works fully for offline use �
 2. Deploy the OAuth token-exchange Worker — see [worker/README.md](worker/README.md) for full steps; works entirely through Cloudflare's dashboard, no local tooling required
 3. Go to **⚙️ Innstillinger → Strava**, paste in your **Client ID** and the Worker's URL, then click **Koble til Strava**
 4. Once connected:
-   - **Hent fra Strava** appears in the logging form to pull in distance/duration/HR/pace/elevation from a recent run
+   - **Hent fra Strava** appears in the logging form to pull in distance/duration/HR/pace/elevation/calories from a recent run, plus the Runna workout description if Runna pushed one to that activity
    - **Fra Strava** appears next to the zone auto-calc button in Profil & Puls
    - **Synkroniser fra Strava** appears in Beste innsats to pull your all-time best efforts
 
