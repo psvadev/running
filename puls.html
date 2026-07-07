@@ -306,6 +306,10 @@
     <button class="btn-secondary btn-sm" id="btnCancelEdit">Avbryt</button>
   </div>
 
+  <div class="edit-banner" id="welcomeBanner">
+    👋 Velkommen! Fyll ut en økt under og trykk Lagre — du velger da hvor <code>puls.json</code>-filen din skal lagres, og det er all data du trenger. Google Drive-synk og Strava-integrasjon er valgfritt og kan settes opp senere i ⚙️ Innstillinger.
+  </div>
+
   <div class="form-section" id="stravaFetchSection" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div class="form-section-title" style="margin-bottom:0">Strava</div>
@@ -6037,6 +6041,7 @@ function refreshAll() {
   Log.render();
   Form.refreshShoeDropdown();
   CustomLists.refreshDropdowns();
+  document.getElementById('welcomeBanner').classList.toggle('hidden', Store.data.sessions.length > 0);
   if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
   if (document.getElementById('panel-plan').classList.contains('active') ||
       document.getElementById('panel-settings').classList.contains('active')) Settings.render();
