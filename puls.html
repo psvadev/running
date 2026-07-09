@@ -1693,7 +1693,9 @@ const FileIO = {
         } catch(e) { console.warn('Could not write to file handle', e); }
       }
     }
-    // Firefox / fallback — download button in Settings
+    // Firefox / Safari with no File System Access API and no Drive — data lives only in
+    // the clearable browser cache, so don't claim it's "Lagret" like a real file/Drive save.
+    if (!this.supportsApi && !DriveIO.isSignedIn()) { this.setSyncLocalOnly(); return; }
     this.setSyncOk();
   },
 
@@ -1723,6 +1725,13 @@ const FileIO = {
     document.getElementById('syncDot').className = 'sync-dot';
     document.getElementById('syncText').textContent = 'Lagret';
     setTimeout(() => { document.getElementById('syncText').textContent = 'Klar'; }, 1500);
+  },
+
+  // Browser-cache-only persistence (Firefox/Safari, no Drive): stays visible and honest
+  // rather than flashing "Lagret", since clearing browser data would lose everything.
+  setSyncLocalOnly() {
+    document.getElementById('syncDot').className = 'sync-dot saving';
+    document.getElementById('syncText').textContent = 'Kun i nettleser — husk Last ned';
   },
 
   loadCache() {
