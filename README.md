@@ -61,7 +61,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Strava** — connect via OAuth to enable the Hent fra Strava form helper, zone import, and Beste innsats sync; requires a small Cloudflare Worker for the OAuth token exchange (Strava's API needs a client secret that can't live in browser code) — see [worker/README.md](worker/README.md) for deploy steps, entirely through Cloudflare's dashboard with no local tooling required; paste your Client ID and the Worker's URL, then click "Koble til Strava"
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
 - **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
-- **Datafil** — open, create, download, import Excel/CSV, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore
+- **Datafil** — open, create, download, import Excel/CSV, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore. A snapshot is also taken right before a clear-all or an import, so those are recoverable too
 - **Google Drive** — connect once via OAuth (PKCE flow); paste your Client ID and Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save; connection persists across page reloads via a stored refresh token; Drive takes priority over the local file when connected — the local file status and sync indicator are hidden, only the ☁ Drive indicator is shown
 
 ---
