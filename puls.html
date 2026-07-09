@@ -1914,6 +1914,9 @@ const DriveIO = (() => {
     refreshAll();
     if (!Form.editId) Form.clear();
     if (!FileIO.handle) {
+      // Header hides the local-file status (Drive is the source of truth), but Settings'
+      // Datafil card mirrors this element's text — keep it honest instead of a stale "Laster…".
+      FileIO.updateStatus('☁ Synkroniseres via Google Drive');
       document.getElementById('fileStatus').style.display = 'none';
       document.getElementById('syncStatus').style.display = 'none';
     }
