@@ -83,7 +83,7 @@ First-time users see a short in-app welcome message on the logging form explaini
 2. Select your `puls.json` — data loads immediately across all tabs
 3. The app remembers the file; next time you open it a one-click prompt restores access without re-picking
 
-### Google Drive sync (cross-device)
+### Google Drive sync (optional, cross-device)
 
 1. Go to **⚙️ Innstillinger** → **Google Drive**
 2. Paste your **Client ID** and **Client Secret** (from [Google Cloud Console](https://console.cloud.google.com/) → Credentials → your OAuth 2.0 client)
@@ -123,7 +123,7 @@ The Client Secret never leaves the Worker — only the Client ID and Worker URL 
 
 ## Firefox & Safari
 
-Firefox and Safari do not support the File System Access API, so local auto-save is unavailable. **Google Drive sync is the recommended alternative** — it works fully in both since it uses standard `fetch()` calls, not the File System Access API. Serve the app over HTTP and follow the [Google Drive sync](#google-drive-sync-cross-device) setup above.
+Firefox and Safari do not support the File System Access API, so local auto-save is unavailable. **Google Drive sync is the recommended alternative** — it works fully in both since it uses standard `fetch()` calls, not the File System Access API. Serve the app over HTTP and follow the [Google Drive sync](#google-drive-sync-optional-cross-device) setup above.
 
 Without Drive sync:
 
