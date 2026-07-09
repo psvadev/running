@@ -5861,8 +5861,7 @@ const Settings = {
       const usedKm = kmMap[name] || 0;
       const retKm = shoe.retirementKm;
       const safeId = name.replace(/[^a-zA-Z0-9]/g, '_');
-      // JS-string-escape then HTML-escape (entities decode before the JS engine parses).
-      const nameEsc = escapeHtml(name.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+      const nameAttr = escapeHtml(name); // shoe name in a data-attribute; dataset decodes it back
 
       let retireHtml = '';
       if (retKm && !isRetired) {
@@ -5899,11 +5898,11 @@ const Settings = {
       }
 
       const actionButtons = isRetired
-        ? `<button class="btn-secondary btn-sm" onclick="Settings.activateShoe('${nameEsc}')">Aktiver</button>
-           <button class="btn-secondary btn-sm" onclick="Settings.deleteshoe('${nameEsc}')">Fjern</button>`
-        : `<button class="btn-secondary btn-sm" onclick="Settings.retireShoe('${nameEsc}')">Pensjonér</button>
-           <button class="btn-secondary btn-sm" onclick="Settings.toggleShoeEdit('${safeId}')" style="font-size:11px">Rediger</button>
-           <button class="btn-secondary btn-sm" onclick="Settings.deleteshoe('${nameEsc}')">Fjern</button>`;
+        ? `<button class="btn-secondary btn-sm" data-shoe-action="activate" data-shoe-name="${nameAttr}">Aktiver</button>
+           <button class="btn-secondary btn-sm" data-shoe-action="delete" data-shoe-name="${nameAttr}">Fjern</button>`
+        : `<button class="btn-secondary btn-sm" data-shoe-action="retire" data-shoe-name="${nameAttr}">Pensjonér</button>
+           <button class="btn-secondary btn-sm" data-shoe-action="edit" data-safe-id="${safeId}" style="font-size:11px">Rediger</button>
+           <button class="btn-secondary btn-sm" data-shoe-action="delete" data-shoe-name="${nameAttr}">Fjern</button>`;
 
       const cardStyle = isRetired
         ? 'background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;opacity:0.6'
@@ -5920,8 +5919,8 @@ const Settings = {
         ${isRetired ? '' : `<div id="shoe-edit-${safeId}" style="display:none;margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
           <input type="number" id="shoe-ret-${safeId}" placeholder="Utløpsgrense km" value="${retKm || ''}" min="1"
             style="width:160px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px">
-          <button class="btn-primary btn-sm" onclick="Settings.saveShoeRetirement('${nameEsc}', '${safeId}')">Lagre</button>
-          <button class="btn-secondary btn-sm" onclick="Settings.toggleShoeEdit('${safeId}')">Avbryt</button>
+          <button class="btn-primary btn-sm" data-shoe-action="save" data-shoe-name="${nameAttr}" data-safe-id="${safeId}">Lagre</button>
+          <button class="btn-secondary btn-sm" data-shoe-action="edit" data-safe-id="${safeId}">Avbryt</button>
         </div>`}
       </div>`;
     };
@@ -5935,6 +5934,16 @@ const Settings = {
       : '';
 
     list.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">${activePart}</div>${retiredPart}`;
+    list.querySelectorAll('[data-shoe-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const { shoeAction, shoeName, safeId } = btn.dataset;
+        if (shoeAction === 'activate') this.activateShoe(shoeName);
+        else if (shoeAction === 'delete') this.deleteshoe(shoeName);
+        else if (shoeAction === 'retire') this.retireShoe(shoeName);
+        else if (shoeAction === 'edit') this.toggleShoeEdit(safeId);
+        else if (shoeAction === 'save') this.saveShoeRetirement(shoeName, safeId);
+      });
+    });
   },
 
   toggleShoeEdit(safeId) {
