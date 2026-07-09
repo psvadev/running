@@ -1130,6 +1130,7 @@ function minsToHm(m) {
 function hmsToSecs(str) {
   if (!str) return 0;
   const parts = str.trim().split(':').map(Number);
+  if (parts.some(isNaN)) return 0; // a non-numeric segment (typo) must not store NaN
   if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
   if (parts.length === 2) return parts[0]*60 + parts[1];
   return parts[0] || 0;
@@ -1145,6 +1146,7 @@ function secsToMmSs(s) {
 function mmSsToSecs(str) {
   if (!str) return 0;
   const parts = str.trim().split(':').map(Number);
+  if (parts.some(isNaN)) return 0; // a non-numeric segment (typo) must not store NaN
   if (parts.length === 2) return parts[0]*60 + parts[1];
   return parts[0]*60 || 0;
 }
@@ -1263,6 +1265,7 @@ async function copyToClipboard(text) {
 function hhmmToHours(str) {
   if (!str) return null;
   const parts = str.trim().split(':').map(Number);
+  if (parts.some(isNaN)) return null; // a non-numeric segment (typo) must not store NaN
   if (parts.length === 2) return parts[0] + parts[1] / 60;
   return parseFloat(str) || null;
 }
