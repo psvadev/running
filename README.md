@@ -5,7 +5,7 @@ A self-contained single-file running tracker that replaces a multi-tab Excel wor
 ## Features
 
 ### Logging
-- Log runs with date, session type (Easy / Steady / Long / Tempo / Intervaller / Test / **Race**), training plan, duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline % (treadmill) or **elevation gain in metres** (outdoor), shoe, sleep, **RPE (1–10)**, **run type** (outdoor / treadmill), **workout description** (only shown when Treningsplan = Runna — paste Runna programs or interval structures; appears above notes in the form and as `[Øktbeskrivelse]` in AI exports), and **notes** (free-text post-run context for AI analysis)
+- Log runs with date, session type (Easy / Steady / Long / Tempo / Intervaller / Test / **Race** — plus your own custom types via Innstillinger), training plan (also extendable), duration, distance, HR (avg + max), 5 HR zones, calories, pace, avg km/h, incline % (treadmill) or **elevation gain in metres** (outdoor), shoe, sleep, **RPE (1–10)**, **run type** (outdoor / treadmill), **workout description** (only shown when Treningsplan = Runna — paste Runna programs or interval structures; appears above notes in the form and as `[Øktbeskrivelse]` in AI exports), and **notes** (free-text post-run context for AI analysis)
 - Auto-calculated fields: duration (summed from zones), pace, avg km/h — check **Uten pulsdata** in the Pulssoner header to hide zones and enter duration manually (e.g. when running without a watch)
 - **Hent fra Strava** *(optional, requires Strava connection)* — button in the form pulls distance, duration, HR, HR zones, pace, elevation, and calories from a recent Strava activity, plus the Runna workout description when Runna pushed one to the activity (fills Øktbeskrivelse, never overwriting manually typed text); auto-selects automatically if exactly one run matches the date being logged, otherwise shows a picker (with a "Vis alle økter" link to always see the full list); only fills in fields — you still review and save manually
 - After saving a new session, the app jumps to the session log automatically
@@ -59,6 +59,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Beste innsats** — manually enter GPS-derived best effort times (400 m, 1 km, 5 km, 10 km, 15 km, halvmaraton, maraton), or sync them automatically from your full Strava history *(requires Strava connection)* — a full historical scan runs in rate-limit-safe batches and shows a review-before-applying comparison; these override Riegel estimates in the Ytelseskurve
 - **Strava** — connect via OAuth to enable the Hent fra Strava form helper, zone import, and Beste innsats sync; requires a small Cloudflare Worker for the OAuth token exchange (Strava's API needs a client secret that can't live in browser code) — see [worker/README.md](worker/README.md) for deploy steps, entirely through Cloudflare's dashboard with no local tooling required; paste your Client ID and the Worker's URL, then click "Koble til Strava"
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
+- **Egendefinerte lister** — add your own session types and training plans; they appear in the form and filter dropdowns alongside the built-in ones (which stay fixed), and can be removed again when unused
 - **Datafil** — open, create, download, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore. A snapshot is also taken right before a clear-all, so that is recoverable too
 - **Google Drive** — connect once via OAuth (PKCE flow); paste your Client ID and Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save; connection persists across page reloads via a stored refresh token; Drive takes priority over the local file when connected — the local file status and sync indicator are hidden, only the ☁ Drive indicator is shown (and **Innstillinger → Datafil** reads «Synkroniseres via Google Drive»)
 
@@ -72,10 +73,11 @@ First-time users see a short in-app welcome message on the logging form explaini
 
 ### First time (no existing data)
 
-1. Go to **⚙️ Innstillinger** → click **✨ Ny fil**
-2. Add a session in **➕ Legg til økt**, then click **💾 Lagre** in the header
-3. A save dialog appears — pick a folder and name (default: `puls.json`)
-4. All future saves happen automatically in the background
+1. Add a session in **➕ Legg til økt** and click **Lagre økt**
+2. A save dialog appears automatically — pick a folder and name (default: `puls.json`)
+3. All future saves happen automatically in the background
+
+(**⚙️ Innstillinger → ✨ Ny fil** also works if you prefer to create the data file before logging anything.)
 
 ### Loading an existing JSON file
 
