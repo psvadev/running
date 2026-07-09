@@ -56,7 +56,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
 - **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
 - **Datafil** — open, create, download, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore. A snapshot is also taken right before a clear-all, so that is recoverable too
-- **Google Drive** — connect once via OAuth (PKCE flow); paste your Client ID and Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save; connection persists across page reloads via a stored refresh token; Drive takes priority over the local file when connected — the local file status and sync indicator are hidden, only the ☁ Drive indicator is shown
+- **Google Drive** — connect once via OAuth (PKCE flow); paste your Client ID and Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save; connection persists across page reloads via a stored refresh token; Drive takes priority over the local file when connected — the local file status and sync indicator are hidden, only the ☁ Drive indicator is shown (and **Innstillinger → Datafil** reads «Synkroniseres via Google Drive»)
 
 ---
 
