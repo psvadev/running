@@ -1072,6 +1072,18 @@ function isoWeek(dateStr) {
   return `${d.getFullYear()}-${String(week).padStart(2, '0')}`;
 }
 function absWeekNum(d) { return Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000)); }
+// Local-calendar YYYY-MM-DD (and YYYY-MM). toISOString() is UTC, so an evening run in
+// Norway (UTC+1/+2) logged after local midnight but before UTC midnight would otherwise
+// resolve to the previous day; stored session dates are plain local calendar dates.
+function localISODate(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function localISOMonth(d = new Date()) { return localISODate(d).slice(0, 7); }
+// A local-calendar date N days before today, as YYYY-MM-DD (avoids UTC epoch-offset drift).
+function localISODaysAgo(days) {
+  const d = new Date(); d.setDate(d.getDate() - days);
+  return localISODate(d);
+}
 function getZoneForHr(hr, zones) {
   if (!hr || !zones?.length) return -1;
   for (let i = 0; i < zones.length; i++) {
@@ -1529,7 +1541,7 @@ const BackupDB = {
   async save(json, sessionCount) {
     try {
       const db = await this._open();
-      const date = new Date().toISOString().slice(0, 10);
+      const date = localISODate();
       await new Promise((res, rej) => {
         const tx = db.transaction('backups', 'readwrite');
         tx.objectStore('backups').put({ date, timestamp: new Date().toISOString(), sessionCount, json }, date);
@@ -2328,7 +2340,7 @@ const Form = {
   lastAutoOktnavn: '',
 
   init() {
-    document.getElementById('fDato').valueAsDate = new Date();
+    document.getElementById('fDato').value = localISODate();
     this.updateWeek();
     this.refreshShoeDropdown();
 
@@ -2545,7 +2557,7 @@ const Form = {
   },
 
   clear() {
-    document.getElementById('fDato').valueAsDate = new Date();
+    document.getElementById('fDato').value = localISODate();
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
@@ -3737,10 +3749,10 @@ function renderInsights(sessions) {
   if (!sessions.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">Ingen data</div>'; return; }
 
   try {
-  const today = new Date().toISOString().slice(0, 10);
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const today = localISODate();
+  const thirtyDaysAgo = localISODaysAgo(30);
   const curMonth  = today.slice(0, 7);
-  const lastMonth = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 7);
+  const lastMonth = localISOMonth(new Date(new Date().setMonth(new Date().getMonth() - 1)));
   const mNames    = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
   const totalKm   = sessions.reduce((s, x) => s + (x.distanse || 0), 0);
   const candidates = [];
@@ -3822,8 +3834,8 @@ function renderInsights(sessions) {
   }
 
   // Easy pace trend: last 8 weeks vs prior 8 weeks (show if >= 3% change)
-  const w8ago  = new Date(Date.now() -  56 * 86400000).toISOString().slice(0, 10);
-  const w16ago = new Date(Date.now() - 112 * 86400000).toISOString().slice(0, 10);
+  const w8ago  = localISODaysAgo(56);
+  const w16ago = localISODaysAgo(112);
   const recentEasy = sessions.filter(s => s.okttype === 'Easy' && s.tempo > 0 && s.dato >= w8ago);
   const priorEasy  = sessions.filter(s => s.okttype === 'Easy' && s.tempo > 0 && s.dato >= w16ago && s.dato < w8ago);
   if (recentEasy.length >= 3 && priorEasy.length >= 3) {
@@ -3855,8 +3867,8 @@ function renderInsights(sessions) {
   }
 
   // Volume trend: last 4 weeks vs prior 4 weeks
-  const w4ago  = new Date(Date.now() -  28 * 86400000).toISOString().slice(0, 10);
-  const w8ago2 = new Date(Date.now() -  56 * 86400000).toISOString().slice(0, 10);
+  const w4ago  = localISODaysAgo(28);
+  const w8ago2 = localISODaysAgo(56);
   const recentKm = sessions.filter(s => s.dato >= w4ago).reduce((sum, s) => sum + (s.distanse||0), 0);
   const priorKm  = sessions.filter(s => s.dato >= w8ago2 && s.dato < w4ago).reduce((sum, s) => sum + (s.distanse||0), 0);
   if (recentKm > 0 && priorKm > 0) {
@@ -3970,7 +3982,7 @@ function renderConsistency(sessions) {
     return;
   }
 
-  const nowAbs  = absWeekNum(new Date().toISOString().slice(0,10));
+  const nowAbs  = absWeekNum(localISODate());
   const PERIOD  = 12;
   const minAbs  = nowAbs - PERIOD + 1;
 
@@ -4077,7 +4089,7 @@ function computeBlocks(allSessions) {
     .sort((a,b) => a.date.localeCompare(b.date));
   if (!planEvents.length) return [];
 
-  const today = new Date().toISOString().slice(0,10);
+  const today = localISODate();
 
   return planEvents.map((evt, i) => {
     const startDate     = evt.date;
@@ -4153,7 +4165,7 @@ function renderBlocks() {
   if (!blocks.length) { el.style.display = 'none'; return; }
   el.style.display = '';
 
-  const today = new Date().toISOString().slice(0,10);
+  const today = localISODate();
   const sorted = blocks.slice().reverse();
   const current = sorted.find(b => b.endDate >= today);
   const past    = sorted.filter(b => b.endDate < today);
@@ -4386,7 +4398,7 @@ const DetailPanel = {
             avgKmWeek, avgPace, avgHR,
             consistencyScore, indoorKm, outdoorKm, shoes,
             targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget } = block;
-    const isCurrent = endDate >= new Date().toISOString().slice(0,10);
+    const isCurrent = endDate >= localISODate();
 
     const blockSessions = Store.data.sessions
       .filter(s => s.dato >= startDate && s.dato <= endDate)
@@ -5137,7 +5149,7 @@ function computeRecords(sessions) {
     if (curStreak>maxStreak) maxStreak=curStreak;
   });
   // Current streak (count backwards from this week)
-  const nowAbs = absWeekNum(new Date().toISOString().slice(0,10));
+  const nowAbs = absWeekNum(localISODate());
   let currentStreak = 0;
   for (let w = nowAbs; w >= nowAbs - 52; w--) {
     if (absWeekSet.has(w)) currentStreak++;
@@ -5850,11 +5862,11 @@ const Settings = {
         let projHtml = '';
         if (usedKm < retKm) {
           const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - 56);
-          const cutoffStr = cutoff.toISOString().slice(0, 10);
+          const cutoffStr = localISODate(cutoff);
           let recent = Store.data.sessions.filter(s => s.sko === name && s.dato >= cutoffStr);
           if (recent.length < 2) {
             const cutoff12 = new Date(now); cutoff12.setDate(cutoff12.getDate() - 84);
-            recent = Store.data.sessions.filter(s => s.sko === name && s.dato >= cutoff12.toISOString().slice(0, 10));
+            recent = Store.data.sessions.filter(s => s.sko === name && s.dato >= localISODate(cutoff12));
           }
           const windowWeeks = recent.length >= 2 ? (recent.length < 3 ? 12 : 8) : 0;
           if (windowWeeks > 0) {
@@ -6012,7 +6024,7 @@ const Settings = {
   renderRaceHistory() {
     const el = document.getElementById('raceHistoryList');
     if (!el) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISODate();
     const races = (Store.data.events || []).filter(e => e.type === 'race')
       .sort((a, b) => b.date.localeCompare(a.date));
     if (!races.length) {
