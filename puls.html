@@ -1384,6 +1384,8 @@ const Store = {
   },
 
   mergeSessions(incoming) {
+    // Snapshot the pre-import state so a bad import is recoverable from the backups list.
+    BackupDB.save(this.toJSON(), this.data.sessions.length);
     let added = 0;
     incoming.forEach(s => {
       const dup = this.data.sessions.find(x => this.isDuplicate(x, s));
@@ -5738,6 +5740,8 @@ const Settings = {
     document.getElementById('btnDownload').addEventListener('click', () => FileIO.download());
     document.getElementById('btnClearAll').addEventListener('click', () => {
       if (!confirm('Slett ALLE treningsøkter? Dette kan ikke angres.')) return;
+      // Snapshot the pre-clear state so it's recoverable from Lokale sikkerhetskopier.
+      BackupDB.save(Store.toJSON(), Store.data.sessions.length);
       Store.data.sessions = [];
       Store.data.lastUpdated = new Date().toISOString();
       FileIO.save(); refreshAll(); this.render();
