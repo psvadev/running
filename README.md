@@ -157,15 +157,16 @@ The first row must contain column headers. Header matching is case-insensitive. 
 
 ---
 
-## Firefox
+## Firefox & Safari
 
-Firefox does not support the File System Access API, so local auto-save is unavailable. **Google Drive sync is the recommended alternative** — it works fully in Firefox since it uses standard `fetch()` calls, not the File System Access API. Serve the app over HTTP and follow the [Google Drive sync](#google-drive-sync-cross-device) setup above.
+Firefox and Safari do not support the File System Access API, so local auto-save is unavailable. **Google Drive sync is the recommended alternative** — it works fully in both since it uses standard `fetch()` calls, not the File System Access API. Serve the app over HTTP and follow the [Google Drive sync](#google-drive-sync-cross-device) setup above.
 
 Without Drive sync:
 
 - Load data: **⚙️ Innstillinger** → **📂 Åpne fil** (standard file input)
 - Save data: **⚙️ Innstillinger** → **⬇️ Last ned** after each session to download the updated JSON
 - Re-open the downloaded file next time to continue where you left off
+- In this mode the save indicator reads **"Kun i nettleser — husk Last ned"** as a persistent reminder: your data is only in the browser's cache until you download it, so clearing browser data without downloading first would lose it
 
 ---
 
