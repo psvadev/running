@@ -1218,6 +1218,14 @@ function formatSessionTsv(sessions) {
   return [HDR, ...blocks].join('\n\n');
 }
 
+// Escape user-controlled text before interpolating it into innerHTML templates.
+// Covers both element text and double-quoted attribute values.
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
 function showToast(msg, type = 'info', duration = 4000) {
   const el = document.createElement('div');
   el.className = `toast toast-${type}`;
@@ -1439,13 +1447,13 @@ const CustomLists = {
     if (!container) return;
     const coreHtml = cfg.core.map(v => `
       <div style="display:flex;gap:12px;align-items:center">
-        <span style="font-size:13px;flex:1">${v}</span>
+        <span style="font-size:13px;flex:1">${escapeHtml(v)}</span>
         <span style="font-size:11px;color:var(--muted)">Standard</span>
       </div>`).join('');
     const customHtml = (Store.data[cfg.storeKey] || []).map(v => `
       <div style="display:flex;gap:12px;align-items:center">
-        <span style="font-size:13px;flex:1">${v}</span>
-        <button class="btn-secondary btn-sm" data-del-kind="${kind}" data-del-name="${v.replace(/"/g,'&quot;')}" style="padding:4px 8px">🗑️</button>
+        <span style="font-size:13px;flex:1">${escapeHtml(v)}</span>
+        <button class="btn-secondary btn-sm" data-del-kind="${kind}" data-del-name="${escapeHtml(v)}" style="padding:4px 8px">🗑️</button>
       </div>`).join('');
     container.innerHTML = coreHtml + customHtml;
     container.querySelectorAll('[data-del-kind]').forEach(btn => {
@@ -2407,13 +2415,13 @@ const Form = {
   refreshShoeDropdown(sel) {
     const sk = document.getElementById('fSko');
     const formPrev = sel || sk.value;
-    sk.innerHTML = Store.data.shoes.filter(s => !s.retired).map(s => `<option${s.name===formPrev?' selected':''}>${s.name}</option>`).join('');
+    sk.innerHTML = Store.data.shoes.filter(s => !s.retired).map(s => `<option${s.name===formPrev?' selected':''}>${escapeHtml(s.name)}</option>`).join('');
 
     const logFilter = document.getElementById('fFilterSko');
     if (logFilter) {
       const filterPrev = logFilter.value;
       logFilter.innerHTML = '<option value="">Alle</option>' +
-        Store.data.shoes.map(s => `<option${s.name===filterPrev?' selected':''}>${s.name}</option>`).join('');
+        Store.data.shoes.map(s => `<option${s.name===filterPrev?' selected':''}>${escapeHtml(s.name)}</option>`).join('');
     }
   },
 
@@ -2639,7 +2647,7 @@ const Log = {
         badge = `<span class="badge badge-${(s.okttype||'').toLowerCase()}">${s.okttype||'–'}</span>`;
       } else if (s.okttype) {
         const c = getCustomTypeColor(s.okttype);
-        badge = `<span class="badge" style="background:${c.bg};color:${c.fg}">${s.okttype}</span>`;
+        badge = `<span class="badge" style="background:${c.bg};color:${c.fg}">${escapeHtml(s.okttype)}</span>`;
       } else {
         badge = `<span class="badge">–</span>`;
       }
@@ -2651,15 +2659,15 @@ const Log = {
         <td>${fmtDate(s.dato)}</td>
         <td style="color:var(--muted)">${s.uke||''}</td>
         <td>${badge}${venueBadge}</td>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${s.oktnavn||''}${s.beskrivelse ? ` <span title="${s.beskrivelse.replace(/"/g,'&quot;')}" style="cursor:default">📋</span>` : ''}${s.notater ? ` <span title="${s.notater.replace(/"/g,'&quot;')}" style="cursor:default">📝</span>` : ''}</td>
-        <td style="color:var(--muted);font-size:11px">${s.treningsplan||''}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.oktnavn||'')}${s.beskrivelse ? ` <span title="${escapeHtml(s.beskrivelse)}" style="cursor:default">📋</span>` : ''}${s.notater ? ` <span title="${escapeHtml(s.notater)}" style="cursor:default">📝</span>` : ''}</td>
+        <td style="color:var(--muted);font-size:11px">${escapeHtml(s.treningsplan||'')}</td>
         <td>${fmtDist(s.distanse)}</td>
         <td>${malCell(s)}</td>
         <td>${secsToHms(s.varighet)}</td>
         <td>${s.tempo ? secsToMmSs(s.tempo) : ''}</td>
         <td>${s.gjsnittspuls||''}</td>
         <td>${s.toppuls||''}</td>
-        <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${s.sko||''}</td>
+        <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.sko||'')}</td>
         <td style="${s.sovn ? (s.sovn < 6 ? 'color:#e05555;font-weight:600' : s.sovn < 7 ? 'color:#f0c050;font-weight:600' : 'color:#4bbe78;font-weight:600') : ''}">${s.sovn ? hoursToHHMM(s.sovn) : ''}</td>
         <td>${s.hoydeMeter ? s.hoydeMeter+'m' : s.stigning ? s.stigning+'%' : ''}</td>
         <td>${s.rpe ? `<span style="font-weight:600;color:${s.rpe<=3?'var(--green)':s.rpe<=6?'#f0c050':s.rpe<=8?'#e08040':'#e05555'}">${s.rpe}</span>` : ''}</td>
@@ -3941,7 +3949,7 @@ function renderInsights(sessions) {
 
   candidates.sort((a, b) => b.priority - a.priority);
   el.innerHTML = candidates.slice(0, 6).map(ins =>
-    `<div class="insight-item"><span class="i-icon">${ins.icon}</span><div class="i-body"><div class="i-val">${ins.val}</div><div class="i-sub">${ins.sub}</div></div></div>`
+    `<div class="insight-item"><span class="i-icon">${ins.icon}</span><div class="i-body"><div class="i-val">${escapeHtml(ins.val)}</div><div class="i-sub">${escapeHtml(ins.sub)}</div></div></div>`
   ).join('') || '<div style="color:var(--muted);font-size:12px">Ingen innsikter tilgjengelig</div>';
   } catch(e) {
     el.innerHTML = `<div style="color:red;font-size:11px">DEBUG: ${e.message}</div>`;
@@ -4292,15 +4300,15 @@ const DetailPanel = {
     const sessionRows = weekSessions.slice().sort((a,b)=>a.dato.localeCompare(b.dato)).map(s =>
       `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
         <span style="min-width:80px;color:var(--muted)">${fmtDate(s.dato)}</span>
-        <span style="flex:1">${s.oktnavn || s.okttype || '–'}</span>
+        <span style="flex:1">${escapeHtml(s.oktnavn || s.okttype || '–')}</span>
         <span style="min-width:50px;text-align:right">${(s.distanse||0).toFixed(1)} km</span>
         <span style="min-width:54px;text-align:right;color:var(--muted)">${secsToHms(s.varighet)}</span>
-        ${s.sko ? `<span style="min-width:80px;color:var(--muted);text-align:right;font-size:11px">${s.sko}</span>` : ''}
+        ${s.sko ? `<span style="min-width:80px;color:var(--muted);text-align:right;font-size:11px">${escapeHtml(s.sko)}</span>` : ''}
       </div>`
     ).join('');
     this.open(`Uke ${wn}, ${yr}`, `
       <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
-      ${shoes.length ? `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sko: ${shoes.join(', ')}</div>` : ''}
+      ${shoes.length ? `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sko: ${escapeHtml(shoes.join(', '))}</div>` : ''}
       <div class="dp-section-label">Øktene</div>
       ${sessionRows || '<div style="color:var(--muted);font-size:12px">Ingen løp</div>'}`
     );
@@ -4326,7 +4334,7 @@ const DetailPanel = {
       ['Søvn',           s.sovn ? hoursToHHMM(s.sovn) : null],
       ['RPE',            s.rpe  ? `${s.rpe}/10` : null],
     ].filter(([,v]) => v);
-    const table = rows.map(([l,v]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${v}</span></div>`).join('');
+    const table = rows.map(([l,v]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${escapeHtml(v)}</span></div>`).join('');
     this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : ''));
   },
 
@@ -4349,7 +4357,7 @@ const DetailPanel = {
     const recentRows = recent.map(s=>
       `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
         <span style="min-width:80px;color:var(--muted)">${fmtDate(s.dato)}</span>
-        <span style="flex:1">${s.oktnavn||s.okttype||'–'}</span>
+        <span style="flex:1">${escapeHtml(s.oktnavn||s.okttype||'–')}</span>
         <span>${(s.distanse||0).toFixed(1)} km</span>
       </div>`
     ).join('');
@@ -4521,14 +4529,14 @@ const DetailPanel = {
     }
 
     const detailParts = [
-      (shoes?.length) ? `Sko: ${shoes.join(', ')}` : '',
+      (shoes?.length) ? `Sko: ${escapeHtml(shoes.join(', '))}` : '',
       (indoorKm||0) > 0 ? `Ute ${(outdoorKm||0).toFixed(0)} km · Inne ${(indoorKm||0).toFixed(0)} km` : '',
     ].filter(Boolean);
 
     const runsHtml = blockSessions.slice().reverse().map(s =>
       `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
         <span style="min-width:76px;color:var(--muted)">${fmtDate(s.dato)}</span>
-        <span style="flex:1">${s.oktnavn||s.okttype||'–'}</span>
+        <span style="flex:1">${escapeHtml(s.oktnavn||s.okttype||'–')}</span>
         <span style="min-width:46px;text-align:right">${(s.distanse||0).toFixed(1)} km</span>
         ${s.tempo?`<span style="min-width:60px;text-align:right;color:var(--muted)">${secsToMmSs(s.tempo)}/km</span>`:''}
       </div>`
@@ -5027,11 +5035,13 @@ function renderDashboard() {
       if (st.hrCount)   chips.push(`<span class="shoe-stat"><span class="sl">HR</span><span class="sv">${Math.round(st.hrSum/st.hrCount)}</span></span>`);
       if (st.lastDate)  chips.push(`<span class="shoe-stat"><span class="sl">sist</span><span class="sv">${fmtDate(st.lastDate)}</span></span>`);
       const metaLine = chips.length ? `<div class="shoe-meta">${chips.join('')}</div>` : '';
-      const nameEsc = name.replace(/'/g,"\\'");
+      // JS-string-escape first, then HTML-escape: the HTML parser decodes entities in the
+      // onclick attribute before the JS engine sees it, so both layers survive round-trip.
+      const nameEsc = escapeHtml(name.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
       return `
       <div style="cursor:pointer" onclick="DetailPanel.openShoe('${nameEsc}')">
         <div class="shoe-bar-row">
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}</span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
           <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>
           <span style="text-align:right">${km.toFixed(0)} km${warn}</span>
         </div>${metaLine}
@@ -5334,11 +5344,11 @@ const Import = {
         const skipText = skipParts.length ? ` · ${skipParts.join(', ')} hoppet over` : '';
         const dupText = dupCount ? ` · ${dupCount} mulig${dupCount === 1 ? '' : 'e'} duplikat${dupCount === 1 ? '' : 'er'}` : '';
         document.getElementById('importSummary').innerHTML =
-          `Fant ${importParsed.length} gyldige rader i "${file.name}"${skipText}${dupText}. Forhåndsvisning (maks 10):`;
+          `Fant ${importParsed.length} gyldige rader i "${escapeHtml(file.name)}"${skipText}${dupText}. Forhåndsvisning (maks 10):`;
         const headRow = document.getElementById('importPreviewHead');
         headRow.innerHTML = '<th>Dato</th><th>Type</th><th>Navn</th><th>Distanse</th><th>Varighet</th><th>Sko</th><th>Duplikat?</th>';
         document.getElementById('importPreviewBody').innerHTML = importParsed.slice(0,10).map(s =>
-          `<tr><td>${fmtDate(s.dato)}</td><td>${s.okttype}</td><td>${s.oktnavn}</td><td>${fmtDist(s.distanse)} km</td><td>${secsToHms(s.varighet)}</td><td>${s.sko}</td><td>${s._dup ? '⚠️ Mulig duplikat' : ''}</td></tr>`
+          `<tr><td>${fmtDate(s.dato)}</td><td>${escapeHtml(s.okttype)}</td><td>${escapeHtml(s.oktnavn)}</td><td>${fmtDist(s.distanse)} km</td><td>${secsToHms(s.varighet)}</td><td>${escapeHtml(s.sko)}</td><td>${s._dup ? '⚠️ Mulig duplikat' : ''}</td></tr>`
         ).join('');
         document.getElementById('importPreviewWrap').style.display = '';
         document.getElementById('btnImportConfirm').disabled = importParsed.length === 0;
@@ -5416,7 +5426,7 @@ const StravaImport = {
   _showAutoPicked(name) {
     showToast(`Hentet automatisk: ${name}`, 'success');
     const el = document.getElementById('stravaFetchMsg');
-    if (el) el.innerHTML = `Hentet: ${name} · <a href="#" onclick="event.preventDefault(); StravaImport.open(true)" style="color:inherit">Vis alle økter</a>`;
+    if (el) el.innerHTML = `Hentet: ${escapeHtml(name)} · <a href="#" onclick="event.preventDefault(); StravaImport.open(true)" style="color:inherit">Vis alle økter</a>`;
   },
 
   close() {
@@ -5427,7 +5437,7 @@ const StravaImport = {
     document.getElementById('stravaActivityList').innerHTML = this.activities.map((a, i) => `
       <div class="dp-session-row" onclick="StravaImport.select(${i})">
         <span style="min-width:80px;color:var(--muted)">${fmtDate(a.start_date_local)}</span>
-        <span style="flex:1">${a.name}</span>
+        <span style="flex:1">${escapeHtml(a.name)}</span>
         <span style="min-width:60px;text-align:right">${(a.distance/1000).toFixed(1)} km</span>
       </div>`).join('');
   },
@@ -5830,7 +5840,8 @@ const Settings = {
       const usedKm = kmMap[name] || 0;
       const retKm = shoe.retirementKm;
       const safeId = name.replace(/[^a-zA-Z0-9]/g, '_');
-      const nameEsc = name.replace(/'/g, "\\'");
+      // JS-string-escape then HTML-escape (entities decode before the JS engine parses).
+      const nameEsc = escapeHtml(name.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 
       let retireHtml = '';
       if (retKm && !isRetired) {
@@ -5880,7 +5891,7 @@ const Settings = {
       return `<div style="${cardStyle}">
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-size:18px">${isRetired ? '📦' : '👟'}</span>
-          <span style="flex:1;font-size:13px;font-weight:500">${name}</span>
+          <span style="flex:1;font-size:13px;font-weight:500">${escapeHtml(name)}</span>
           <span style="font-size:12px;color:var(--muted)">${usedKm.toFixed(0)} km</span>
           ${actionButtons}
         </div>
@@ -5954,8 +5965,8 @@ const Settings = {
       return `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
         <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
         <span style="font-size:12px;color:var(--muted);min-width:120px">${dateStr}</span>
-        <span style="font-size:11px;color:${color};min-width:64px">${typeLabel[evt.type] || evt.type}</span>
-        <span style="flex:1;font-size:13px;font-weight:500">${evt.title}</span>
+        <span style="font-size:11px;color:${color};min-width:64px">${typeLabel[evt.type] || escapeHtml(evt.type)}</span>
+        <span style="flex:1;font-size:13px;font-weight:500">${escapeHtml(evt.title)}</span>
         <button class="btn-secondary btn-sm" onclick="Settings.deleteEvent('${evt.id}')">✕</button>
       </div>`;
     }).join('');
@@ -6022,7 +6033,7 @@ const Settings = {
       ].filter(Boolean).join(' · ') : (isFuture ? '' : 'Ingen økt logget');
       return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-weight:600">🏁 ${evt.title}</span>
+          <span style="font-weight:600">🏁 ${escapeHtml(evt.title)}</span>
           ${isFuture ? '<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(108,143,255,.2);color:var(--accent)">Kommende</span>' : ''}
           <span style="font-size:12px;color:var(--muted);margin-left:auto">${fmtDate(evt.date)}</span>
         </div>
