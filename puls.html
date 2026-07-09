@@ -1051,7 +1051,6 @@ function absWeekNum(d) { return Math.floor((new Date(d).getTime() + 3*86400000) 
 function localISODate(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-function localISOMonth(d = new Date()) { return localISODate(d).slice(0, 7); }
 // A local-calendar date N days before today, as YYYY-MM-DD (avoids UTC epoch-offset drift).
 function localISODaysAgo(days) {
   const d = new Date(); d.setDate(d.getDate() - days);
@@ -3198,7 +3197,7 @@ function renderEfficiencyChart(sessions) {
   const venueLabel = vf === 'outdoor' ? ' utendørs' : vf === 'indoor' ? ' på tredemølle' : '';
 
   if (aeZ2Filter === 'z2') {
-    const z2 = (Store.data.settings.zones || [])[1];
+    const z2 = (Store.data.settings?.zones || [])[1];
     if (!z2?.min || !z2?.max) {
       showChartEmpty('chartEfficiency', true, 'Konfigurer pulssoner i innstillingene for Sone 2-filter.');
       return;
@@ -3716,8 +3715,6 @@ function renderInsights(sessions) {
   const today = localISODate();
   const thirtyDaysAgo = localISODaysAgo(30);
   const curMonth  = today.slice(0, 7);
-  const lastMonth = localISOMonth(new Date(new Date().setMonth(new Date().getMonth() - 1)));
-  const mNames    = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
   const totalKm   = sessions.reduce((s, x) => s + (x.distanse || 0), 0);
   const candidates = [];
   // Populated by the Easy pace/HR/RPE trend blocks below; reused by the decoupling check inside the RPE block.
@@ -3743,16 +3740,18 @@ function renderInsights(sessions) {
     candidates.push({ icon:'📍', val:`${rem} km igjen`, sub:`til ${nextMilestone} km-merket`, priority: nextMilestone - totalKm < 50 ? 4 : nextMilestone - totalKm < 100 ? 2 : 1 });
   }
 
-  // Most used shoe
+  // Shoe approaching retirement — respects the per-shoe limit when set (warn at 85%,
+  // urgent at 95%); falls back to the 400/450 km default for shoes without a limit
   const shoeKm = {};
   sessions.forEach(s => { if (s.sko) shoeKm[s.sko] = (shoeKm[s.sko] || 0) + (s.distanse || 0); });
-  const topShoe = Object.entries(shoeKm).sort((a, b) => b[1] - a[1])[0];
-  if (topShoe) candidates.push({ icon:'👟', val:topShoe[0], sub:`${(+topShoe[1]).toFixed(0)} km – mest brukte`, priority: 2 });
-
-  // Shoe approaching retirement (active shoes >= 400 km)
   (Store.data.shoes || []).filter(s => !s.retired).forEach(shoe => {
     const km = shoeKm[shoe.name] || 0;
-    if (km >= 400) candidates.push({ icon:'⚠️', val:shoe.name, sub:`${km.toFixed(0)} km – nærmer seg pensjonering`, priority: km >= 450 ? 4 : 3 });
+    const limit    = shoe.retirementKm || null;
+    const warnAt   = limit ? limit * 0.85 : 400;
+    const urgentAt = limit ? limit * 0.95 : 450;
+    if (km >= warnAt) candidates.push({ icon:'⚠️', val:shoe.name,
+      sub:`${km.toFixed(0)}${limit ? ` av ${limit}` : ''} km – nærmer seg pensjonering`,
+      priority: km >= urgentAt ? 4 : 3 });
   });
 
   // Heaviest 4-week training block
@@ -3776,27 +3775,6 @@ function renderInsights(sessions) {
     candidates.push({ icon:'💨', val:secsToMmSs(fastest.tempo)+' /km', sub:`raskeste Easy (${fmtDate(fastest.dato)})`, priority: fastest.dato >= thirtyDaysAgo ? 4 : 2 });
   }
 
-  // Most active month by km (primary) and by session count (only if different month)
-  const monthKm = {}, monthCount = {};
-  sessions.forEach(s => {
-    if (!s.dato) return;
-    const m = s.dato.slice(0, 7);
-    monthKm[m]    = (monthKm[m]    || 0) + (s.distanse || 0);
-    monthCount[m] = (monthCount[m] || 0) + 1;
-  });
-  const topMonthKm  = Object.entries(monthKm).sort((a, b) => b[1] - a[1])[0];
-  const topMonthCnt = Object.entries(monthCount).sort((a, b) => b[1] - a[1])[0];
-  if (topMonthKm) {
-    const [y, m] = topMonthKm[0].split('-');
-    const recent = topMonthKm[0] === curMonth || topMonthKm[0] === lastMonth;
-    candidates.push({ icon:'🏅', val:`${mNames[+m-1]} ${y}`, sub:`${topMonthKm[1].toFixed(0)} km – beste km-måned`, priority: recent ? 4 : 1 });
-  }
-  if (topMonthCnt && topMonthCnt[1] > 1 && (!topMonthKm || topMonthCnt[0] !== topMonthKm[0])) {
-    const [y, m] = topMonthCnt[0].split('-');
-    const recent = topMonthCnt[0] === curMonth || topMonthCnt[0] === lastMonth;
-    candidates.push({ icon:'📅', val:`${mNames[+m-1]} ${y}`, sub:`${topMonthCnt[1]} økter – mest aktive måned`, priority: recent ? 3 : 1 });
-  }
-
   // Easy pace trend: last 8 weeks vs prior 8 weeks (show if >= 3% change)
   const w8ago  = localISODaysAgo(56);
   const w16ago = localISODaysAgo(112);
@@ -3813,7 +3791,7 @@ function renderInsights(sessions) {
   }
 
   // Easy run compliance: % of Runna Easy runs with avg HR inside Zone 2
-  const z2 = (Store.data.settings.zones || [])[1];
+  const z2 = (Store.data.settings?.zones || [])[1];
   const easyWithHR = sessions.filter(s => s.okttype === 'Easy' && s.treningsplan === 'Runna' && s.gjsnittspuls > 0);
   if (easyWithHR.length >= 3 && z2?.min && z2?.max) {
     const inZ2  = easyWithHR.filter(s => s.gjsnittspuls >= z2.min && s.gjsnittspuls <= z2.max).length;
