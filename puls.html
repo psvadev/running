@@ -1265,6 +1265,10 @@ function parseSovn(val) {
 // ═══════════════════════════════════════════════════════
 const Store = {
   data: { sessions: [], shoes: [], goals: {}, events: [], consistencySettings: { kmThreshold: 15, runThreshold: 2 }, customSessionTypes: [], customPlans: [], lastUpdated: null },
+  // True once this session has successfully loaded persisted data (cache, file, Drive or
+  // backup). While false, memory is the baseline-empty default — FileIO.save() uses this
+  // to avoid overwriting a real file with an empty dataset after e.g. a corrupt cache.
+  loadedFromPersisted: false,
 
   load(json) {
     try {
@@ -1272,6 +1276,7 @@ const Store = {
       if (!this.data.sessions) this.data.sessions = [];
       if (!this.data.shoes) this.data.shoes = [];
       this._migrate();
+      this.loadedFromPersisted = true;
       BackupDB.save(json, this.data.sessions.length);
     } catch(e) {
       alert('Kunne ikke lese filen. Sjekk at det er en gyldig puls JSON-fil.');
@@ -1622,6 +1627,24 @@ const FileIO = {
             }
           } catch { /* fall through to showSaveFilePicker */ }
         }
+      }
+
+      // If this session never successfully loaded persisted data (e.g. corrupt cache),
+      // memory is the baseline-empty default — read the file before overwriting it, and
+      // ask when the file clearly holds more than we're about to write over it.
+      if (this.handle && !Store.loadedFromPersisted) {
+        try {
+          const file = await this.handle.getFile();
+          const onDisk = JSON.parse(await file.text());
+          const diskCount = onDisk?.sessions?.length || 0;
+          if (diskCount > Store.data.sessions.length &&
+              !confirm(`Filen "${file.name}" inneholder ${diskCount} økter, men appen har bare ${Store.data.sessions.length} i minnet (lagrede data kunne ikke leses ved oppstart). Overskrive filen likevel?\n\nAvbryt anbefales — åpne filen via Innstillinger → Åpne fil først.`)) {
+            this.updateStatus('Ikke lagret til fil — åpne filen via Innstillinger først');
+            this.setSyncOk();
+            return;
+          }
+        } catch { /* unreadable or brand-new file — nothing to protect */ }
+        Store.loadedFromPersisted = true; // decision made; don't re-prompt every save
       }
 
       if (!this.handle) {
