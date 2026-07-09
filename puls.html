@@ -1591,7 +1591,14 @@ const FileIO = {
   async save() {
     this.setSyncSaving();
     const json = Store.toJSON();
-    localStorage.setItem('lpl_cache', json);
+    // Quota overflow here must not abort the whole save — Drive/disk writes below
+    // are the real persistence; the cache is just a fast-startup convenience.
+    try {
+      localStorage.setItem('lpl_cache', json);
+    } catch (e) {
+      console.warn('lpl_cache write failed (quota?)', e);
+      showToast('Lokal hurtigbuffer full — data lagres fortsatt til fil/Drive', 'error');
+    }
     if (DriveIO.isSignedIn()) DriveIO.save().then(ok => {
       if (ok) DriveIO._onSyncOk();
       else DriveIO._onSyncError();
