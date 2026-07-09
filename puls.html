@@ -854,6 +854,7 @@
       </select>
       <input type="text" id="newEvtTitle" placeholder="Tittel (f.eks. Start Runna 10K)" style="flex:1;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <button class="btn-primary btn-sm" id="btnAddEvent">+ Legg til</button>
+      <button class="btn-secondary btn-sm" id="btnCancelEvtEdit" style="display:none">Avbryt</button>
     </div>
     <div id="evtPlanTargets" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       <input type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
@@ -1328,6 +1329,15 @@ const Store = {
   addEvent(evt) {
     if (!this.data.events) this.data.events = [];
     this.data.events.push(evt);
+    this.data.events.sort((a, b) => a.date.localeCompare(b.date));
+    this.data.lastUpdated = new Date().toISOString();
+    FileIO.save();
+  },
+
+  updateEvent(evt) {
+    const i = (this.data.events || []).findIndex(e => e.id === evt.id);
+    if (i === -1) return;
+    this.data.events[i] = evt;
     this.data.events.sort((a, b) => a.date.localeCompare(b.date));
     this.data.lastUpdated = new Date().toISOString();
     FileIO.save();
@@ -5471,6 +5481,7 @@ const Settings = {
 
     // Event management
     document.getElementById('btnAddEvent').addEventListener('click', () => this.addEvent());
+    document.getElementById('btnCancelEvtEdit').addEventListener('click', () => this.cancelEventEdit());
     document.getElementById('newEvtTitle').addEventListener('keydown', e => { if (e.key === 'Enter') this.addEvent(); });
     document.getElementById('newEvtType').addEventListener('change', e => {
       document.getElementById('evtPlanTargets').style.display = e.target.value === 'plan' ? 'flex' : 'none';
@@ -5573,8 +5584,17 @@ const Settings = {
       <div style="display:flex;gap:12px;align-items:center">
         <span style="font-size:13px;min-width:46px;font-weight:600">${yr}</span>
         <span style="font-size:13px;flex:1">${goals[yr]} km</span>
-        <button class="btn-secondary btn-sm" data-del-goal="${yr}" style="padding:4px 8px">🗑️</button>
+        <button class="btn-secondary btn-sm" data-edit-goal="${yr}" style="padding:4px 8px" title="Rediger">✏️</button>
+        <button class="btn-secondary btn-sm" data-del-goal="${yr}" style="padding:4px 8px" title="Slett">🗑️</button>
       </div>`).join('');
+    // Edit = prefill the inputs; adding the same year overwrites the goal in place
+    container.querySelectorAll('[data-edit-goal]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('newGoalYear').value = btn.dataset.editGoal;
+        document.getElementById('newGoalKm').value = Store.data.goals[btn.dataset.editGoal];
+        document.getElementById('newGoalKm').focus();
+      });
+    });
     container.querySelectorAll('[data-del-goal]').forEach(btn => {
       btn.addEventListener('click', () => {
         if (!confirm(`Slette mål for ${btn.dataset.delGoal}?`)) return;
@@ -5764,9 +5784,49 @@ const Settings = {
         <span style="font-size:12px;color:var(--muted);min-width:120px">${dateStr}</span>
         <span style="font-size:11px;color:${color};min-width:64px">${typeLabel[evt.type] || escapeHtml(evt.type)}</span>
         <span style="flex:1;font-size:13px;font-weight:500">${escapeHtml(evt.title)}</span>
-        <button class="btn-secondary btn-sm" onclick="Settings.deleteEvent('${evt.id}')">✕</button>
+        <button class="btn-secondary btn-sm" data-edit-event="${evt.id}" title="Rediger">✏️</button>
+        <button class="btn-secondary btn-sm" data-del-event="${evt.id}" title="Slett">✕</button>
       </div>`;
     }).join('');
+    list.querySelectorAll('[data-edit-event]').forEach(btn =>
+      btn.addEventListener('click', () => this.editEvent(btn.dataset.editEvent)));
+    list.querySelectorAll('[data-del-event]').forEach(btn =>
+      btn.addEventListener('click', () => this.deleteEvent(btn.dataset.delEvent)));
+  },
+
+  editingEventId: null,
+
+  editEvent(id) {
+    const evt = (Store.data.events || []).find(e => e.id === id);
+    if (!evt) return;
+    document.getElementById('newEvtDate').value = evt.date;
+    document.getElementById('newEvtEndDate').value = evt.endDate || '';
+    document.getElementById('newEvtType').value = evt.type;
+    document.getElementById('newEvtTitle').value = evt.title;
+    document.getElementById('newEvtKmTarget').value = evt.targetKmPerWeek || '';
+    document.getElementById('newEvtRunTarget').value = evt.targetRunsPerWeek || '';
+    document.getElementById('evtPlanTargets').style.display = evt.type === 'plan' ? 'flex' : 'none';
+    this.editingEventId = id;
+    document.getElementById('btnAddEvent').textContent = 'Lagre endringer';
+    document.getElementById('btnCancelEvtEdit').style.display = '';
+    document.getElementById('newEvtTitle').focus();
+  },
+
+  cancelEventEdit() {
+    this.editingEventId = null;
+    this._clearEventForm();
+  },
+
+  _clearEventForm() {
+    document.getElementById('newEvtDate').value = '';
+    document.getElementById('newEvtEndDate').value = '';
+    document.getElementById('newEvtTitle').value = '';
+    document.getElementById('newEvtKmTarget').value = '';
+    document.getElementById('newEvtRunTarget').value = '';
+    document.getElementById('evtPlanTargets').style.display = 'none';
+    document.getElementById('newEvtType').value = 'plan';
+    document.getElementById('btnAddEvent').textContent = '+ Legg til';
+    document.getElementById('btnCancelEvtEdit').style.display = 'none';
   },
 
   addEvent() {
@@ -5775,7 +5835,8 @@ const Settings = {
     const type = document.getElementById('newEvtType').value;
     const title = document.getElementById('newEvtTitle').value.trim();
     if (!date || !title) return;
-    const evt = { id: genId(), date, type, title };
+    // Editing an existing event reuses its id so chart markers and race-matching stay stable
+    const evt = { id: this.editingEventId || genId(), date, type, title };
     if (endDate && endDate > date) evt.endDate = endDate;
     if (type === 'plan') {
       const kmT  = parseFloat(document.getElementById('newEvtKmTarget').value)  || null;
@@ -5783,14 +5844,9 @@ const Settings = {
       if (kmT)  evt.targetKmPerWeek   = kmT;
       if (runT) evt.targetRunsPerWeek = runT;
     }
-    Store.addEvent(evt);
-    document.getElementById('newEvtDate').value = '';
-    document.getElementById('newEvtEndDate').value = '';
-    document.getElementById('newEvtTitle').value = '';
-    document.getElementById('newEvtKmTarget').value = '';
-    document.getElementById('newEvtRunTarget').value = '';
-    document.getElementById('evtPlanTargets').style.display = 'none';
-    document.getElementById('newEvtType').value = 'plan';
+    if (this.editingEventId) { Store.updateEvent(evt); this.editingEventId = null; }
+    else Store.addEvent(evt);
+    this._clearEventForm();
     this.renderEventList();
     this.renderRaceHistory();
     if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
@@ -5800,6 +5856,7 @@ const Settings = {
     const evt = (Store.data.events || []).find(e => e.id === id);
     const label = evt ? (evt.title || fmtDate(evt.date)) : 'denne hendelsen';
     if (!confirm(`Slette "${label}"?`)) return;
+    if (this.editingEventId === id) this.cancelEventEdit();
     Store.deleteEvent(id);
     this.renderEventList();
     this.renderRaceHistory();
