@@ -3865,7 +3865,7 @@ function renderInsights(sessions) {
   if (upcomingRaces.length) {
     const next = upcomingRaces[0];
     const daysUntil = Math.round((new Date(next.date) - new Date(today)) / 86400000);
-    candidates.push({ icon: '🏁', val: `${daysUntil} dager`,
+    candidates.push({ icon: '🏁', val: `${daysUntil} ${daysUntil === 1 ? 'dag' : 'dager'}`,
       sub: `til ${next.title} (${fmtDate(next.date)})`,
       priority: daysUntil <= 14 ? 5 : daysUntil <= 60 ? 4 : 3 });
   }
