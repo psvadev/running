@@ -48,13 +48,17 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - Edit or delete any row
 - **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; single header row at the top, then one block per session: `=== YYYY-MM-DD | Øktnavn | dist km ===` header, optional `[Øktbeskrivelse]` block (workout plan/structure), note text (if any), then the data row; blocks separated by blank lines
 
+### Planning (Planlegging)
+- **Yearly goals (Mål)** — set a km target per year, tracked on the dashboard; ✏️ prefills the inputs for quick editing (re-adding a year overwrites it in place)
+- **Hendelser** — events (Plan / Løp/Race / Sykdom / Ferie / Deload / Taper / Annet) shown as vertical markers and shaded spans on the charts; optional end date for periods; Plan events can carry weekly km/run targets and drive the Treningsblokker cards; ✏️ opens the event in the form for in-place editing (e.g. adding an end date after the fact) — the button flips to "Lagre endringer" with an Avbryt escape
+- **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
+- **Løp & Races** — lists all race events with matched session stats
+
 ### Settings (Innstillinger)
-- **Yearly goals** — set a km target per year; tracked on the dashboard
 - **Profil & Puls** — max HR, resting HR, 5 zone boundaries; auto-calculate zones from max HR, or import your real boundaries directly from Strava *(requires Strava connection)*; zone boundaries drive HR zone analysis in training block drill-downs, Easy run Zone 2 compliance insights, and the Zone 2 efficiency filter
 - **Beste innsats** — manually enter GPS-derived best effort times (400 m, 1 km, 5 km, 10 km, 15 km, halvmaraton, maraton), or sync them automatically from your full Strava history *(requires Strava connection)* — a full historical scan runs in rate-limit-safe batches and shows a review-before-applying comparison; these override Riegel estimates in the Ytelseskurve
 - **Strava** — connect via OAuth to enable the Hent fra Strava form helper, zone import, and Beste innsats sync; requires a small Cloudflare Worker for the OAuth token exchange (Strava's API needs a client secret that can't live in browser code) — see [worker/README.md](worker/README.md) for deploy steps, entirely through Cloudflare's dashboard with no local tooling required; paste your Client ID and the Worker's URL, then click "Koble til Strava"
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
-- **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
 - **Datafil** — open, create, download, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore. A snapshot is also taken right before a clear-all, so that is recoverable too
 - **Google Drive** — connect once via OAuth (PKCE flow); paste your Client ID and Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save; connection persists across page reloads via a stored refresh token; Drive takes priority over the local file when connected — the local file status and sync indicator are hidden, only the ☁ Drive indicator is shown (and **Innstillinger → Datafil** reads «Synkroniseres via Google Drive»)
 
