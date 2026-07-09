@@ -1599,8 +1599,10 @@ const FileIO = {
       console.warn('lpl_cache write failed (quota?)', e);
       showToast('Lokal hurtigbuffer full — data lagres fortsatt til fil/Drive', 'error');
     }
-    if (DriveIO.isSignedIn()) DriveIO.save().then(ok => {
-      if (ok) DriveIO._onSyncOk();
+    if (DriveIO.isSignedIn()) DriveIO.save().then(res => {
+      if (res === true) DriveIO._onSyncOk();
+      else if (res === 'blocked') DriveIO._onSyncBlocked();
+      else if (res === 'conflict') DriveIO._onSyncConflict();
       else DriveIO._onSyncError();
     }).catch(e => DriveIO._onSyncError(e.message));
 
@@ -1828,65 +1830,111 @@ const DriveIO = (() => {
     return false;
   }
 
+  // Sync-safety state: saves to Drive are blocked until this page-load has successfully
+  // fetched Drive's current content, so a silently-failed load can never lead to a stale
+  // in-memory dataset overwriting newer data written by another device.
+  let _loadConfirmed = false;      // this session has seen Drive's current state
+  let _lastSeenModified = null;    // Drive modifiedTime as of our last successful load/save
+  let _pendingLocal = false;       // local edits exist that a blocked/conflicted save couldn't push
+
+  // Returns { ok:true, data } on success, { ok:true, data:null } when Drive definitively
+  // has no puls.json (a confirmed state — safe to create), or { ok:false } on any failure.
+  // Metadata (modifiedTime) is fetched BEFORE content: if another device writes in between,
+  // we record the older stamp and the next save sees a conflict — fail-safe direction.
   async function load() {
     const token = await _validToken();
-    if (!token) return null;
+    if (!token) return { ok: false };
+    const auth = { headers: { Authorization: `Bearer ${token}` } };
     const fileId = localStorage.getItem('pulsDriveFileId');
     if (fileId) {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) return res.json();
-      if (res.status === 404) localStorage.removeItem('pulsDriveFileId');
+      const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime`, auth);
+      if (meta.ok) {
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, auth);
+        if (!res.ok) return { ok: false };
+        _lastSeenModified = (await meta.json()).modifiedTime;
+        _loadConfirmed = true;
+        return { ok: true, data: await res.json() };
+      }
+      if (meta.status !== 404) return { ok: false };
+      localStorage.removeItem('pulsDriveFileId');
     }
-    const list = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent("name='puls.json' and trashed=false")}&spaces=drive&fields=files(id)`, { headers: { Authorization: `Bearer ${token}` } });
+    const list = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent("name='puls.json' and trashed=false")}&spaces=drive&fields=files(id,modifiedTime)`, auth);
+    if (!list.ok) return { ok: false };
     const { files } = await list.json();
     if (files?.length) {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${files[0].id}?alt=media`, auth);
+      if (!res.ok) return { ok: false };
       localStorage.setItem('pulsDriveFileId', files[0].id);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${files[0].id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) return res.json();
+      _lastSeenModified = files[0].modifiedTime;
+      _loadConfirmed = true;
+      return { ok: true, data: await res.json() };
     }
-    return null;
+    // Confirmed: no file exists in Drive yet — nothing to overwrite, creating is safe.
+    _lastSeenModified = null;
+    _loadConfirmed = true;
+    return { ok: true, data: null };
   }
 
+  // Returns true on success, 'blocked' when this session never confirmed Drive's state,
+  // 'conflict' when Drive changed since we last saw it (another device wrote), false on error.
   async function save() {
+    if (!_loadConfirmed) { _pendingLocal = true; return 'blocked'; }
     const token = await _validToken();
     if (!token) return false;
     const body = Store.toJSON();
     let fileId = localStorage.getItem('pulsDriveFileId');
     if (fileId) {
-      const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+      // Pre-flight: refuse to overwrite if the file changed since this session last saw it.
+      const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime`, { headers: { Authorization: `Bearer ${token}` } });
+      if (meta.ok) {
+        const remote = (await meta.json()).modifiedTime;
+        if (_lastSeenModified && remote !== _lastSeenModified) { _pendingLocal = true; return 'conflict'; }
+      } else if (meta.status === 404) {
+        localStorage.removeItem('pulsDriveFileId'); fileId = null;
+      } else return false;
+    }
+    if (fileId) {
+      const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&fields=modifiedTime`, {
         method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body
       });
-      if (res.ok) return true;
+      if (res.ok) { _lastSeenModified = (await res.json()).modifiedTime; _pendingLocal = false; return true; }
       if (res.status === 404) { localStorage.removeItem('pulsDriveFileId'); fileId = null; }
     }
     if (!fileId) {
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify({ name: 'puls.json', mimeType: 'application/json' })], { type: 'application/json' }));
       form.append('file', new Blob([body], { type: 'application/json' }));
-      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', {
         method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
       });
       const d = await res.json();
-      if (d.id) { localStorage.setItem('pulsDriveFileId', d.id); return true; }
+      if (d.id) { localStorage.setItem('pulsDriveFileId', d.id); _lastSeenModified = d.modifiedTime; _pendingLocal = false; return true; }
     }
     return false;
+  }
+
+  function _applyDriveData(data) {
+    const json = JSON.stringify(data);
+    Store.load(json);
+    try { localStorage.setItem('lpl_cache', json); } catch {}
+    refreshAll();
+    if (!Form.editId) Form.clear();
+    if (!FileIO.handle) {
+      document.getElementById('fileStatus').style.display = 'none';
+      document.getElementById('syncStatus').style.display = 'none';
+    }
   }
 
   async function _afterConnect() {
     _setStatus('Kobler til Drive…');
     try {
-      const data = await load();
-      if (data) {
-        const json = JSON.stringify(data);
-        Store.load(json);
-        localStorage.setItem('lpl_cache', json);
-        refreshAll();
-        if (!Form.editId) Form.clear();
+      const res = await load();
+      if (!res.ok) {
+        _setStatus('Kunne ikke hente fra Drive — prøv på nytt');
+        _onLoadFailed();
+      } else if (res.data) {
+        _applyDriveData(res.data);
         _setStatus('✓ Lastet fra Drive');
-        if (!FileIO.handle) {
-          document.getElementById('fileStatus').style.display = 'none';
-          document.getElementById('syncStatus').style.display = 'none';
-        }
       } else if (Store.data.sessions.length > 0) {
         if (confirm('Ingen puls.json funnet i Drive. Last opp gjeldende data?')) {
           await save();
@@ -1901,6 +1949,7 @@ const DriveIO = (() => {
     } catch(e) {
       console.error('Drive error', e);
       _setStatus('Feil: ' + (e.message || 'ukjent'));
+      _onLoadFailed();
     }
     _updateBtn();
   }
@@ -1919,22 +1968,76 @@ const DriveIO = (() => {
     _updateBtn();
     if (isSignedIn()) {
       _setStatus('✓ Koblet til Drive');
-      load().then(data => {
-        if (data) {
-          const json = JSON.stringify(data);
-          Store.load(json);
-          localStorage.setItem('lpl_cache', json);
-          refreshAll();
-          if (!Form.editId) Form.clear();
-          if (!FileIO.handle) {
-          document.getElementById('fileStatus').style.display = 'none';
-          document.getElementById('syncStatus').style.display = 'none';
-        }
-        }
-      }).catch(() => {});
+      _loadFromDrive();
     } else if (localStorage.getItem('pulsDriveConnected')) {
       _setStatus('Klikk for å koble til på nytt');
     }
+  }
+
+  // Fetch Drive's current content. On failure the error is made VISIBLE (red ☁ + toast)
+  // and saves stay blocked — never silently keep stale data while claiming to be synced.
+  async function _loadFromDrive() {
+    try {
+      const res = await load();
+      if (!res.ok) { _onLoadFailed(); return false; }
+      if (res.data) {
+        if (_pendingLocal) return _resolveConflict(res.data);
+        _applyDriveData(res.data);
+      }
+      _onSyncOk();
+      return true;
+    } catch (e) {
+      console.warn('Drive load failed', e);
+      _onLoadFailed();
+      return false;
+    }
+  }
+
+  // Both sides have changes (this device edited while unsynced AND Drive may differ).
+  // No merge exists — make the user choose explicitly instead of silently losing either side.
+  async function _resolveConflict(driveData) {
+    if (JSON.stringify(driveData) === Store.toJSON()) { _pendingLocal = false; _onSyncOk(); return true; }
+    const keepLocal = confirm(
+      'Både denne enheten og Drive kan ha endringer.\n\n' +
+      'OK: Behold denne enhetens data og overskriv Drive.\n' +
+      'Avbryt: Hent Drive-versjonen (endringer gjort på denne enheten forkastes).'
+    );
+    if (keepLocal) {
+      _pendingLocal = false;
+      const ok = await save();
+      if (ok === true) { _onSyncOk(); showToast('Denne enhetens data er lagret til Drive', 'success'); return true; }
+      _onSyncError();
+      return false;
+    }
+    _pendingLocal = false;
+    _applyDriveData(driveData);
+    _onSyncOk();
+    showToast('Hentet siste data fra Drive', 'success');
+    return true;
+  }
+
+  function _setIndicatorProblem(title) {
+    const ind = document.getElementById('driveIndicator');
+    if (!ind) return;
+    ind.style.color = '#e74c3c';
+    ind.title = title;
+    ind.style.cursor = 'pointer';
+    ind.onclick = () => _loadFromDrive();
+  }
+
+  function _onLoadFailed() {
+    _setIndicatorProblem('Kunne ikke hente fra Drive — Drive-lagring er blokkert. Klikk for å prøve igjen.');
+    showToast('Kunne ikke hente fra Drive — Drive-lagring er blokkert inntil videre. Klikk ☁-ikonet for å prøve igjen.', 'error', 6000);
+  }
+
+  function _onSyncBlocked() {
+    _setIndicatorProblem('Drive-lagring venter — har ikke hentet siste data fra Drive. Klikk for å prøve igjen. Data er lagret lokalt.');
+    showToast('Endringen er lagret lokalt, men ikke til Drive ennå — klikk ☁-ikonet for å synkronisere.', 'error', 6000);
+  }
+
+  function _onSyncConflict() {
+    _setIndicatorProblem('Drive-filen er endret fra en annen enhet. Klikk for å løse.');
+    showToast('Drive-filen er endret fra en annen enhet — klikk ☁-ikonet for å løse.', 'error', 6000);
   }
 
   function _setStatus(msg) {
@@ -1971,6 +2074,8 @@ const DriveIO = (() => {
     if (ind && isSignedIn()) {
       ind.style.color = 'var(--green)';
       ind.title = 'Google Drive koblet til';
+      ind.style.cursor = '';
+      ind.onclick = null;
     }
   }
 
@@ -1989,7 +2094,7 @@ const DriveIO = (() => {
     if (ok) await _afterConnect(); else init();
   }
 
-  return { init, connect, disconnect, load, save, isSignedIn, handleCallback, handleOAuthCallback, _afterConnect, _onSyncOk, _onSyncError };
+  return { init, connect, disconnect, load, save, isSignedIn, handleCallback, handleOAuthCallback, _afterConnect, _onSyncOk, _onSyncError, _onSyncBlocked, _onSyncConflict };
 })();
 
 const StravaIO = (() => {
