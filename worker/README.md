@@ -2,6 +2,8 @@
 
 Stateless Cloudflare Worker handling the Strava OAuth token exchange (`/exchange`) and refresh (`/refresh`). Holds `STRAVA_CLIENT_SECRET` so it never has to live in `puls.html` or the browser.
 
+CORS is locked to the app's origin via the `ALLOWED_ORIGINS` allowlist at the top of `index.js` (`https://psvadev.github.io`) — only the deployed app may use it as a token proxy from a browser. If the app ever moves to a custom domain, add that origin to `ALLOWED_ORIGINS` and redeploy. (CORS only blocks browser callers; it isn't a substitute for auth against a server-side script — see the note in `index.js`.)
+
 ## Option A — Cloudflare dashboard (no local tools, recommended if you don't already have Node/npm)
 
 ### 1. Register a Strava API app
