@@ -48,12 +48,6 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - Edit or delete any row
 - **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; single header row at the top, then one block per session: `=== YYYY-MM-DD | Øktnavn | dist km ===` header, optional `[Øktbeskrivelse]` block (workout plan/structure), note text (if any), then the data row; blocks separated by blank lines
 
-### Import
-- Import from `.xlsx` or `.csv` via SheetJS — available under **⚙️ Innstillinger → Datafil**
-- Preview before confirming, with a skip-reason breakdown (blank rows, missing date, missing/invalid distance) and a **Duplikat?** column flagging likely duplicates (matched on date + distance + duration, including duplicates within the same import batch)
-- On confirm, a toast summarizes how many sessions were added vs skipped as duplicates
-- Maps all Norwegian column headers from the original Excel workbook
-
 ### Settings (Innstillinger)
 - **Yearly goals** — set a km target per year; tracked on the dashboard
 - **Profil & Puls** — max HR, resting HR, 5 zone boundaries; auto-calculate zones from max HR, or import your real boundaries directly from Strava *(requires Strava connection)*; zone boundaries drive HR zone analysis in training block drill-downs, Easy run Zone 2 compliance insights, and the Zone 2 efficiency filter
@@ -61,7 +55,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 - **Strava** — connect via OAuth to enable the Hent fra Strava form helper, zone import, and Beste innsats sync; requires a small Cloudflare Worker for the OAuth token exchange (Strava's API needs a client secret that can't live in browser code) — see [worker/README.md](worker/README.md) for deploy steps, entirely through Cloudflare's dashboard with no local tooling required; paste your Client ID and the Worker's URL, then click "Koble til Strava"
 - **Treningsrytme** — km-grense and løp-grense per week used to compute the consistency score
 - **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
-- **Datafil** — open, create, download, import Excel/CSV, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore. A snapshot is also taken right before a clear-all or an import, so those are recoverable too
+- **Datafil** — open, create, download, or clear all data; **Lokale sikkerhetskopier** — automatic daily snapshots stored in browser IndexedDB (last 7 days), with one-click restore. A snapshot is also taken right before a clear-all, so that is recoverable too
 - **Google Drive** — connect once via OAuth (PKCE flow); paste your Client ID and Client Secret from Google Cloud Console, click "Koble til", and data syncs silently on every save; connection persists across page reloads via a stored refresh token; Drive takes priority over the local file when connected — the local file status and sync indicator are hidden, only the ☁ Drive indicator is shown
 
 ---
@@ -123,40 +117,6 @@ The Client Secret never leaves the Worker — only the Client ID and Worker URL 
 
 ---
 
-### Importing from Excel or CSV
-
-1. Go to **⚙️ Innstillinger** → **Datafil** → click **📥 Importer Excel/CSV**
-2. Select your `.xlsx` or `.csv` file — a preview is shown before anything is saved
-3. Duplicates are skipped automatically (matched on date + distance + duration)
-
-#### Expected column headers
-
-The first row must contain column headers. Header matching is case-insensitive. Only `dato` and `distanse` are required — all other columns are optional.
-
-| Field | Accepted column names |
-|---|---|
-| Date *(required)* | `dato`, `date` |
-| Distance km *(required)* | `distanse`, `distanse (km)`, `distance`, `km` |
-| Session name | `øktnavn`, `oktnavn`, `session name` |
-| Session type | `økt-type`, `okttype`, `type` |
-| Training plan | `treningsplan`, `trenignsplan`, `training plan`, `plan` |
-| Duration | `varighet`, `duration` |
-| Avg HR | `gj.snittspuls`, `gjsnittspuls`, `avg hr`, `avg heart rate` |
-| Max HR | `toppuls`, `max hr`, `max heart rate` |
-| Zone 1–5 time | `sone1`–`sone5`, `sone1 (min)`–`sone5 (min)`, `zone1`–`zone5` |
-| Calories | `kalorier`, `calories` |
-| Pace (min/km) | `tempo`, `tempo (min/km)`, `pace` |
-| Avg km/h | `snittkmh`, `snitt km/t`, `avg km/h` |
-| Incline % | `stigning`, `stigning (%)`, `elevation` |
-| Shoe | `sko`, `shoes` |
-| Sleep | `søvn`, `sovn`, `sleep` |
-| Week | `uke` |
-
-**Date formats accepted:** ISO (`2025-05-26`), US (`05/26/2025`), Excel serial number.  
-**Time formats accepted:** `H:MM:SS`, `MM:SS`, Excel fractional day.
-
----
-
 ## Firefox & Safari
 
 Firefox and Safari do not support the File System Access API, so local auto-save is unavailable. **Google Drive sync is the recommended alternative** — it works fully in both since it uses standard `fetch()` calls, not the File System Access API. Serve the app over HTTP and follow the [Google Drive sync](#google-drive-sync-cross-device) setup above.
@@ -175,7 +135,6 @@ Without Drive sync:
 Single `.html` file — no build step, no framework, no install.
 
 - [Chart.js 4.4.0](https://www.chartjs.org/) — charts
-- [SheetJS xlsx 0.18.5](https://sheetjs.com/) — Excel/CSV import
 - File System Access API — local file read/write (Edge/Chrome)
 - IndexedDB — persists the file handle across page reloads so the file re-attaches automatically; also stores automatic daily local backups (last 7 days, one-click restore)
 - Google Drive API (via fetch) + OAuth 2.0 PKCE — optional cross-device sync; refresh token stored in localStorage for silent reconnect

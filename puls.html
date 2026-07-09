@@ -6,7 +6,6 @@
 <title>Puls</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏃</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -200,8 +199,6 @@
   .dp-session-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer; }
   .dp-session-row:hover { background:rgba(255,255,255,.04); border-radius:4px; padding-left:4px; }
   .dp-section-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:14px 0 8px; }
-  .import-preview { font-size: 12px; }
-  .import-preview td, .import-preview th { padding: 6px 10px; }
 
   /* ── Weekly summary table ── */
   .weekly-table td, .weekly-table th { padding: 8px 14px; }
@@ -965,7 +962,6 @@
       <button class="btn-primary btn-sm" id="btnOpen">📂 Åpne fil</button>
       <button class="btn-secondary btn-sm" id="btnNew">✨ Ny fil</button>
       <button class="btn-secondary btn-sm" id="btnDownload">⬇️ Last ned / eksporter</button>
-      <button class="btn-secondary btn-sm" id="btnImport">📥 Importer Excel/CSV</button>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px">
       <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Slett alle treningsøkter permanent. Kan ikke angres.</p>
@@ -1006,30 +1002,6 @@
     </div>
   </div>
 
-</div>
-
-<!-- ══════════════ IMPORT MODAL ══════════════ -->
-<div class="modal-backdrop" id="importModal">
-  <div class="modal">
-    <h2>📥 Importer fra Excel / CSV</h2>
-    <div>
-      <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Velg en .xlsx eller .csv-fil eksportert fra Excel. Kolonnenavn på norsk gjenkjennes automatisk.</p>
-      <input type="file" id="importFile" accept=".xlsx,.xls,.csv">
-    </div>
-    <div class="modal-body" id="importPreviewWrap" style="display:none">
-      <p id="importSummary" style="font-size:13px;margin-bottom:10px"></p>
-      <div class="table-wrap" style="max-height:320px;overflow-y:auto">
-        <table class="import-preview" id="importPreviewTable">
-          <thead><tr id="importPreviewHead"></tr></thead>
-          <tbody id="importPreviewBody"></tbody>
-        </table>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-secondary" id="btnImportCancel">Avbryt</button>
-      <button class="btn-primary" id="btnImportConfirm" disabled>Importer</button>
-    </div>
-  </div>
 </div>
 
 <!-- ══════════════ DETAIL PANEL ══════════════ -->
@@ -1270,19 +1242,6 @@ function hhmmToHours(str) {
   return parseFloat(str) || null;
 }
 
-function parseSovn(val) {
-  if (val == null || val === '') return null;
-  if (typeof val === 'number') {
-    // Excel stores time-of-day as fraction of 24h — detect by value < 1
-    if (val > 0 && val < 1) return val * 24;
-    return val; // already decimal hours
-  }
-  const s = String(val).trim();
-  const parts = s.split(':').map(Number);
-  if (parts.length === 2) return parts[0] + parts[1] / 60;
-  return parseFloat(s) || null;
-}
-
 // ═══════════════════════════════════════════════════════
 // DATA STORE
 // ═══════════════════════════════════════════════════════
@@ -1380,28 +1339,6 @@ const Store = {
     FileIO.save();
   },
 
-  isDuplicate(a, b) {
-    return a.dato === b.dato &&
-      Math.abs(a.distanse - b.distanse) < 0.05 &&
-      Math.abs(a.varighet - b.varighet) < 30;
-  },
-
-  mergeSessions(incoming) {
-    // Snapshot the pre-import state so a bad import is recoverable from the backups list.
-    BackupDB.save(this.toJSON(), this.data.sessions.length);
-    let added = 0;
-    incoming.forEach(s => {
-      const dup = this.data.sessions.find(x => this.isDuplicate(x, s));
-      if (!dup) {
-        this.data.sessions.push(s);
-        added++;
-      }
-    });
-    this.data.sessions.sort((a,b) => a.dato.localeCompare(b.dato));
-    this.data.lastUpdated = new Date().toISOString();
-    FileIO.save();
-    return added;
-  }
 };
 
 // ═══════════════════════════════════════════════════════
@@ -5225,186 +5162,6 @@ function computePerfCurve(sessions) {
   });
 }
 
-// ═══════════════════════════════════════════════════════
-// EXCEL IMPORT
-// ═══════════════════════════════════════════════════════
-const COL_MAP = {
-  'dato':'dato','date':'dato',
-  'uke':'uke',
-  'øktnavn':'oktnavn','oktnavn':'oktnavn','session name':'oktnavn',
-  'økt-type':'okttype','okttype':'okttype','type':'okttype',
-  'treningsplan':'treningsplan','trenignsplan':'treningsplan','training plan':'treningsplan','plan':'treningsplan',
-  'varighet':'varighet','duration':'varighet',
-  'distanse (km)':'distanse','distanse':'distanse','distance':'distanse','km':'distanse',
-  'gj.snittspuls':'gjsnittspuls','gjsnittspuls':'gjsnittspuls','avg hr':'gjsnittspuls','avg heart rate':'gjsnittspuls',
-  'toppuls':'toppuls','max hr':'toppuls','max heart rate':'toppuls',
-  'sone1 (min)':'sone1','sone1':'sone1','zone1':'sone1',
-  'sone2 (min)':'sone2','sone2':'sone2','zone2':'sone2',
-  'sone3 (min)':'sone3','sone3':'sone3','zone3':'sone3',
-  'sone4 (min)':'sone4','sone4':'sone4','zone4':'sone4',
-  'sone5 (min)':'sone5','sone5':'sone5','zone5':'sone5',
-  'kalorier':'kalorier','calories':'kalorier',
-  'tempo (min/km)':'tempo','tempo':'tempo','pace':'tempo',
-  'snitt km/t':'snittkmh','snittkmh':'snittkmh','avg km/h':'snittkmh',
-  'stigning (%)':'stigning','stigning':'stigning','elevation':'stigning',
-  'høydemeter (m)':'hoydeMeter','høydemeter':'hoydeMeter','hoydeMeter':'hoydeMeter','hoydeMeter (m)':'hoydeMeter','elevation gain':'hoydeMeter','elevation (m)':'hoydeMeter',
-  'sko':'sko','shoes':'sko',
-  'søvn':'sovn','sovn':'sovn','sleep':'sovn',
-};
-
-function parseExcelDate(val) {
-  if (val == null) return '';
-  if (typeof val === 'number') {
-    // Excel serial date
-    const d = new Date((val - 25569) * 86400 * 1000);
-    return d.toISOString().slice(0,10);
-  }
-  const s = String(val).trim();
-  // Try MM/DD/YYYY
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
-  // ISO
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
-  return s;
-}
-
-function parseExcelTime(val) {
-  // Returns seconds
-  if (val == null || val === '') return 0;
-  if (typeof val === 'number') return Math.round(val * 86400);
-  const s = String(val).trim();
-  return hmsToSecs(s) || mmSsToSecs(s);
-}
-
-let importParsed = [];
-
-const Import = {
-  init() {
-    document.getElementById('btnImport').addEventListener('click', () => {
-      document.getElementById('importModal').classList.add('open');
-    });
-    document.getElementById('btnImportCancel').addEventListener('click', () => this.close());
-    document.getElementById('importFile').addEventListener('change', e => this.handleFile(e));
-    document.getElementById('btnImportConfirm').addEventListener('click', () => this.confirm());
-  },
-
-  close() {
-    document.getElementById('importModal').classList.remove('open');
-    document.getElementById('importFile').value = '';
-    document.getElementById('importPreviewWrap').style.display = 'none';
-    document.getElementById('btnImportConfirm').disabled = true;
-    importParsed = [];
-  },
-
-  handleFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onerror = () => alert('Klarte ikke lese filen.');
-    reader.onload = ev => {
-      try {
-        const wb = XLSX.read(ev.target.result, { type:'array', cellDates:false });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
-        if (rows.length < 2) { alert('Filen ser tom ut.'); return; }
-
-        const headers = rows[0].map(h => String(h).trim().toLowerCase());
-        const mapped = headers.map(h => COL_MAP[h] || null);
-
-        importParsed = [];
-        let skipBlank = 0, skipNoDate = 0, skipInvalidDist = 0;
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          if (row.every(v => v === '' || v == null)) { skipBlank++; continue; }
-          const obj = {};
-          headers.forEach((_, j) => { if (mapped[j]) obj[mapped[j]] = row[j]; });
-
-          // Skip summary rows (no recognizable date)
-          const dato = parseExcelDate(obj.dato);
-          if (!dato || dato.length < 8) { skipNoDate++; continue; }
-
-          const s = {
-            id: genId(),
-            dato,
-            uke: obj.uke || isoWeek(dato),
-            oktnavn: String(obj.oktnavn||'').trim(),
-            okttype: String(obj.okttype||'Easy').trim(),
-            treningsplan: String(obj.treningsplan||'Egentrening').trim(),
-            varighet: parseExcelTime(obj.varighet),
-            distanse: parseFloat(obj.distanse) || 0,
-            gjsnittspuls: parseInt(obj.gjsnittspuls)||null,
-            toppuls: parseInt(obj.toppuls)||null,
-            soner: [
-              parseExcelTime(obj.sone1),
-              parseExcelTime(obj.sone2),
-              parseExcelTime(obj.sone3),
-              parseExcelTime(obj.sone4),
-              parseExcelTime(obj.sone5),
-            ],
-            kalorier: parseInt(obj.kalorier)||null,
-            tempo: parseExcelTime(obj.tempo)||null,
-            snittkmh: obj.snittkmh ? +parseFloat(obj.snittkmh).toFixed(2) : null,
-            stigning: parseFloat(obj.stigning)||null,
-            hoydeMeter: parseInt(obj.hoydeMeter)||null,
-            sko: String(obj.sko||'').trim(),
-            sovn: parseSovn(obj.sovn),
-          };
-          if (s.distanse > 0) importParsed.push(s); else skipInvalidDist++;
-        }
-
-        // Preview-time duplicate dry-run (uses Store.isDuplicate, the same match rule
-        // Store.mergeSessions applies on confirm; dryRun grows so same-batch duplicates
-        // are caught too)
-        const dryRun = [...Store.data.sessions];
-        importParsed.forEach(s => {
-          s._dup = dryRun.some(x => Store.isDuplicate(x, s));
-          if (!s._dup) dryRun.push(s);
-        });
-        const dupCount = importParsed.filter(s => s._dup).length;
-
-        // Preview
-        const skipParts = [];
-        if (skipBlank) skipParts.push(`${skipBlank} tomme`);
-        if (skipNoDate) skipParts.push(`${skipNoDate} uten dato`);
-        if (skipInvalidDist) skipParts.push(`${skipInvalidDist} uten distanse`);
-        const skipText = skipParts.length ? ` · ${skipParts.join(', ')} hoppet over` : '';
-        const dupText = dupCount ? ` · ${dupCount} mulig${dupCount === 1 ? '' : 'e'} duplikat${dupCount === 1 ? '' : 'er'}` : '';
-        document.getElementById('importSummary').innerHTML =
-          `Fant ${importParsed.length} gyldige rader i "${escapeHtml(file.name)}"${skipText}${dupText}. Forhåndsvisning (maks 10):`;
-        const headRow = document.getElementById('importPreviewHead');
-        headRow.innerHTML = '<th>Dato</th><th>Type</th><th>Navn</th><th>Distanse</th><th>Varighet</th><th>Sko</th><th>Duplikat?</th>';
-        document.getElementById('importPreviewBody').innerHTML = importParsed.slice(0,10).map(s =>
-          `<tr><td>${fmtDate(s.dato)}</td><td>${escapeHtml(s.okttype)}</td><td>${escapeHtml(s.oktnavn)}</td><td>${fmtDist(s.distanse)} km</td><td>${secsToHms(s.varighet)}</td><td>${escapeHtml(s.sko)}</td><td>${s._dup ? '⚠️ Mulig duplikat' : ''}</td></tr>`
-        ).join('');
-        document.getElementById('importPreviewWrap').style.display = '';
-        document.getElementById('btnImportConfirm').disabled = importParsed.length === 0;
-
-        // Add any new shoes from import
-        importParsed.forEach(s => { if (s.sko) Store.addShoe(s.sko); });
-
-      } catch(err) {
-        console.error(err);
-        alert('Klarte ikke lese filen: ' + err.message);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  },
-
-  confirm() {
-    const totalParsed = importParsed.length;
-    const clean = importParsed.map(({ _dup, ...s }) => s);
-    const added = Store.mergeSessions(clean);
-    this.close();
-    refreshAll();
-    Form.refreshShoeDropdown();
-    const skippedAsDup = totalParsed - added;
-    const msg = skippedAsDup > 0
-      ? `Import fullført: ${added} nye økter lagt til, ${skippedAsDup} hoppet over som duplikat.`
-      : `Import fullført: ${added} nye økter lagt til.`;
-    showToast(msg, 'success', 7000);
-  }
-};
-
 function updateStravaFetchVisibility() {
   const el = document.getElementById('stravaFetchSection');
   if (el) el.style.display = (StravaIO.isSignedIn() && !Form.editId) ? '' : 'none';
@@ -6475,7 +6232,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Init form, import & settings
   Form.init();
-  Import.init();
   StravaImport.init();
   Settings.init();
   CustomLists.refreshDropdowns();
