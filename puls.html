@@ -541,6 +541,7 @@
       <div class="records-grid" id="distPRGrid"></div>
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Ytelseskurve</div>
       <div class="records-grid" id="perfCurveGrid"></div>
+      <div id="top3Efforts"></div>
     </div>
     <div class="card span2" id="insightCard">
       <div class="card-title">Innsikter</div>
@@ -4709,6 +4710,24 @@ function renderDashboard() {
     `<div class="record-card"><div class="record-label">${r.label}</div><div class="record-value${r.estimated ? ' estimated' : ''}">${r.value}</div><div class="record-sub">${r.sub}</div></div>`
   ).join('');
 
+  // Top-3 recorded Strava efforts per distance (outdoor GPS runs only — Strava doesn't
+  // compute best efforts for treadmill/manual activities; treadmill PRs live in Distanse-PR)
+  const top3 = Store.data.bestEffortsTop3 || {};
+  const top3Rows = BEST_EFFORT_DISTS.filter(({ key }) => (top3[key] || []).length);
+  document.getElementById('top3Efforts').innerHTML = !top3Rows.length ? '' : `
+    <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Topp 3 · Strava (utendørs)</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${top3Rows.map(({ label, key }) => `
+        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;font-size:13px">
+          <span style="min-width:90px;font-weight:600">${label}</span>
+          ${top3[key].map((e, i) => `
+            <span style="color:${i === 0 ? 'var(--text)' : 'var(--muted)'}">
+              ${i + 1}. ${i === 0 ? '<b>' : ''}${secsToHms(e.t)}${i === 0 ? '</b>' : ''}
+              <span style="font-size:11px;color:var(--muted)">(${fmtDate(e.d)})</span>
+            </span>`).join('')}
+        </div>`).join('')}
+    </div>`;
+
   // Training load per week (zone minutes × zone weight, summed per week)
   const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
   const loadWeekMap = {};
@@ -5313,6 +5332,22 @@ const StravaBestEfforts = {
   _found() { try { return JSON.parse(localStorage.getItem('pulsStravaBEFound') || '{}'); } catch { return {}; } },
   _saveFound(f) { localStorage.setItem('pulsStravaBEFound', JSON.stringify(f)); },
 
+  // Top-3 recorded efforts per distance ({ t: seconds, d: 'YYYY-MM-DD' }, fastest first).
+  // Collected during the same scan; localStorage is the scan-progress buffer, the result
+  // is committed to Store.data.bestEffortsTop3 (pure display — Ytelseskurve/manual entry
+  // keep using the single-best bestEfforts values untouched).
+  _top3() { try { return JSON.parse(localStorage.getItem('pulsStravaBETop3') || '{}'); } catch { return {}; } },
+  _saveTop3(t) { localStorage.setItem('pulsStravaBETop3', JSON.stringify(t)); },
+  _commitTop3() {
+    const top3 = this._top3();
+    if (!Object.keys(top3).length) return;
+    if (JSON.stringify(Store.data.bestEffortsTop3 || {}) === JSON.stringify(top3)) return;
+    Store.data.bestEffortsTop3 = top3;
+    Store.data.lastUpdated = new Date().toISOString();
+    FileIO.save();
+    if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
+  },
+
   _checkpoint() {
     return {
       complete: localStorage.getItem('pulsStravaBEScanComplete') === '1',
@@ -5332,7 +5367,19 @@ const StravaBestEfforts = {
     if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava i Innstillinger først'); return; }
 
     const found = this._found();
+    const top3 = this._top3();
     let { complete, before: cursorBefore, after: cursorAfter } = this._checkpoint();
+
+    // One-time: top-3 collection was added after the original scan shipped — if a full
+    // scan completed without it, restart the historical pass so every effort gets a date.
+    // (found/top3 dedupe re-seen efforts, so re-scanning is safe; the after-watermark stays.)
+    if (complete && !Object.keys(top3).length && !Store.data.bestEffortsTop3) {
+      complete = false;
+      cursorBefore = undefined;
+      localStorage.removeItem('pulsStravaBEScanComplete');
+      localStorage.removeItem('pulsStravaBEOldestScanned');
+    }
+
     let calls = 0, scanned = 0;
 
     setMsg('Skanner…');
@@ -5342,8 +5389,8 @@ const StravaBestEfforts = {
           complete ? { after: cursorAfter, perPage: 200 } : { before: cursorBefore, perPage: 200 }
         );
         calls++;
-        if (page && page.error === 429) { setMsg(`Nådd Strava-grense — prøv igjen om ~15 min (${scanned} skannet)`); return; }
-        if (!page) { setMsg('Kunne ikke hente aktiviteter fra Strava'); return; }
+        if (page && page.error === 429) { this._commitTop3(); setMsg(`Nådd Strava-grense — prøv igjen om ~15 min (${scanned} skannet)`); return; }
+        if (!page) { this._commitTop3(); setMsg('Kunne ikke hente aktiviteter fra Strava'); return; }
 
         // Capture the true "newest activity at scan start" exactly once, before any
         // backward paging begins — this becomes the watermark for future incremental
@@ -5361,6 +5408,7 @@ const StravaBestEfforts = {
           } else {
             setMsg('Ingen nye aktiviteter siden sist.');
           }
+          this._commitTop3();
           this.showReview();
           return;
         }
@@ -5372,16 +5420,27 @@ const StravaBestEfforts = {
           calls++; scanned++;
           if (detail && detail.error === 429) {
             this._saveFound(found);
+            this._saveTop3(top3);
+            this._commitTop3();
             setMsg(`Nådd Strava-grense — prøv igjen om ~15 min (${scanned} skannet)`);
             return;
           }
           if (detail && Array.isArray(detail.best_efforts)) {
             detail.best_efforts.forEach(be => {
               const key = this._nameMap[(be.name || '').toLowerCase()];
-              if (key && (!found[key] || be.moving_time < found[key])) found[key] = be.moving_time;
+              if (!key) return;
+              if (!found[key] || be.moving_time < found[key]) found[key] = be.moving_time;
+              const date = (be.start_date_local || detail.start_date_local || '').slice(0, 10);
+              const list = top3[key] || [];
+              if (!list.some(e => e.t === be.moving_time && e.d === date)) {
+                list.push({ t: be.moving_time, d: date });
+                list.sort((a, b) => a.t - b.t);
+                top3[key] = list.slice(0, 3);
+              }
             });
           }
           this._saveFound(found);
+          this._saveTop3(top3);
         }
 
         const epochs = page.map(a => Math.floor(new Date(a.start_date).getTime() / 1000));
@@ -5395,6 +5454,7 @@ const StravaBestEfforts = {
         setMsg(`Skanner… (${scanned} denne økten)`);
       }
       setMsg(`Pause for å holde meg under Strava sin grense (${scanned} skannet) — klikk igjen for å fortsette.`);
+      this._commitTop3();
       this.showReview();
     } catch (e) {
       setMsg('Noe gikk galt: ' + (e.message || 'ukjent feil'));
