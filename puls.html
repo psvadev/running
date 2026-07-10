@@ -3859,16 +3859,20 @@ function renderInsights(sessions) {
       priority: thisMonthElev >= 2000 ? 4 : 3 });
   }
 
-  // Race countdown
+  // Race countdown — includes race day itself ("I dag"), which would otherwise vanish
   const upcomingRaces = (Store.data.events || [])
-    .filter(e => e.type === 'race' && e.date > today)
+    .filter(e => e.type === 'race' && e.date >= today)
     .sort((a, b) => a.date.localeCompare(b.date));
   if (upcomingRaces.length) {
     const next = upcomingRaces[0];
     const daysUntil = Math.round((new Date(next.date) - new Date(today)) / 86400000);
-    candidates.push({ icon: '🏁', val: `${daysUntil} ${daysUntil === 1 ? 'dag' : 'dager'}`,
-      sub: `til ${next.title} (${fmtDate(next.date)})`,
-      priority: daysUntil <= 14 ? 5 : daysUntil <= 60 ? 4 : 3 });
+    if (daysUntil === 0) {
+      candidates.push({ icon: '🏁', val: 'I dag', sub: `${next.title} — lykke til!`, priority: 5 });
+    } else {
+      candidates.push({ icon: '🏁', val: `${daysUntil} ${daysUntil === 1 ? 'dag' : 'dager'}`,
+        sub: `til ${next.title} (${fmtDate(next.date)})`,
+        priority: daysUntil <= 14 ? 5 : daysUntil <= 60 ? 4 : 3 });
+    }
   }
 
   // Easy RPE trend: last 8 weeks vs prior 8 weeks (uses w8ago/w16ago already declared above)
