@@ -5844,7 +5844,7 @@ const Settings = {
     const typeLabel = { plan: 'Plan', race: 'Løp/Race', illness: 'Sykdom', vacation: 'Ferie', deload: 'Deload', taper: 'Taper', personal: 'Annet' };
     list.innerHTML = events.map(evt => {
       const color = EVENT_COLORS[evt.type] || EVENT_COLORS.personal;
-      const dateStr = evt.endDate ? `${fmtDate(evt.date)} – ${fmtDate(evt.endDate)}` : evt.date;
+      const dateStr = evt.endDate ? `${fmtDate(evt.date)} – ${fmtDate(evt.endDate)}` : fmtDate(evt.date);
       return `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
         <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
         <span style="font-size:12px;color:var(--muted);min-width:120px">${dateStr}</span>
