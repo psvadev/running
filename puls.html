@@ -281,7 +281,6 @@
   <h1>💓 Puls</h1>
   <div class="spacer"></div>
   <div class="file-status" id="fileStatus">Ingen fil åpen</div>
-  <button class="btn-secondary btn-sm" id="btnHeaderSave" style="margin-left:12px">💾 Lagre</button>
   <span id="syncStatus" style="font-size:12px;color:var(--muted);margin-left:16px"><span class="sync-dot" id="syncDot"></span><span id="syncText">Klar</span></span>
   <span id="driveIndicator" style="font-size:11px;color:var(--muted);margin-left:10px" title="Google Drive ikke koblet til">☁ Drive</span>
   <span id="stravaIndicator" style="font-size:11px;color:var(--muted);margin-left:10px" title="Strava ikke koblet til">🏃 Strava</span>
@@ -967,6 +966,7 @@
     <div class="card-title">Datafil</div>
     <div class="file-status" id="fileStatusSettings" style="margin-bottom:14px;font-size:13px"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+      <button class="btn-secondary btn-sm" id="btnManualSave">💾 Lagre nå</button>
       <button class="btn-primary btn-sm" id="btnOpen">📂 Åpne fil</button>
       <button class="btn-secondary btn-sm" id="btnNew">✨ Ny fil</button>
       <button class="btn-secondary btn-sm" id="btnDownload">⬇️ Last ned / eksporter</button>
@@ -6395,7 +6395,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Manual save button in header
-  document.getElementById('btnHeaderSave').addEventListener('click', () => FileIO.save());
+  document.getElementById('btnManualSave').addEventListener('click', () => FileIO.save());
 
   // Init form, import & settings
   Form.init();
