@@ -2922,7 +2922,10 @@ const eventLinesPlugin = {
               drawEndLine = endWeekVisible && xEnd <= chartArea.right + 1;
             }
             const xEndC = Math.min(xEnd, chartArea.right);
-            if (xEndC > xStart) {
+            // Plans are the baseline state, not an anomaly — a multi-week fill tints the whole
+            // chart into noise. Boundary lines + label only; anomaly spans (syk/ferie/deload/
+            // taper) keep their shading.
+            if (xEndC > xStart && evt.type !== 'plan') {
               ctx.fillStyle = EVENT_FILL_COLORS[evt.type] || EVENT_FILL_COLORS.personal;
               ctx.fillRect(xStart, chartArea.top, xEndC - xStart, chartArea.bottom - chartArea.top);
             }
