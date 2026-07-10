@@ -473,6 +473,12 @@
         <label>Notater</label>
         <textarea id="fNotater" rows="4" placeholder="Hvordan føltes økten?" style="resize:vertical"></textarea>
       </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="fUtenforAnalyse" style="width:auto;margin:0"> Hold utenfor analyse
+        </label>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Trender og kvalitetsgrafer hopper over økten — km og volum telles fortsatt (reise, sykdom, dårlig pulsbelte …)</div>
+      </div>
     </div>
   </div>
 
@@ -1197,6 +1203,7 @@ function formatSessionTsv(sessions) {
     const distLabel = s.distanse ? ` | ${parseFloat(s.distanse.toFixed(2)).toString()} km` : '';
     const hdr = `=== ${s.dato}${s.oktnavn ? ` | ${s.oktnavn}` : ''}${distLabel} ===`;
     const metaParts = [];
+    if (s.utenforAnalyse) metaParts.push('[Avvik]');
     if (!(s.soner?.some(z => z > 0))) metaParts.push('[Uten pulsdata]');
     if (s.beskrivelse) metaParts.push(`[Øktbeskrivelse]\n${s.beskrivelse}`);
     if (s.notater) metaParts.push(s.notater);
@@ -2433,6 +2440,7 @@ const Form = {
       rpe: parseInt(document.getElementById('fRpe').value) || null,
       beskrivelse: document.getElementById('fBeskrivelse').value.trim() || null,
       notater: document.getElementById('fNotater').value.trim() || null,
+      utenforAnalyse: document.getElementById('fUtenforAnalyse').checked || undefined,
     };
   },
 
@@ -2469,6 +2477,7 @@ const Form = {
     document.getElementById('beskrevelseGroup').style.display = s.treningsplan !== 'Egentrening' ? '' : 'none';
     document.getElementById('fBeskrivelse').value = s.beskrivelse || '';
     document.getElementById('fNotater').value = s.notater || '';
+    document.getElementById('fUtenforAnalyse').checked = !!s.utenforAnalyse;
     this.refreshShoeDropdown(s.sko);
   },
 
@@ -2540,6 +2549,7 @@ const Form = {
     }
     document.getElementById('fStigning').value = '1';
     document.getElementById('fUtenPuls').checked = false;
+    document.getElementById('fUtenforAnalyse').checked = false;
     this.togglePulsdata();
     document.getElementById('fTreningsplan').value = 'Runna';
     document.getElementById('beskrevelseGroup').style.display = document.getElementById('fTreningsplan').value !== 'Egentrening' ? '' : 'none';
@@ -2630,7 +2640,7 @@ const Log = {
       const venueBadge = (s.løpetype || 'utendors') === 'treadmill'
         ? `<span class="badge badge-indoor" title="Tredemølle">⚙️</span>`
         : `<span class="badge badge-outdoor" title="Utendørs">🏃</span>`;
-      return `<tr>
+      return `<tr${s.utenforAnalyse ? ' style="opacity:.55" title="Avvik — holdt utenfor analyse"' : ''}>
         <td><input type="checkbox" class="log-row-chk" data-id="${s.id}"></td>
         <td>${fmtDate(s.dato)}</td>
         <td style="color:var(--muted)">${s.uke||''}</td>
@@ -3176,6 +3186,7 @@ function renderPMCChart(allSessions) {
 }
 
 function renderEfficiencyChart(sessions) {
+  sessions = sessions.filter(s => !s.utenforAnalyse); // quality chart — skip flagged outliers
   const vf = aeVenueFilter;
   const z2CountEl = document.getElementById('aeZ2Count');
   document.getElementById('aeZ2Alle')?.classList.toggle('active', aeZ2Filter === 'all');
@@ -3263,6 +3274,7 @@ function renderEfficiencyChart(sessions) {
 }
 
 function renderZ2PaceChart(sessions) {
+  sessions = sessions.filter(s => !s.utenforAnalyse); // quality chart — skip flagged outliers
   const typeFilter = z2PaceTypeFilter;
   const filtered = sessions.filter(s => {
     if (!s.tempo || s.tempo <= 0) return false;
@@ -3349,6 +3361,7 @@ function renderZ2PaceChart(sessions) {
 }
 
 function renderSleepHrChart(sessions) {
+  sessions = sessions.filter(s => !s.utenforAnalyse); // quality chart — skip flagged outliers
   const typeFilter = sleepHrTypeFilter;
   const filtered = sessions.filter(s => {
     if (s.sovn == null || s.sovn <= 0) return false;
@@ -3473,6 +3486,7 @@ function renderSleepHrChart(sessions) {
 }
 
 function renderPaceHrChart(sessions) {
+  sessions = sessions.filter(s => !s.utenforAnalyse); // quality chart — skip flagged outliers
   const typeFilter = paceHrTypeFilter;
   const filtered = sessions.filter(s => {
     if (!s.tempo || s.tempo <= 0) return false;
@@ -3602,6 +3616,7 @@ function renderPaceHrChart(sessions) {
 }
 
 function renderRpeChart(sessions) {
+  sessions = sessions.filter(s => !s.utenforAnalyse); // quality chart — skip flagged outliers
   const filtered = sessions.filter(s => {
     if (!s.rpe) return false;
     if (rpeTypeFilter !== 'alle' && s.okttype !== rpeTypeFilter) return false;
@@ -3718,6 +3733,10 @@ function renderInsights(sessions) {
   const curMonth  = today.slice(0, 7);
   const totalKm   = sessions.reduce((s, x) => s + (x.distanse || 0), 0);
   const candidates = [];
+  // Quality generators (Easy pace/HR/RPE trends, fastest Easy, Zone 2 compliance) skip
+  // flagged outlier sessions; quantity generators (milestones, volume, gaps, countdowns)
+  // keep the full array — an outlier's km still happened.
+  const qualitySessions = sessions.filter(s => !s.utenforAnalyse);
   // Populated by the Easy pace/HR/RPE trend blocks below; reused by the decoupling check inside the RPE block.
   let easyPacePct = null, easyHrDiff = null, easyRpeChange = null;
 
@@ -3770,7 +3789,7 @@ function renderInsights(sessions) {
   }
 
   // Fastest Easy session
-  const easyWithPace = sessions.filter(s => s.okttype === 'Easy' && s.tempo > 0);
+  const easyWithPace = qualitySessions.filter(s => s.okttype === 'Easy' && s.tempo > 0);
   if (easyWithPace.length) {
     const fastest = easyWithPace.reduce((a, s) => s.tempo < a.tempo ? s : a);
     candidates.push({ icon:'💨', val:secsToMmSs(fastest.tempo)+' /km', sub:`raskeste Easy (${fmtDate(fastest.dato)})`, priority: fastest.dato >= thirtyDaysAgo ? 4 : 2 });
@@ -3779,8 +3798,8 @@ function renderInsights(sessions) {
   // Easy pace trend: last 8 weeks vs prior 8 weeks (show if >= 3% change)
   const w8ago  = localISODaysAgo(56);
   const w16ago = localISODaysAgo(112);
-  const recentEasy = sessions.filter(s => s.okttype === 'Easy' && s.tempo > 0 && s.dato >= w8ago);
-  const priorEasy  = sessions.filter(s => s.okttype === 'Easy' && s.tempo > 0 && s.dato >= w16ago && s.dato < w8ago);
+  const recentEasy = qualitySessions.filter(s => s.okttype === 'Easy' && s.tempo > 0 && s.dato >= w8ago);
+  const priorEasy  = qualitySessions.filter(s => s.okttype === 'Easy' && s.tempo > 0 && s.dato >= w16ago && s.dato < w8ago);
   if (recentEasy.length >= 3 && priorEasy.length >= 3) {
     const avgR = recentEasy.reduce((s, x) => s + x.tempo, 0) / recentEasy.length;
     const avgP = priorEasy.reduce((s,  x) => s + x.tempo, 0) / priorEasy.length;
@@ -3793,7 +3812,7 @@ function renderInsights(sessions) {
 
   // Easy run compliance: % of Runna Easy runs with avg HR inside Zone 2
   const z2 = (Store.data.settings?.zones || [])[1];
-  const easyWithHR = sessions.filter(s => s.okttype === 'Easy' && s.treningsplan === 'Runna' && s.gjsnittspuls > 0);
+  const easyWithHR = qualitySessions.filter(s => s.okttype === 'Easy' && s.treningsplan === 'Runna' && s.gjsnittspuls > 0);
   if (easyWithHR.length >= 3 && z2?.min && z2?.max) {
     const inZ2  = easyWithHR.filter(s => s.gjsnittspuls >= z2.min && s.gjsnittspuls <= z2.max).length;
     const pct   = Math.round(inZ2 / easyWithHR.length * 100);
@@ -3836,8 +3855,8 @@ function renderInsights(sessions) {
   }
 
   // Easy HR trend: last 8 weeks vs prior 8 weeks (uses w8ago/w16ago already declared above)
-  const recentEasyHR = sessions.filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.dato >= w8ago);
-  const priorEasyHR  = sessions.filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.dato >= w16ago && s.dato < w8ago);
+  const recentEasyHR = qualitySessions.filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.dato >= w8ago);
+  const priorEasyHR  = qualitySessions.filter(s => s.okttype === 'Easy' && s.gjsnittspuls > 0 && s.dato >= w16ago && s.dato < w8ago);
   if (recentEasyHR.length >= 3 && priorEasyHR.length >= 3) {
     const avgRhr = Math.round(recentEasyHR.reduce((sum, x) => sum + x.gjsnittspuls, 0) / recentEasyHR.length);
     const avgPhr = Math.round(priorEasyHR.reduce((sum,  x) => sum + x.gjsnittspuls, 0) / priorEasyHR.length);
@@ -3876,8 +3895,8 @@ function renderInsights(sessions) {
   }
 
   // Easy RPE trend: last 8 weeks vs prior 8 weeks (uses w8ago/w16ago already declared above)
-  const recentEasyRpe = sessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w8ago);
-  const priorEasyRpe  = sessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w16ago && s.dato < w8ago);
+  const recentEasyRpe = qualitySessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w8ago);
+  const priorEasyRpe  = qualitySessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w16ago && s.dato < w8ago);
   if (recentEasyRpe.length >= 3 && priorEasyRpe.length >= 3) {
     const avgRrpe = recentEasyRpe.reduce((s, x) => s + x.rpe, 0) / recentEasyRpe.length;
     const avgPrpe = priorEasyRpe.reduce((s, x) => s + x.rpe, 0) / priorEasyRpe.length;
@@ -4292,6 +4311,7 @@ const DetailPanel = {
       ['Sko',            s.sko  || null],
       ['Søvn',           s.sovn ? hoursToHHMM(s.sovn) : null],
       ['RPE',            s.rpe  ? `${s.rpe}/10` : null],
+      ['Avvik',          s.utenforAnalyse ? 'Holdt utenfor analyse (trender/kvalitetsgrafer)' : null],
     ].filter(([,v]) => v);
     const table = rows.map(([l,v]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${escapeHtml(v)}</span></div>`).join('');
     this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : ''));
@@ -5067,22 +5087,26 @@ function computeRecords(sessions) {
     totalHoyde += s.hoydeMeter||0;
     if ((s.løpetype||'utendors') === 'treadmill') totalIndoorKm += s.distanse||0;
     else totalOutdoorKm += s.distanse||0;
-    if (s.tempo && (!bestePace || s.tempo < bestePace.tempo)) bestePace=s;
     if (s.distanse && (!longestDist || s.distanse > longestDist.distanse)) longestDist=s;
     if (s.varighet && (!longestTime || s.varighet > longestTime.varighet)) longestTime=s;
-    if (s.snittkmh && (!bestKmh || s.snittkmh > bestKmh.snittkmh)) bestKmh=s;
-    if (s.okttype==='Easy'  && s.tempo && (!bestEasyPace   || s.tempo < bestEasyPace.tempo))   bestEasyPace=s;
-    if (s.okttype==='Long'  && s.tempo && (!bestLangturPace|| s.tempo < bestLangturPace.tempo)) bestLangturPace=s;
-    if (s.okttype==='Tempo' && s.tempo && (!bestTempoPace  || s.tempo < bestTempoPace.tempo))   bestTempoPace=s;
-    if (s.okttype==='Test'  && s.tempo && (!bestTestPace   || s.tempo < bestTestPace.tempo))    bestTestPace=s;
-    if (s.okttype==='Race'  && s.tempo && (!bestRacePace   || s.tempo < bestRacePace.tempo))    bestRacePace=s;
     if (s.hoydeMeter && (!bestHoyde || s.hoydeMeter > bestHoyde.hoydeMeter)) bestHoyde=s;
-    const kmh = s.snittkmh || (s.distanse && s.varighet > 0 ? +(s.distanse / (s.varighet / 3600)).toFixed(2) : 0);
-    if (s.okttype==='Easy' && s.gjsnittspuls > 0 && kmh > 0) {
-      const ae = +(kmh / s.gjsnittspuls * 100).toFixed(2);
-      if (!bestAerobEff || ae > bestAerobEff.ae) bestAerobEff = { ...s, ae, kmh };
+    // Quality records skip flagged outliers (faulty HR strap / GPS glitch shouldn't hold
+    // a record); volume records above and week/month aggregates below keep every session.
+    if (!s.utenforAnalyse) {
+      if (s.tempo && (!bestePace || s.tempo < bestePace.tempo)) bestePace=s;
+      if (s.snittkmh && (!bestKmh || s.snittkmh > bestKmh.snittkmh)) bestKmh=s;
+      if (s.okttype==='Easy'  && s.tempo && (!bestEasyPace   || s.tempo < bestEasyPace.tempo))   bestEasyPace=s;
+      if (s.okttype==='Long'  && s.tempo && (!bestLangturPace|| s.tempo < bestLangturPace.tempo)) bestLangturPace=s;
+      if (s.okttype==='Tempo' && s.tempo && (!bestTempoPace  || s.tempo < bestTempoPace.tempo))   bestTempoPace=s;
+      if (s.okttype==='Test'  && s.tempo && (!bestTestPace   || s.tempo < bestTestPace.tempo))    bestTestPace=s;
+      if (s.okttype==='Race'  && s.tempo && (!bestRacePace   || s.tempo < bestRacePace.tempo))    bestRacePace=s;
+      const kmh = s.snittkmh || (s.distanse && s.varighet > 0 ? +(s.distanse / (s.varighet / 3600)).toFixed(2) : 0);
+      if (s.okttype==='Easy' && s.gjsnittspuls > 0 && kmh > 0) {
+        const ae = +(kmh / s.gjsnittspuls * 100).toFixed(2);
+        if (!bestAerobEff || ae > bestAerobEff.ae) bestAerobEff = { ...s, ae, kmh };
+      }
+      if (s.gjsnittspuls > 0 && (s.distanse||0) >= 5 && (!lavPuls || s.gjsnittspuls < lavPuls.gjsnittspuls)) lavPuls=s;
     }
-    if (s.gjsnittspuls > 0 && (s.distanse||0) >= 5 && (!lavPuls || s.gjsnittspuls < lavPuls.gjsnittspuls)) lavPuls=s;
     const wk = s.uke || isoWeek(s.dato);
     weekKm[wk] = (weekKm[wk]||0) + (s.distanse||0);
     if (s.dato) {
@@ -5127,7 +5151,7 @@ function computeRecords(sessions) {
     { label:'Maraton',     min:40.0, max:43.5 },
   ];
   const distPRs = PR_BRACKETS.map(b => {
-    const candidates = sessions.filter(s => s.distanse >= b.min && s.distanse <= b.max && s.tempo);
+    const candidates = sessions.filter(s => !s.utenforAnalyse && s.distanse >= b.min && s.distanse <= b.max && s.tempo);
     if (!candidates.length) return { label: b.label, session: null };
     return { label: b.label, session: candidates.reduce((a, s) => s.tempo < a.tempo ? s : a) };
   });
@@ -5146,7 +5170,7 @@ function computePerfCurve(sessions) {
   ];
   const TOL = 0.10;
   const testSessions = sessions.filter(s =>
-    (s.okttype === 'Test' || s.okttype === 'Race') && s.distanse >= 1 && s.varighet > 0 && s.tempo);
+    !s.utenforAnalyse && (s.okttype === 'Test' || s.okttype === 'Race') && s.distanse >= 1 && s.varighet > 0 && s.tempo);
 
   return DISTS.map(({ label, km, key }) => {
     // 1. Manual override (highest priority)
