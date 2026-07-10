@@ -51,7 +51,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 
 ### Planning (Planlegging)
 - **Yearly goals (Mål)** — set a km target per year, tracked on the dashboard; ✏️ prefills the inputs for quick editing (re-adding a year overwrites it in place)
-- **Hendelser** — events (Plan / Løp/Race / Sykdom / Ferie / Deload / Taper / Annet) shown as vertical markers and shaded spans on the charts; optional end date for periods; Plan events can carry weekly km/run targets and drive the Treningsblokker cards; ✏️ opens the event in the form for in-place editing (e.g. adding an end date after the fact) — the button flips to "Lagre endringer" with an Avbryt escape
+- **Hendelser** — events (Plan / Løp/Race / Sykdom / Ferie / Deload / Taper / Annet) shown as vertical markers on the charts; events with an end date render as spans — anomaly periods (Sykdom/Ferie/Deload/Taper/Annet) get a shaded fill, while Plan events draw start/end boundary lines only (a multi-week plan fill would tint the whole chart); Plan events can carry weekly km/run targets and drive the Treningsblokker cards; ✏️ opens the event in the form for in-place editing (e.g. adding an end date after the fact) — the button flips to "Lagre endringer" with an Avbryt escape
 - **Sko** — manage shoe list with km totals; **Pensjonér** a shoe to hide it from the form dropdown while keeping historical data; **Aktiver** restores it; used in the log filter and form dropdown
 - **Løp & Races** — lists all race events with matched session stats
 
