@@ -1,6 +1,6 @@
 # Puls
 
-A self-contained single-file running tracker that replaces a multi-tab Excel workbook. Norwegian UI throughout.
+A self-contained single-file running tracker — log a run in seconds with Strava-import, sync across devices via Google Drive, and follow your progress through records, insights, and trend charts. No install, no build step, no backend. Norwegian UI throughout.
 
 ## Features
 
