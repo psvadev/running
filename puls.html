@@ -911,7 +911,7 @@
   <!-- Beste innsats -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Beste innsats</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Legg inn GPS-tider fra Strava eller Runna. Format: mm:ss eller h:mm:ss. Overskriver Riegel-estimater i Ytelseskurven.</p>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Synkroniser fra Strava henter utendørs GPS-tider automatisk. Fyll inn manuelt for tredemølle-PR-er eller løp Strava ikke har. Format: mm:ss eller h:mm:ss. Faktiske tider overskriver Riegel-estimatene i Ytelseskurven.</p>
     <div id="bestEffortsForm"></div>
     <button class="btn" style="margin-top:10px" onclick="Settings.saveBestEfforts()">Lagre</button>
     <span id="bestEffortsMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
@@ -1104,6 +1104,10 @@ function secsToHms(s) {
 function minsToHm(m) {
   const t = Math.round(m);
   return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`;
+}
+function secsToHmsShort(s) {
+  const t = secsToHms(s);
+  return t.startsWith('0:') ? t.slice(2) : t;
 }
 
 function hmsToSecs(str) {
@@ -3894,6 +3898,42 @@ function renderInsights(sessions) {
     }
   }
 
+  // Streak at risk: streak ≥3 weeks alive, but no run yet this week and the week is almost over.
+  // currentStreak in computeRecords reads 0 for a runless current week, so count from LAST week here.
+  const nowAbsWk = absWeekNum(today);
+  const ranThisWeek = sessions.some(s => s.dato && absWeekNum(s.dato) === nowAbsWk);
+  const dow = new Date(today).getDay(); // UTC-parse/local-read is fine for Norway (see P4.13 note)
+  if (!ranThisWeek && (dow >= 5 || dow === 0)) {
+    const wkSet = new Set(sessions.filter(s => s.dato).map(s => absWeekNum(s.dato)));
+    let streakWks = 0;
+    for (let w = nowAbsWk - 1; w >= nowAbsWk - 52; w--) { if (wkSet.has(w)) streakWks++; else break; }
+    if (streakWks >= 3) candidates.push({ icon: '🔥', val: `${streakWks}-ukers streak i fare`,
+      sub: 'Ingen løp denne uken — løp innen søndag for å beholde den', priority: 4 });
+  }
+
+  // Weekly progress toward the active Plan event's km/uke target
+  const activePlan = (Store.data.events || [])
+    .filter(e => e.type === 'plan' && e.targetKmPerWeek > 0 && e.date <= today && (!e.endDate || e.endDate >= today))
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (activePlan) {
+    const wkKm = sessions.filter(s => s.dato && absWeekNum(s.dato) === nowAbsWk)
+      .reduce((sum, s) => sum + (s.distanse || 0), 0);
+    const wkTarget = activePlan.targetKmPerWeek;
+    const reached  = wkKm >= wkTarget;
+    candidates.push({ icon: reached ? '✅' : '📊', val: `${+wkKm.toFixed(1)} av ${wkTarget} km`,
+      sub: `denne uken${reached ? ' — ukesmål nådd' : ''} · ${activePlan.title}`, priority: 3 });
+  }
+
+  // Fresh distance-PR: a bracket PR set within the last 14 days deserves a headline
+  const fortnightAgo = localISODaysAgo(14);
+  PR_BRACKETS.forEach(b => {
+    const prCands = qualitySessions.filter(s => s.distanse >= b.min && s.distanse <= b.max && s.tempo > 0);
+    if (!prCands.length) return;
+    const pr = prCands.reduce((a, s) => s.tempo < a.tempo ? s : a);
+    if (pr.dato >= fortnightAgo) candidates.push({ icon: '🏆', val: `Ny ${b.label}-PR!`,
+      sub: `${pr.varighet ? secsToHmsShort(pr.varighet) + ' · ' : ''}${secsToMmSs(pr.tempo)} /km (${fmtDate(pr.dato)})`, priority: 5 });
+  });
+
   // Easy RPE trend: last 8 weeks vs prior 8 weeks (uses w8ago/w16ago already declared above)
   const recentEasyRpe = qualitySessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w8ago);
   const priorEasyRpe  = qualitySessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w16ago && s.dato < w8ago);
@@ -5074,6 +5114,13 @@ function renderDashboard() {
   </tr>`;
 }
 
+const PR_BRACKETS = [
+  { label:'5 km',        min:4.5,  max:5.5  },
+  { label:'10 km',       min:9.0,  max:11.0 },
+  { label:'Halvmaraton', min:19.5, max:22.0 },
+  { label:'Maraton',     min:40.0, max:43.5 },
+];
+
 function computeRecords(sessions) {
   let bestePace=null, longestDist=null, longestTime=null, bestKmh=null;
   let bestEasyPace=null, bestLangturPace=null, bestTempoPace=null, bestTestPace=null, bestRacePace=null, bestAerobEff=null, lavPuls=null;
@@ -5144,12 +5191,6 @@ function computeRecords(sessions) {
     if (absWeekSet.has(w)) currentStreak++;
     else break;
   }
-  const PR_BRACKETS = [
-    { label:'5 km',        min:4.5,  max:5.5  },
-    { label:'10 km',       min:9.0,  max:11.0 },
-    { label:'Halvmaraton', min:19.5, max:22.0 },
-    { label:'Maraton',     min:40.0, max:43.5 },
-  ];
   const distPRs = PR_BRACKETS.map(b => {
     const candidates = sessions.filter(s => !s.utenforAnalyse && s.distanse >= b.min && s.distanse <= b.max && s.tempo);
     if (!candidates.length) return { label: b.label, session: null };
@@ -5501,7 +5542,7 @@ const StravaBestEfforts = {
         ${diffRows.map(({ label, key }) => `
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
             <span style="width:100px;font-size:13px">${label}</span>
-            <span style="font-size:12px;color:var(--muted)">${current[key] ? secsToHms(current[key]) : '–'} → <b style="color:var(--text)">${secsToHms(found[key])}</b></span>
+            <span style="font-size:12px;color:var(--muted)">${current[key] ? secsToHmsShort(current[key]) : '–'} → <b style="color:var(--text)">${secsToHmsShort(found[key])}</b></span>
             <button class="btn-secondary btn-sm" onclick="StravaBestEfforts.applyOne('${key}')">Bruk</button>
           </div>`).join('')}
         <button class="btn-primary btn-sm" style="margin-top:4px" onclick="StravaBestEfforts.applyAll()">Bruk alle</button>
@@ -5511,7 +5552,7 @@ const StravaBestEfforts = {
   applyOne(key) {
     const found = this._found();
     if (!found[key]) return;
-    document.getElementById(`be_${key}`).value = secsToHms(found[key]);
+    document.getElementById(`be_${key}`).value = secsToHmsShort(found[key]);
     Settings.saveBestEfforts();
     Settings.renderBestEfforts();
     this.showReview();
@@ -5521,7 +5562,7 @@ const StravaBestEfforts = {
     const found = this._found();
     Object.keys(found).forEach(key => {
       const input = document.getElementById(`be_${key}`);
-      if (input) input.value = secsToHms(found[key]);
+      if (input) input.value = secsToHmsShort(found[key]);
     });
     Settings.saveBestEfforts();
     Settings.renderBestEfforts();
@@ -5968,7 +6009,7 @@ const Settings = {
     const be = Store.data.bestEfforts || {};
     el.innerHTML = BEST_EFFORT_DISTS.map(({ label, key }) => {
       const secs = be[key];
-      const val = secs ? secsToHms(secs) : '';
+      const val = secs ? secsToHmsShort(secs) : '';
       return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
         <span style="width:100px;font-size:13px">${label}</span>
         <input type="text" id="be_${key}" value="${val}" placeholder="mm:ss"
