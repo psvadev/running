@@ -1291,6 +1291,11 @@ const Store = {
     this.data.sessions.forEach(s => {
       if (s.sovn != null && s.sovn > 0 && s.sovn < 1) s.sovn = s.sovn * 24;
       if (s.snittkmh != null && s.snittkmh !== +s.snittkmh.toFixed(2)) s.snittkmh = +s.snittkmh.toFixed(2);
+      // Heal sessions whose varighet was zeroed by the edit-form populate-order bug
+      // (fixed 2026-07-11): zone times survived, so restore the same auto-fra-soner sum.
+      if (!(s.varighet > 0) && s.soner?.some(z => z > 0)) {
+        s.varighet = s.soner.reduce((sum, z) => sum + (z || 0), 0);
+      }
     });
   },
 
@@ -2454,13 +2459,16 @@ const Form = {
     document.getElementById('fOktnavn').value = s.oktnavn || '';
     document.getElementById('fOkttype').value = s.okttype || 'Easy';
     document.getElementById('fTreningsplan').value = s.treningsplan || 'Egentrening';
+    // togglePulsdata() clears fVarighet and recalcs from the zone inputs, so it must run
+    // BEFORE the stored varighet lands — the old order wiped varighet on every edit of a
+    // with-zones session (the zone fields are set below and don't fire input events).
+    const hasZones = s.soner?.some(z => z > 0);
+    document.getElementById('fUtenPuls').checked = !hasZones;
+    this.togglePulsdata();
     document.getElementById('fVarighet').value = secsToHms(s.varighet);
     document.getElementById('fDistanse').value = s.distanse || '';
     document.getElementById('fGjpuls').value = s.gjsnittspuls || '';
     document.getElementById('fToppuls').value = s.toppuls || '';
-    const hasZones = s.soner?.some(z => z > 0);
-    document.getElementById('fUtenPuls').checked = !hasZones;
-    this.togglePulsdata();
     document.getElementById('fSone1').value = secsToHms(s.soner?.[0]);
     document.getElementById('fSone2').value = secsToHms(s.soner?.[1]);
     document.getElementById('fSone3').value = secsToHms(s.soner?.[2]);
