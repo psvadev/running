@@ -564,6 +564,11 @@
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Ytelseskurve</div>
       <div class="records-grid" id="perfCurveGrid"></div>
       <div id="top3Efforts"></div>
+      <div id="formkurveSection" style="display:none">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Formkurve · testløp (5K-ekvivalent)</div>
+        <div style="height:180px"><canvas id="chartFormkurve"></canvas></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">Hvert testløp Riegel-normalisert til 5 km-tid — lavere er bedre. Oppover i grafen = bedre form.</div>
+      </div>
     </div>
     <div class="card span2" id="insightCard">
       <div class="card-title">Innsikter</div>
@@ -3163,14 +3168,21 @@ function renderHeatmap(sessions) {
   }
 }
 
-function renderPMCChart(allSessions) {
+// Zone-weighted load (weighted minutes) per date — shared by the PMC chart and the
+// ACWR ramp-rate insight. HR-less sessions contribute nothing (documented in DATA.md).
+function computeDailyLoad(sessions) {
   const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
   const dailyLoad = {};
-  allSessions.forEach(s => {
+  sessions.forEach(s => {
     if (!s.dato || !s.soner || !s.soner.some(v => v > 0)) return;
     const load = s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
     dailyLoad[s.dato] = (dailyLoad[s.dato] || 0) + load;
   });
+  return dailyLoad;
+}
+
+function renderPMCChart(allSessions) {
+  const dailyLoad = computeDailyLoad(allSessions);
   destroyChart('pmc');
   showChartEmpty('chartPMC', !Object.keys(dailyLoad).length, 'Trenger økter med pulssonedata (Sone 1–5) for å beregne form og utmattelse.');
   if (!Object.keys(dailyLoad).length) return;
@@ -3978,6 +3990,31 @@ function renderInsights(sessions) {
       sub: `${pr.varighet ? secsToHmsShort(pr.varighet) + ' · ' : ''}${secsToMmSs(pr.tempo)} /km (${fmtDate(pr.dato)})`, priority: 5 });
   });
 
+  // Ramp-rate (ACWR-lite): last 7 days' zone-weighted load vs the prior 28 days' weekly
+  // average — rolling days, not calendar weeks, so a Monday never reads as a taper.
+  // Silent unless elevated (>1.3). HR-less sessions carry no load (see DATA.md), hence
+  // the zone-session guard. Uses the full array — load is a quantity metric.
+  const dl7  = localISODaysAgo(7), dl35 = localISODaysAgo(35);
+  const dailyLoadMap = computeDailyLoad(sessions);
+  let acuteLoad = 0, chronicLoad = 0;
+  Object.keys(dailyLoadMap).forEach(d => {
+    if (d > today) return;
+    if (d > dl7) acuteLoad += dailyLoadMap[d];
+    else if (d > dl35) chronicLoad += dailyLoadMap[d];
+  });
+  const chronicWeekly = chronicLoad / 4;
+  const zoneSessCount = sessions.filter(s => s.dato > dl35 && s.dato <= today && s.soner?.some(v => v > 0)).length;
+  if (zoneSessCount >= 2 && chronicWeekly > 30) {
+    const acwr = acuteLoad / chronicWeekly;
+    if (acwr > 1.3) {
+      const urgent = acwr > 1.5;
+      candidates.push({ icon: '⚠️', val: `Belastning ×${acwr.toFixed(1).replace('.', ',')}`,
+        sub: urgent ? 'siste 7 dager langt over 4-ukers snittet — høy skaderisiko, ro ned'
+                    : 'siste 7 dager vs 4-ukers snitt — øk rolig',
+        priority: urgent ? 5 : 4 });
+    }
+  }
+
   // Easy RPE trend: last 8 weeks vs prior 8 weeks (uses w8ago/w16ago already declared above)
   const recentEasyRpe = qualitySessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w8ago);
   const priorEasyRpe  = qualitySessions.filter(s => s.okttype === 'Easy' && s.rpe && s.dato >= w16ago && s.dato < w8ago);
@@ -4050,13 +4087,25 @@ function renderConsistency(sessions) {
   const kmWeeks     = Object.values(weekMap).filter(w => w.km   >= kmThr).length;
   const runWeeks    = Object.values(weekMap).filter(w => w.runs >= runThr).length;
 
+  // Availability adjustment (user decision 2026-07-12): a runless week covered by a
+  // Syk/Ferie event is unavailable, not failed — it leaves the denominator and the
+  // streak bridges it. Running during a Ferie week still counts (active beats excused).
+  const offEvents = (Store.data.events || []).filter(e => e.type === 'illness' || e.type === 'vacation');
+  const unavailable = new Set();
+  for (let w = minAbs; w <= nowAbs; w++) {
+    if (weekMap[w]) continue;
+    if (offEvents.some(e => absWeekNum(e.date) <= w && w <= absWeekNum(e.endDate || e.date))) unavailable.add(w);
+  }
+  const availableWeeks = Math.max(1, PERIOD - unavailable.size);
+
   let currentStreak = 0;
   for (let w = nowAbs; w >= minAbs; w--) {
     if (weekMap[w]) currentStreak++;
+    else if (unavailable.has(w)) continue;
     else break;
   }
 
-  const scoreA = (activeWeeks / PERIOD) * 50;
+  const scoreA = Math.min(activeWeeks / availableWeeks, 1) * 50;
   const scoreB = (kmWeeks / Math.max(activeWeeks, 1)) * 30;
   const scoreC = Math.min(currentStreak / 4, 1) * 20;
   const score  = Math.round(scoreA + scoreB + scoreC);
@@ -4068,7 +4117,7 @@ function renderConsistency(sessions) {
               : 'Ujevn trening';
 
   const stats = [
-    { val: `${activeWeeks} / ${PERIOD}`, sub: 'aktive uker' },
+    { val: `${activeWeeks} / ${availableWeeks}`, sub: unavailable.size ? 'aktive av tilgjengelige uker' : 'aktive uker' },
     { val: `${kmWeeks} uker`,            sub: `over ${kmThr} km` },
     { val: `${runWeeks} uker`,           sub: `${runThr}+ løp/uke` },
     { val: `${currentStreak} uker`,      sub: 'nåværende streak' },
@@ -4086,6 +4135,7 @@ function renderConsistency(sessions) {
         <div class="cs-score">${score}</div>
         <div class="cs-label">${label}</div>
         <div class="cs-period">siste ${PERIOD} uker</div>
+        ${unavailable.size ? `<div class="cs-period">${unavailable.size} ${unavailable.size === 1 ? 'uke' : 'uker'} holdt utenfor (Syk/Ferie)</div>` : ''}
       </div>
       <div style="display:flex;gap:20px;flex-wrap:wrap">
         ${stats.map(s => `<div class="cs-stat"><div class="csv">${s.val}</div><div class="css">${s.sub}</div></div>`).join('')}
@@ -4847,6 +4897,8 @@ function renderDashboard() {
     `<div class="record-card"><div class="record-label">${r.label}</div><div class="record-value${r.estimated ? ' estimated' : ''}">${r.value}</div><div class="record-sub">${r.sub}</div></div>`
   ).join('');
 
+  renderFormkurve();
+
   // Top-3 recorded Strava efforts per distance (outdoor GPS runs only — Strava doesn't
   // compute best efforts for treadmill/manual activities; treadmill PRs live in Distanse-PR)
   const top3 = Store.data.bestEffortsTop3 || {};
@@ -5270,6 +5322,59 @@ function computeRecords(sessions) {
     return { label: b.label, session: candidates.reduce((a, s) => s.tempo < a.tempo ? s : a) };
   });
   return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, totalHoyde, totalOutdoorKm:+totalOutdoorKm.toFixed(1), totalIndoorKm:+totalIndoorKm.toFixed(1), besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLangturPace, bestTempoPace, bestTestPace, bestRacePace, bestHoyde, bestAerobEff, lavPuls, distPRs };
+}
+
+// Formkurve: every Test/Race normalized to a Riegel 5K-equivalent time so tests at
+// different distances land on one fitness curve. Records-family: all-time, unfiltered.
+function renderFormkurve() {
+  const section = document.getElementById('formkurveSection');
+  if (!section) return;
+  destroyChart('formkurve');
+  const tests = Store.data.sessions
+    .filter(s => !s.utenforAnalyse && (s.okttype === 'Test' || s.okttype === 'Race') && s.distanse >= 1 && s.varighet > 0 && s.tempo)
+    .sort((a, b) => a.dato.localeCompare(b.dato));
+  if (tests.length < 2) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  const equiv = tests.map(s => Math.round(s.varighet * Math.pow(5 / s.distanse, 1.06)));
+  Charts.formkurve = new Chart(document.getElementById('chartFormkurve'), {
+    type: 'line',
+    data: {
+      labels: tests.map(s => fmtDate(s.dato)),
+      datasets: [{
+        data: equiv,
+        borderColor: '#6c8fff',
+        backgroundColor: 'rgba(108,143,255,.15)',
+        pointRadius: 5, pointBackgroundColor: '#6c8fff',
+        tension: 0.25, fill: false,
+      }]
+    },
+    options: {
+      plugins: {
+        legend: { display: false },
+        eventLines: false,
+        tooltip: {
+          callbacks: {
+            title: ctx => {
+              const s = tests[ctx[0].dataIndex];
+              return `${fmtDate(s.dato)}${s.oktnavn ? ' · ' + s.oktnavn : ''}`;
+            },
+            label: ctx => {
+              const s = tests[ctx.dataIndex];
+              return [`Faktisk: ${+s.distanse.toFixed(2)} km på ${secsToHmsShort(s.varighet)}`,
+                      `5K-ekvivalent: ${secsToHmsShort(ctx.raw)}`];
+            },
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#7880a0', font: { size: 10 } } },
+        y: { reverse: true, grid: { color: '#2e3248' },
+             ticks: { color: '#7880a0', callback: v => secsToHmsShort(Math.round(v)) },
+             title: { display: true, text: '5K-ekvivalent tid', color: '#7880a0', font: { size: 10 } } },
+      },
+      responsive: true, maintainAspectRatio: false,
+    }
+  });
 }
 
 function computePerfCurve(sessions) {
