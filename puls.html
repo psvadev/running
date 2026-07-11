@@ -98,6 +98,12 @@
   .insight-item .i-val  { font-size:13px; font-weight:600; color:var(--text); }
   .insight-item .i-sub  { font-size:11px; color:var(--muted); margin-top:2px; }
 
+  /* Sko list rows — actions wrap to their own line when the card is too narrow (mobile) */
+  .shoe-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .shoe-row .sr-name { flex:1 1 auto; min-width:120px; font-size:13px; font-weight:500; }
+  .shoe-row .sr-km { font-size:12px; color:var(--muted); flex-shrink:0; }
+  .shoe-actions { display:flex; gap:6px; flex-shrink:0; margin-left:auto; }
+
   /* Hendelser list rows */
   .event-row { display:flex; align-items:center; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; }
   .event-row .er-date  { font-size:12px; color:var(--muted); min-width:120px; }
@@ -5827,11 +5833,11 @@ const Settings = {
         : 'background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px';
 
       return `<div style="${cardStyle}">
-        <div style="display:flex;align-items:center;gap:10px">
+        <div class="shoe-row">
           <span style="font-size:18px">${isRetired ? '📦' : '👟'}</span>
-          <span style="flex:1;font-size:13px;font-weight:500">${escapeHtml(name)}</span>
-          <span style="font-size:12px;color:var(--muted)">${usedKm.toFixed(0)} km</span>
-          ${actionButtons}
+          <span class="sr-name">${escapeHtml(name)}</span>
+          <span class="sr-km">${usedKm.toFixed(0)} km</span>
+          <span class="shoe-actions">${actionButtons}</span>
         </div>
         ${retireHtml}
         ${isRetired ? '' : `<div id="shoe-edit-${safeId}" style="display:none;margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
