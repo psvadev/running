@@ -2913,13 +2913,18 @@ const eventLinesPlugin = {
       const meta = chart.getDatasetMeta(0);
       if (!meta || !meta.data || !meta.data.length) return;
       const colWidth = meta.data.length > 1 ? Math.abs(meta.data[1].x - meta.data[0].x) : 20;
+      // Compare like with like: week-label charts must range-check against the event's
+      // ISO week, not its date — "2026-07-20" sorts before week-string "2026-28", which
+      // parked future events at week 10 on the weekly charts.
+      const labelsAreDates = /^\d{4}-\d{2}-\d{2}$/.test(rawLabels[0] || '');
       ctx.save();
       try {
         events.forEach(evt => {
+          const evtKey = labelsAreDates ? evt.date : isoWeek(evt.date);
           let idx = rawLabels.indexOf(evt.date);
-          if (idx < 0) idx = rawLabels.indexOf(isoWeek(evt.date));
-          if (idx < 0 && evt.date >= rawLabels[0] && evt.date <= rawLabels[rawLabels.length - 1])
-            idx = rawLabels.findIndex(l => l >= evt.date);
+          if (idx < 0) idx = rawLabels.indexOf(evtKey);
+          if (idx < 0 && evtKey >= rawLabels[0] && evtKey <= rawLabels[rawLabels.length - 1])
+            idx = rawLabels.findIndex(l => l >= evtKey);
           if (idx < 0 || idx >= meta.data.length) return;
           const x = meta.data[idx].x;
           if (x < chartArea.left || x > chartArea.right) return;
@@ -2931,7 +2936,6 @@ const eventLinesPlugin = {
           ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
 
           if (evt.endDate) {
-            const labelsAreDates = /^\d{4}-\d{2}-\d{2}$/.test(rawLabels[0] || '');
             let xStart, xEnd, drawEndLine;
             if (labelsAreDates) {
               // Line/scatter charts with date labels — interpolate exact pixel positions
