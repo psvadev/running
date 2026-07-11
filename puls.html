@@ -880,6 +880,7 @@
       <button class="btn-secondary btn-sm" id="btnCancelEvtEdit" style="display:none">Avbryt</button>
     </div>
     <div id="evtPlanTargets" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newEvtRunTarget" placeholder="Mål løp/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
     </div>
@@ -3941,11 +3942,24 @@ function renderInsights(sessions) {
       sub: 'Ingen løp denne uken — løp innen søndag for å beholde den', priority: 4 });
   }
 
-  // Weekly progress toward the active Plan event's km/uke target
+  // Progress toward the active Plan event's target — total km when set (self-normalizes
+  // across deload/taper weeks, with %-done vs %-of-time as the honesty check), else km/uke
   const activePlan = (Store.data.events || [])
-    .filter(e => e.type === 'plan' && e.targetKmPerWeek > 0 && e.date <= today && (!e.endDate || e.endDate >= today))
+    .filter(e => e.type === 'plan' && (e.targetTotalKm > 0 || e.targetKmPerWeek > 0) && e.date <= today && (!e.endDate || e.endDate >= today))
     .sort((a, b) => b.date.localeCompare(a.date))[0];
-  if (activePlan) {
+  if (activePlan && activePlan.targetTotalKm > 0) {
+    const planKm = sessions.filter(s => s.dato && s.dato >= activePlan.date)
+      .reduce((sum, s) => sum + (s.distanse || 0), 0);
+    const donePct = Math.round(planKm / activePlan.targetTotalKm * 100);
+    let timePart = '';
+    if (activePlan.endDate) {
+      const span = new Date(activePlan.endDate) - new Date(activePlan.date);
+      const timePct = Math.round(Math.min(100, Math.max(0, (new Date(today) - new Date(activePlan.date)) / Math.max(1, span) * 100)));
+      timePart = `, ${timePct}% av tiden`;
+    }
+    candidates.push({ icon: donePct >= 100 ? '✅' : '📊', val: `${+planKm.toFixed(1)} av ${activePlan.targetTotalKm} km`,
+      sub: `${donePct}% av planmålet${timePart} · ${activePlan.title}`, priority: 3 });
+  } else if (activePlan) {
     const wkKm = sessions.filter(s => s.dato && absWeekNum(s.dato) === nowAbsWk)
       .reduce((sum, s) => sum + (s.distanse || 0), 0);
     const wkTarget = activePlan.targetKmPerWeek;
@@ -4166,6 +4180,7 @@ function computeBlocks(allSessions) {
              avgKmWeek: totalKm/weeks, avgRunsWeek: runs/weeks, avgPace, avgHR,
              bestWeekKm, longestRun, consistencyScore, indoorKm, outdoorKm,
              shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget,
+             targetTotalKm: evt.targetTotalKm || null,
              weeklyKm: Object.keys(weekKm).sort().map(w => weekKm[w]) };
   });
 }
@@ -4218,7 +4233,7 @@ function renderBlocks() {
           <span style="font-size:14px;font-weight:600;flex:1">${escapeHtml(b.title)}</span>
           <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(108,143,255,.2);color:var(--accent)">Kommende</span>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">${fmtDate(b.startDate)} – ${fmtDate(b.endDate)} · ${b.weeks} uker · ${startsIn}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">${fmtDate(b.startDate)} – ${fmtDate(b.endDate)} · ${b.weeks} uker${b.targetTotalKm ? ` · mål ${b.targetTotalKm} km` : ''} · ${startsIn}</div>
       </div>`;
     }).join('');
   }
@@ -4246,6 +4261,17 @@ function renderBlocks() {
         <div class="dp-stat-row" style="margin-bottom:16px">
           ${statsRow.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}
         </div>
+        ${current.targetTotalKm ? (() => {
+          const donePct = Math.min(100, current.totalKm / current.targetTotalKm * 100);
+          return `<div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:12px">
+            <span style="color:var(--muted)">Distanse mot mål</span>
+            <span style="font-weight:600;color:var(--accent)">${current.totalKm.toFixed(0)} av ${current.targetTotalKm} km · ${donePct.toFixed(0)}%</span>
+          </div>
+          <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+            <div style="width:${donePct.toFixed(1)}%;height:100%;background:var(--accent);border-radius:4px;transition:width .3s"></div>
+          </div>
+        </div>`; })() : ''}
         <div style="margin-bottom:12px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:12px">
             <span style="color:var(--muted)">Konsistens</span>
@@ -5957,6 +5983,7 @@ const Settings = {
     document.getElementById('newEvtEndDate').value = evt.endDate || '';
     document.getElementById('newEvtType').value = evt.type;
     document.getElementById('newEvtTitle').value = evt.title;
+    document.getElementById('newEvtTotalKmTarget').value = evt.targetTotalKm || '';
     document.getElementById('newEvtKmTarget').value = evt.targetKmPerWeek || '';
     document.getElementById('newEvtRunTarget').value = evt.targetRunsPerWeek || '';
     document.getElementById('evtPlanTargets').style.display = evt.type === 'plan' ? 'flex' : 'none';
@@ -5975,6 +6002,7 @@ const Settings = {
     document.getElementById('newEvtDate').value = '';
     document.getElementById('newEvtEndDate').value = '';
     document.getElementById('newEvtTitle').value = '';
+    document.getElementById('newEvtTotalKmTarget').value = '';
     document.getElementById('newEvtKmTarget').value = '';
     document.getElementById('newEvtRunTarget').value = '';
     document.getElementById('evtPlanTargets').style.display = 'none';
@@ -5993,8 +6021,10 @@ const Settings = {
     const evt = { id: this.editingEventId || genId(), date, type, title };
     if (endDate && endDate > date) evt.endDate = endDate;
     if (type === 'plan') {
+      const totT = parseFloat(document.getElementById('newEvtTotalKmTarget').value) || null;
       const kmT  = parseFloat(document.getElementById('newEvtKmTarget').value)  || null;
       const runT = parseFloat(document.getElementById('newEvtRunTarget').value) || null;
+      if (totT) evt.targetTotalKm     = totT;
       if (kmT)  evt.targetKmPerWeek   = kmT;
       if (runT) evt.targetRunsPerWeek = runT;
     }
