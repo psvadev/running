@@ -98,6 +98,13 @@
   .insight-item .i-val  { font-size:13px; font-weight:600; color:var(--text); }
   .insight-item .i-sub  { font-size:11px; color:var(--muted); margin-top:2px; }
 
+  /* Hendelser list rows */
+  .event-row { display:flex; align-items:center; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; }
+  .event-row .er-date  { font-size:12px; color:var(--muted); min-width:120px; }
+  .event-row .er-type  { font-size:11px; min-width:64px; flex-shrink:0; }
+  .event-row .er-title { flex:1; min-width:0; font-size:13px; font-weight:500; }
+  .event-row button    { flex-shrink:0; }
+
   /* Shoe extra stats line */
   .shoe-meta { display:flex; flex-wrap:wrap; gap:4px; margin-top:9px; margin-bottom:2px; }
   .cs-score  { font-size:52px; font-weight:700; color:var(--accent); line-height:1; }
@@ -146,6 +153,10 @@
     .shoe-bar-row { grid-template-columns: 110px 1fr 44px; }
     .zone-grid { grid-template-columns: repeat(3, 1fr); }
     .records-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+    /* Let the date/type columns shrink so the ✏️/✕ buttons stay inside the card */
+    .event-row { gap: 8px; padding: 10px; }
+    .event-row .er-date { min-width: 0; }
+    .event-row .er-type { min-width: 0; }
   }
 
   /* ── Records ── */
@@ -2853,7 +2864,9 @@ const EVENT_FILL_COLORS = Object.fromEntries(
   Object.entries(EVENT_COLORS).map(([k, v]) => [k, v.replace(/[\d.]+\)$/, '0.12)')])
 );
 
-let showEventMarkers = true;
+// Default off on small screens — event lines/labels crowd the shrunken charts (user, 2026-07-11)
+const eventMarkersDefault = () => !window.matchMedia('(max-width: 600px)').matches;
+let showEventMarkers = eventMarkersDefault();
 
 // Interpolate pixel x for an arbitrary ISO date between sparse date-axis labels
 function interpX(dateStr, rawLabels, metaData) {
@@ -5897,11 +5910,11 @@ const Settings = {
     list.innerHTML = events.map(evt => {
       const color = EVENT_COLORS[evt.type] || EVENT_COLORS.personal;
       const dateStr = evt.endDate ? `${fmtDate(evt.date)} – ${fmtDate(evt.endDate)}` : fmtDate(evt.date);
-      return `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
+      return `<div class="event-row">
         <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
-        <span style="font-size:12px;color:var(--muted);min-width:120px">${dateStr}</span>
-        <span style="font-size:11px;color:${color};min-width:64px">${typeLabel[evt.type] || escapeHtml(evt.type)}</span>
-        <span style="flex:1;font-size:13px;font-weight:500">${escapeHtml(evt.title)}</span>
+        <span class="er-date">${dateStr}</span>
+        <span class="er-type" style="color:${color}">${typeLabel[evt.type] || escapeHtml(evt.type)}</span>
+        <span class="er-title">${escapeHtml(evt.title)}</span>
         <button class="btn-secondary btn-sm" data-edit-event="${evt.id}" title="Rediger">✏️</button>
         <button class="btn-secondary btn-sm" data-del-event="${evt.id}" title="Slett">✕</button>
       </div>`;
@@ -6366,6 +6379,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Dashboard filters
   document.getElementById('dfType').addEventListener('change', e => { DashFilter.type = e.target.value; renderDashboard(); });
   document.getElementById('dfPlan').addEventListener('change', e => { DashFilter.plan = e.target.value; renderDashboard(); });
+  document.getElementById('chkEvents').checked = showEventMarkers;
   document.getElementById('chkEvents').addEventListener('change', e => { showEventMarkers = e.target.checked; renderDashboard(); });
   document.querySelectorAll('input[name="dfLopetype"]').forEach(r => r.addEventListener('change', e => { DashFilter.løpetype = e.target.value; renderDashboard(); }));
   document.getElementById('btnDashReset').addEventListener('click', () => {
@@ -6375,6 +6389,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('input[name="dfLopetype"][value=""]').checked = true;
     paceUnit = 'pace';
     document.querySelector('input[name="dfPaceUnit"][value="pace"]').checked = true;
+    showEventMarkers = eventMarkersDefault();
+    document.getElementById('chkEvents').checked = showEventMarkers;
     aeVenueFilter = 'all';
     document.querySelectorAll('#aeToggleAlle,#aeToggleUte,#aeToggleInn').forEach(el => el.classList.remove('active'));
     document.getElementById('aeToggleAlle').classList.add('active');
@@ -6401,11 +6417,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('venueToggleWeek').classList.add('active');
     rpeTypeFilter = 'Easy';
     document.querySelectorAll('#rpeToggleEasy,#rpeToggleLong,#rpeToggleTempo,#rpeToggleAlle').forEach(el => el.classList.remove('active'));
-    document.getElementById('rpeToggleEasy').classList.add('active');
+    // RPE pills are dynamic (only types with RPE data render one) — may not exist
+    document.getElementById('rpeToggleEasy')?.classList.add('active');
     renderDashboard();
   });
 
-  // Manual save button in header
+  // Manual save button (Innstillinger → Datafil)
   document.getElementById('btnManualSave').addEventListener('click', () => FileIO.save());
 
   // Init form, import & settings
