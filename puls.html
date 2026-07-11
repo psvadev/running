@@ -4203,8 +4203,25 @@ function renderBlocks() {
 
   const today = localISODate();
   const sorted = blocks.slice().reverse();
-  const current = sorted.find(b => b.endDate >= today);
-  const past    = sorted.filter(b => b.endDate < today);
+  // A future plan is not "Pågår" — it gets a compact Kommende card instead of a 0-km hero
+  const current  = sorted.find(b => b.startDate <= today && b.endDate >= today);
+  const upcoming = sorted.filter(b => b.startDate > today);
+  const past     = sorted.filter(b => b.endDate < today);
+
+  let upcomingHtml = '';
+  if (upcoming.length) {
+    upcomingHtml = upcoming.map(b => {
+      const daysUntil = Math.round((new Date(b.startDate) - new Date(today)) / 86400000);
+      const startsIn = daysUntil === 1 ? 'starter i morgen' : `starter om ${daysUntil} dager`;
+      return `<div style="background:var(--surface2);border:1px dashed var(--border);border-radius:10px;padding:14px 20px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px;font-weight:600;flex:1">${escapeHtml(b.title)}</span>
+          <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(108,143,255,.2);color:var(--accent)">Kommende</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">${fmtDate(b.startDate)} – ${fmtDate(b.endDate)} · ${b.weeks} uker · ${startsIn}</div>
+      </div>`;
+    }).join('');
+  }
 
   let heroHtml = '';
   if (current) {
@@ -4222,7 +4239,7 @@ function renderBlocks() {
       <div style="background:var(--surface2);border:1px solid var(--accent);border-radius:10px;padding:20px 24px;margin-bottom:16px;cursor:pointer"
            onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))" data-block="${safeBlock}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-          <span style="font-size:16px;font-weight:700;flex:1">${current.title}</span>
+          <span style="font-size:16px;font-weight:700;flex:1">${escapeHtml(current.title)}</span>
           <span style="font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:2px 8px;font-weight:600">Pågår</span>
         </div>
         <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${fmtDate(current.startDate)} – nå · ${current.weeks} uker</div>
@@ -4251,7 +4268,7 @@ function renderBlocks() {
       const safeBlock = toSafeAttr(b);
       return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;flex:1;min-width:180px;max-width:300px"
               onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))" data-block="${safeBlock}">
-        <div style="font-size:13px;font-weight:600;margin-bottom:4px">${b.title}</div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">${escapeHtml(b.title)}</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${fmtDate(b.startDate)} – ${fmtDate(b.endDate)} · ${b.weeks} uker</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
           <div class="dp-stat"><div class="dpv" style="font-size:15px">${b.totalKm.toFixed(0)} km</div><div class="dpl">totalt</div></div>
@@ -4271,7 +4288,7 @@ function renderBlocks() {
 
   el.innerHTML = `<div class="card-title">Treningsblokker</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Generert fra Plan-hendelser. Klikk for detaljer.</div>
-    ${heroHtml}${pastHtml}`;
+    ${upcomingHtml}${heroHtml}${pastHtml}`;
 }
 
 function renderVenueChart(sessions) {
