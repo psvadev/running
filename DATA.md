@@ -1,0 +1,55 @@
+# DATA.md — data semantics for puls.json
+
+Field dictionary and caveats for the session data. Purpose: let any future session (human, Claude, or an AI chat fed the TSV export) reason correctly about this data without rediscovering its assumptions. Short and factual — architecture/dev context lives in HANDOFF.md (local).
+
+## Session fields
+
+| Field | Type | Semantics & caveats |
+|---|---|---|
+| `id` | string | Stable unique id; edits reuse it. |
+| `dato` | `YYYY-MM-DD` | Local date (not UTC) — see `localISODate` helpers. |
+| `uke` | `YYYY-WW` | ISO week, derived from `dato`. |
+| `oktnavn` | string | Free text; often auto-generated as "{Treningsplan} {Økttype}". |
+| `okttype` | string | One of the 7 core types (Easy, Steady, Long, Tempo, Intervaller, Test, Race) or a user-defined custom type. Only **Test/Race** anchor the Ytelseskurve and Formkurve. |
+| `treningsplan` | string | Egentrening, Runna, or custom. |
+| `varighet` | seconds | **Normally the sum of the five zone times** ("auto fra soner"). **Strava-imported sessions store Strava's `moving_time` instead**, which can differ slightly from the zone sum. Manually entered when "Uten pulsdata" is checked. |
+| `distanse` | km (float) | Treadmill: belt-measured. Outdoor: GPS. These disagree systematically — see "Belt vs GPS" below. |
+| `gjsnittspuls` / `toppuls` | bpm | Missing on some sessions. Known anomalies: **2026-06-24 HR is estimated from Apple Health** (not chest strap); **2026-04-17 and 2026-07-01 have no pulsdata at all**. Sessions without HR contribute **zero** to the zone-weighted load, PMC (CTL/ATL/TSB), and Belastning charts. |
+| `soner` | `[s1..s5]` seconds | Time per pulse zone. Zone boundaries use **touching convention** (zone N max = zone N+1 min), matching Strava. |
+| `kalorier` | int | From watch/Strava; not used in any computation. |
+| `malDistanse` | km | The planned distance for the session. |
+| `tempo` | sec/km | Auto-calculated from varighet/distanse. |
+| `snittkmh` | km/h | Auto-calculated; feeds aerobic efficiency (`snittkmh / gjsnittspuls × 100`). |
+| `stigning` | % (≤20) | **Treadmill incline only.** Usually 1 % — the standard outdoor-equivalence convention, so treadmill paces are already roughly outdoor-equivalent in energy cost. Not an elevation measurement. |
+| `hoydeMeter` | m | **Outdoor elevation gain only** (mutually exclusive with `stigning`). Per-run totals are too coarse for grade-adjusted pace — do not attempt GAP from this. |
+| `sko` | string | Shoe name; km per shoe aggregated for lifecycle tracking. |
+| `løpetype` | `utendors` \| `treadmill` | Venue. Default `utendors`. |
+| `sovn` | hours (decimal) | **Sleep the single night before the run — NOT a weekly average.** Can only measure acute effects, which are physiologically expected to be weak; chronic sleep debt is invisible in this data. 6.87 = 6 h 52 m. |
+| `rpe` | 1–10 | Apple Fitness scale. **The field was added 2026-06-01; values before that (back to late April 2026) were backfilled from Apple Fitness** — contemporaneous recordings, not reconstructed memory. Sparse before late April 2026. |
+| `beskrivelse` | string | Workout structure; auto-filled from Strava (Runna pushes its program text into Strava's description). |
+| `notater` | string | Free-text session notes; carries the "why" for flagged sessions. |
+| `utenforAnalyse` | bool? | Outlier flag ("Avvik"). `true` = excluded from **quality** analytics (trends, insights, quality charts, pace/distance records, Ytelseskurve/Formkurve anchors) but **kept** in all volume metrics (km totals, streaks, heatmap, load, PMC, blocks, goals). Absent = false. Exclusions are always visible (dimmed log row, detail-panel row, `[Avvik]` tag in exports). |
+
+## Belt vs GPS — never merge these
+
+- **Treadmill PRs** are belt-measured (Distanse-PR brackets include them).
+- **Strava "Topp 3" best efforts** are GPS-measured, outdoor-only (Strava computes no best efforts for treadmill runs).
+- Outdoor pace at the same HR reads consistently faster than treadmill — likely belt calibration, GPS error, and indoor heat/airflow, **not** gradient (the 1 % convention covers that). Treat the surfaces as separate populations; do not combine belt and GPS times in one ranking.
+
+## Events (`Store.data.events`)
+
+`{ id, date, type, endDate?, title }` — types: `plan`, `race`, `illness`, `vacation`, `deload`, `taper`, `personal`. `endDate` is **inclusive**. Plan events may carry `targetTotalKm` / `targetKmPerWeek` / `targetRunsPerWeek`.
+Syk/Ferie/Deload/Taper events **explain gaps and dips in the volume charts** — check them before interpreting a drop as detraining. Treningsrytme treats runless weeks covered by `illness`/`vacation` as unavailable rather than failed.
+
+## Other data stores
+
+- `bestEfforts` — manual best-effort times (seconds) per distance; may be belt- or GPS-based (user-entered); overrides Riegel estimates in Ytelseskurve.
+- `bestEffortsTop3` — Strava-scanned top-3 per distance `{t, d}`; GPS/outdoor only.
+- `shoes` — `{ name, retirementKm?, retired? }`.
+- `goals` — yearly km targets keyed by year.
+
+## Computation conventions
+
+- Riegel exponent **1.06** for all equivalent-time math (`t2 = t1 × (d2/d1)^1.06`).
+- Zone-weighted load = `Σ(soner[i] × [1,2,3,4,5]) / 60` (weighted minutes). PMC: CTL 42-day / ATL 7-day exponential averages of daily load; TSB = CTL − ATL.
+- All "today"/window boundaries use local dates, never UTC.

@@ -3172,7 +3172,7 @@ function renderPMCChart(allSessions) {
     dailyLoad[s.dato] = (dailyLoad[s.dato] || 0) + load;
   });
   destroyChart('pmc');
-  showChartEmpty('chartPmc', !Object.keys(dailyLoad).length, 'Trenger økter med pulssonedata (Sone 1–5) for å beregne form og utmattelse.');
+  showChartEmpty('chartPMC', !Object.keys(dailyLoad).length, 'Trenger økter med pulssonedata (Sone 1–5) for å beregne form og utmattelse.');
   if (!Object.keys(dailyLoad).length) return;
 
   const kCTL = Math.exp(-1 / 42);
