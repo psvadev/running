@@ -68,7 +68,7 @@ Dashboard filters: session type, training plan, run type (outdoor/treadmill), **
 
 ## Getting started
 
-Open `puls.html` in your browser — no install needed. Or use the hosted version at **[psvadev.github.io/running/puls.html](https://psvadev.github.io/running/puls.html)** (navigating to the root redirects automatically). A small footer at the bottom of the page shows the currently deployed commit (fetched live from GitHub), so you can confirm you're on the latest version.
+Open `puls.html` in your browser — no install needed. Or use the hosted version at **[psvadev.github.io/running/puls.html](https://psvadev.github.io/running/puls.html)** (navigating to the root redirects automatically). A small footer at the bottom of the page shows the currently deployed commit (fetched live from GitHub, with the last known version cached locally so it survives API hiccups), so you can confirm you're on the latest version.
 
 First-time users see a short in-app welcome message on the logging form explaining the save flow — it disappears automatically after your first session is logged.
 
