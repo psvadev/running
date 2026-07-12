@@ -283,13 +283,14 @@
   #scrollTopBtn {
     position:fixed; bottom:24px; right:20px; z-index:900;
     width:40px; height:40px; border-radius:50%;
-    background:var(--surface2); border:1px solid var(--border);
-    color:var(--muted); font-size:18px; line-height:1;
+    background:var(--surface2); border:1px solid var(--accent);
+    color:var(--accent); font-size:18px; line-height:1;
+    box-shadow:0 2px 10px rgba(0,0,0,.45);
     cursor:pointer; display:flex; align-items:center; justify-content:center;
     opacity:0; pointer-events:none; transition:opacity .2s;
   }
   #scrollTopBtn.visible { opacity:1; pointer-events:auto; }
-  #scrollTopBtn:hover { background:var(--surface3); color:var(--text); }
+  #scrollTopBtn:hover { background:var(--accent); color:#fff; }
 </style>
 </head>
 <body>
