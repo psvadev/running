@@ -576,7 +576,6 @@
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Ytelseskurve</div>
       <div class="records-grid" id="perfCurveGrid"></div>
       <div id="top3Efforts"></div>
-      <div id="landStrip"></div>
       <div id="formkurveSection" style="display:none">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Formkurve · testløp (5K-ekvivalent)</div>
         <div style="height:180px"><canvas id="chartFormkurve"></canvas></div>
@@ -666,6 +665,10 @@
       </div>
       <div id="venueSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 20 uker. 🏃 Utendørs · ⚙️ Tredemølle</div>
       <div class="chart-wrap"><canvas id="chartVenue"></canvas></div>
+    </div>
+    <div class="card span2" id="landCard" style="display:none">
+      <div class="card-title">Land løpt i</div>
+      <div id="landStrip"></div>
     </div>
     <div class="card span2" id="yearCompCard">
       <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
@@ -5009,13 +5012,13 @@ function renderDashboard() {
     </div>`;
 
   // Land løpt i — all-time count per country (empty land = Norge, the home default);
-  // ignores the year pills and utenforAnalyse, like the Ytelseskurve above.
+  // ignores the year pills and utenforAnalyse, like the Ytelseskurve. Own dashboard card.
   const landCounts = {};
   Store.data.sessions.forEach(s => { const c = s.land || 'NO'; landCounts[c] = (landCounts[c] || 0) + 1; });
   const landKeys = Object.keys(landCounts).sort((a, b) =>
     a === 'NO' ? -1 : b === 'NO' ? 1 : (landCounts[b] - landCounts[a]) || landName(a).localeCompare(landName(b), 'nb'));
-  document.getElementById('landStrip').innerHTML = !Store.data.sessions.length ? '' : `
-    <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Land løpt i</div>
+  document.getElementById('landCard').style.display = Store.data.sessions.length ? '' : 'none';
+  document.getElementById('landStrip').innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:8px">
       ${landKeys.map(code => {
         const flag = landFlagUrl(code);
