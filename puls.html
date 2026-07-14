@@ -321,8 +321,10 @@
 <div class="panel active" id="panel-form">
   <div class="edit-banner hidden" id="editBanner">
     ✏️ Redigerer økt — <strong id="editLabel"></strong>
+    <button class="btn-secondary btn-sm" id="btnUpdateStrava" style="display:none">📥 Oppdater fra Strava</button>
     <button class="btn-secondary btn-sm" id="btnCancelEdit">Avbryt</button>
   </div>
+  <input type="hidden" id="fStravaId">
 
   <div class="edit-banner" id="welcomeBanner"></div>
 
@@ -2526,6 +2528,7 @@ const Form = {
       notater: document.getElementById('fNotater').value.trim() || null,
       utenforAnalyse: document.getElementById('fUtenforAnalyse').checked || undefined,
       land: resolveLandInput(document.getElementById('fLand').value) || undefined,
+      stravaId: document.getElementById('fStravaId').value || undefined,
     };
   },
 
@@ -2567,6 +2570,7 @@ const Form = {
     document.getElementById('fNotater').value = s.notater || '';
     document.getElementById('fUtenforAnalyse').checked = !!s.utenforAnalyse;
     document.getElementById('fLand').value = s.land ? landName(s.land) : '';
+    document.getElementById('fStravaId').value = s.stravaId || '';
     this.refreshShoeDropdown(s.sko);
   },
 
@@ -2579,6 +2583,9 @@ const Form = {
     this.populate(s);
     document.getElementById('editBanner').classList.remove('hidden');
     document.getElementById('editLabel').textContent = s.oktnavn || fmtDate(s.dato);
+    // Offer a Strava re-pull only for sessions that were filled from Strava and while connected.
+    document.getElementById('btnUpdateStrava').style.display =
+      (s.stravaId && StravaIO.isSignedIn()) ? '' : 'none';
     document.getElementById('btnSaveSession').textContent = '💾 Oppdater økt';
     document.getElementById('btnClearForm').style.display = 'none';
     switchTab('form');
@@ -2623,7 +2630,7 @@ const Form = {
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
-     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn','fRpe','fBeskrivelse','fNotater','fLand'].forEach(id => {
+     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn','fRpe','fBeskrivelse','fNotater','fLand','fStravaId'].forEach(id => {
       document.getElementById(id).value = '';
     });
     const lastSession = Store.data.sessions[Store.data.sessions.length - 1];
@@ -5534,6 +5541,7 @@ const StravaImport = {
 
   init() {
     document.getElementById('btnFetchStrava').addEventListener('click', () => this.open());
+    document.getElementById('btnUpdateStrava').addEventListener('click', () => this.updateCurrent());
     document.getElementById('btnStravaModalClose').addEventListener('click', () => this.close());
   },
 
@@ -5593,8 +5601,31 @@ const StravaImport = {
     await this._populate(a);
   },
 
+  // Re-pull the exact activity that filled the session being edited, by its stored id.
+  // Only overwrites the Strava-derived form fields (populate never touches notes, the
+  // Avvik flag, RPE, sleep, shoes, …) and does NOT save — the user reviews, then saves.
+  async updateCurrent() {
+    const id = document.getElementById('fStravaId').value;
+    if (!id) return;
+    const btn = document.getElementById('btnUpdateStrava');
+    const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Henter…';
+    try {
+      const detail = await StravaIO.fetchActivityDetail(id);
+      if (!detail || !detail.id) { showToast('Fant ikke økten på Strava', 'error'); return; }
+      await this._populate(detail);
+      showToast('Oppdatert fra Strava — se over og lagre', 'success');
+    } catch (e) {
+      showToast('Kunne ikke oppdatere fra Strava', 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = orig;
+    }
+  },
+
   async _populate(a) {
     try {
+      // Remember which Strava activity filled this session so an edit can re-pull it later.
+      document.getElementById('fStravaId').value = a.id;
       document.getElementById('fDistanse').value = (a.distance / 1000).toFixed(2);
 
       // Løpetype first — dispatching 'change' reuses the existing inline handler that
