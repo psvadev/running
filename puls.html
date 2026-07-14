@@ -122,6 +122,10 @@
   .shoe-stat { display:inline-flex; gap:3px; align-items:baseline; background:rgba(255,255,255,.04); border-radius:4px; padding:2px 7px; font-size:10px; }
   .shoe-stat .sl { color:var(--muted); }
   .shoe-stat .sv { color:var(--text); font-weight:500; }
+  .land-chip { display:inline-flex; align-items:center; gap:7px; background:var(--surface2); border:1px solid var(--border); border-radius:16px; padding:5px 12px; font-size:12px; cursor:pointer; transition:border-color .15s; }
+  .land-chip:hover { border-color:var(--accent); }
+  .land-chip img { height:14px; width:auto; border-radius:2px; display:block; }
+  .land-chip .lc-count { color:var(--muted); font-weight:600; font-size:11px; }
 
   /* ── Dashboard grid ── */
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -482,6 +486,11 @@
           <option value="10">10 — Maksimalt</option>
         </select>
       </div>
+      <div class="form-group">
+        <label>Land</label>
+        <input type="text" id="fLand" list="landDatalist" placeholder="Norge" autocomplete="off">
+        <datalist id="landDatalist"></datalist>
+      </div>
       <div class="form-group" id="beskrevelseGroup" style="grid-column:1/-1">
         <label>Øktbeskrivelse</label>
         <textarea id="fBeskrivelse" rows="4" placeholder="Runna-program, intervalloppsett, øktstruktur…" style="resize:vertical"></textarea>
@@ -565,6 +574,7 @@
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Ytelseskurve</div>
       <div class="records-grid" id="perfCurveGrid"></div>
       <div id="top3Efforts"></div>
+      <div id="landStrip"></div>
       <div id="formkurveSection" style="display:none">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Formkurve · testløp (5K-ekvivalent)</div>
         <div style="height:180px"><canvas id="chartFormkurve"></canvas></div>
@@ -1202,7 +1212,7 @@ function formatSessionTsv(sessions) {
   const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Løpetype','Varighet',
     'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
     'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
-    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn','RPE'].join('\t');
+    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn','RPE','Land'].join('\t');
   const blocks = sessions.map(s => {
     const soner = s.soner || [0,0,0,0,0];
     const [y,m,d] = s.dato.split('-');
@@ -1227,6 +1237,7 @@ function formatSessionTsv(sessions) {
       s.sko || '',
       s.sovn != null ? hoursToHHMM(s.sovn) : '',
       s.rpe || '',
+      s.land || '',
     ].join('\t');
     const distLabel = s.distanse ? ` | ${parseFloat(s.distanse.toFixed(2)).toString()} km` : '';
     const hdr = `=== ${s.dato}${s.oktnavn ? ` | ${s.oktnavn}` : ''}${distLabel} ===`;
@@ -1246,6 +1257,46 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
+}
+
+// ── Land (countries run in) ──────────────────────────────────────────────
+// An empty `land` means Norway (home default); abroad runs store an ISO
+// 3166-1 alpha-2 code. Norwegian names come from Intl.DisplayNames at
+// runtime so no name list is bundled — only the code list below.
+const ISO_COUNTRY_CODES = ('AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW').split(' ');
+
+const LandNames = (() => {
+  let nb = null, en = null;
+  try { nb = new Intl.DisplayNames(['nb'], { type: 'region' }); } catch {}
+  try { en = new Intl.DisplayNames(['en'], { type: 'region' }); } catch {}
+  const nbToCode = {}, enToCode = {};
+  ISO_COUNTRY_CODES.forEach(c => {
+    try { const n = nb?.of(c); if (n && n !== c) nbToCode[n.toLowerCase()] = c; } catch {}
+    try { const n = en?.of(c); if (n && n !== c) enToCode[n.toLowerCase()] = c; } catch {}
+  });
+  return { nb, nbToCode, enToCode };
+})();
+
+function landName(code) {           // 'NO' → "Norge"; raw fallback text passes through
+  if (!code) return '';
+  if (!/^[A-Z]{2}$/.test(code)) return code;
+  try { return LandNames.nb?.of(code) || code; } catch { return code; }
+}
+function landFlagUrl(code) {
+  return /^[A-Z]{2}$/.test(code) ? `https://flagcdn.com/h24/${code.toLowerCase()}.png` : null;
+}
+function resolveLandInput(txt) {    // typed Norwegian name or 2-letter code → ISO code, else raw text
+  const t = (txt || '').trim();
+  if (!t) return null;
+  if (/^[A-Za-z]{2}$/.test(t) && ISO_COUNTRY_CODES.includes(t.toUpperCase())) return t.toUpperCase();
+  return LandNames.nbToCode[t.toLowerCase()] || t;
+}
+function buildLandDatalist() {
+  const dl = document.getElementById('landDatalist');
+  if (!dl || !LandNames.nb) return;
+  dl.innerHTML = ISO_COUNTRY_CODES.map(c => landName(c))
+    .sort((a, b) => a.localeCompare(b, 'nb'))
+    .map(n => `<option value="${escapeHtml(n)}">`).join('');
 }
 
 function showToast(msg, type = 'info', duration = 4000) {
@@ -2474,6 +2525,7 @@ const Form = {
       beskrivelse: document.getElementById('fBeskrivelse').value.trim() || null,
       notater: document.getElementById('fNotater').value.trim() || null,
       utenforAnalyse: document.getElementById('fUtenforAnalyse').checked || undefined,
+      land: resolveLandInput(document.getElementById('fLand').value) || undefined,
     };
   },
 
@@ -2514,6 +2566,7 @@ const Form = {
     document.getElementById('fBeskrivelse').value = s.beskrivelse || '';
     document.getElementById('fNotater').value = s.notater || '';
     document.getElementById('fUtenforAnalyse').checked = !!s.utenforAnalyse;
+    document.getElementById('fLand').value = s.land ? landName(s.land) : '';
     this.refreshShoeDropdown(s.sko);
   },
 
@@ -2570,7 +2623,7 @@ const Form = {
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
-     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn','fRpe','fBeskrivelse','fNotater'].forEach(id => {
+     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn','fRpe','fBeskrivelse','fNotater','fLand'].forEach(id => {
       document.getElementById(id).value = '';
     });
     const lastSession = Store.data.sessions[Store.data.sessions.length - 1];
@@ -4479,6 +4532,7 @@ const DetailPanel = {
       ['Sko',            s.sko  || null],
       ['Søvn',           s.sovn ? hoursToHHMM(s.sovn) : null],
       ['RPE',            s.rpe  ? `${s.rpe}/10` : null],
+      ['Land',           s.land ? landName(s.land) : null],
       ['Avvik',          s.utenforAnalyse ? 'Holdt utenfor analyse (trender/kvalitetsgrafer)' : null],
     ].filter(([,v]) => v);
     const table = rows.map(([l,v]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${escapeHtml(v)}</span></div>`).join('');
@@ -4525,6 +4579,31 @@ const DetailPanel = {
       </div>
       ${retireHtml}
       <div class="dp-section-label">Siste løp</div>${recentRows || '<div style="color:var(--muted);font-size:12px">Ingen løp logget</div>'}`
+    );
+  },
+
+  openLand(code) {
+    const sessions = Store.data.sessions.filter(s => (s.land || 'NO') === code);
+    const totalKm  = sessions.reduce((s,x)=>s+(x.distanse||0),0);
+    const sorted   = sessions.slice().sort((a,b)=>b.dato.localeCompare(a.dato));
+    const stats = [
+      { v: sessions.length,        l: 'løp' },
+      { v: totalKm.toFixed(1)+' km', l: 'distanse' },
+      ...(sorted.length ? [{ v: fmtDate(sorted[sorted.length-1].dato), l: 'første' },
+                           { v: fmtDate(sorted[0].dato),               l: 'siste'  }] : []),
+    ];
+    const rows = sorted.map(s=>
+      `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
+        <span style="min-width:80px;color:var(--muted)">${fmtDate(s.dato)}</span>
+        <span style="flex:1">${escapeHtml(s.oktnavn||s.okttype||'–')}</span>
+        <span>${(s.distanse||0).toFixed(1)} km</span>
+      </div>`
+    ).join('');
+    const flag = landFlagUrl(code);
+    this.open(`Løpt i ${landName(code)}`, `
+      ${flag ? `<img src="${flag}" alt="" style="height:16px;border-radius:2px;margin-bottom:10px">` : ''}
+      <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      <div class="dp-section-label">Øktene</div>${rows || '<div style="color:var(--muted);font-size:12px">Ingen løp logget</div>'}`
     );
   },
 
@@ -4921,6 +5000,27 @@ function renderDashboard() {
             </span>`).join('')}
         </div>`).join('')}
     </div>`;
+
+  // Land løpt i — all-time count per country (empty land = Norge, the home default);
+  // ignores the year pills and utenforAnalyse, like the Ytelseskurve above.
+  const landCounts = {};
+  Store.data.sessions.forEach(s => { const c = s.land || 'NO'; landCounts[c] = (landCounts[c] || 0) + 1; });
+  const landKeys = Object.keys(landCounts).sort((a, b) =>
+    a === 'NO' ? -1 : b === 'NO' ? 1 : (landCounts[b] - landCounts[a]) || landName(a).localeCompare(landName(b), 'nb'));
+  document.getElementById('landStrip').innerHTML = !Store.data.sessions.length ? '' : `
+    <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Land løpt i</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${landKeys.map(code => {
+        const flag = landFlagUrl(code);
+        return `<span class="land-chip" data-land="${escapeHtml(code)}">
+          ${flag ? `<img src="${flag}" alt="" loading="lazy">` : ''}
+          <span>${escapeHtml(landName(code))}</span>
+          <span class="lc-count">${landCounts[code]}</span>
+        </span>`;
+      }).join('')}
+    </div>`;
+  document.querySelectorAll('#landStrip [data-land]').forEach(chip =>
+    chip.addEventListener('click', () => DetailPanel.openLand(chip.dataset.land)));
 
   // Training load per week (zone minutes × zone weight, summed per week)
   const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
@@ -5550,6 +5650,13 @@ const StravaImport = {
       const beskrivelseEl = document.getElementById('fBeskrivelse');
       if (detail?.description && !beskrivelseEl.value) {
         beskrivelseEl.value = detail.description;
+      }
+      // Land — Strava has largely deprecated location_country; prefill only when it
+      // resolves to a known country (avoid storing raw English text like "Sweden").
+      const landEl = document.getElementById('fLand');
+      if (a.location_country && !landEl.value) {
+        const code = LandNames.enToCode[a.location_country.trim().toLowerCase()];
+        if (code) landEl.value = landName(code);
       }
     } catch (e) {
       console.error('Strava field population failed', e);
@@ -6628,6 +6735,8 @@ document.addEventListener('DOMContentLoaded', () => {
     hmTip.style.left = Math.min(e.clientX + 12, window.innerWidth - 250) + 'px';
     hmTip.style.top = (e.clientY + 12) + 'px';
   });
+
+  buildLandDatalist();
 
   // Load from cache immediately, then try to silently reattach the file handle
   // Skip local file restore if Drive is connected — Drive is the source of truth

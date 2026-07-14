@@ -29,6 +29,7 @@ Field dictionary and caveats for the session data. Purpose: let any future sessi
 | `beskrivelse` | string | Workout structure; auto-filled from Strava (Runna pushes its program text into Strava's description). |
 | `notater` | string | Free-text session notes; carries the "why" for flagged sessions. |
 | `utenforAnalyse` | bool? | Outlier flag ("Avvik"). `true` = excluded from **quality** analytics (trends, insights, quality charts, pace/distance records, Ytelseskurve/Formkurve anchors) but **kept** in all volume metrics (km totals, streaks, heatmap, load, PMC, blocks, goals). Absent = false. Exclusions are always visible (dimmed log row, detail-panel row, `[Avvik]` tag in exports). |
+| `land` | ISO 3166-1 alpha-2? | Country the run took place in. **Absent/empty = Norway** (home default) — only filled for abroad runs. TSV exports the raw code (e.g. `SE`). Norwegian display names are derived at runtime via `Intl.DisplayNames`; unresolvable typed text is stored raw and shown without a flag. Not used in any computation — powers only the "Land løpt i" strip. |
 
 ## Belt vs GPS — never merge these
 
