@@ -970,6 +970,7 @@
     <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
       <button class="btn-secondary btn-sm" id="btnSyncBestEfforts">🔄 Synkroniser fra Strava</button>
       <span id="bestEffortsSyncMsg" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+      <div style="margin-top:6px"><a href="#" id="btnForceRescanBE" style="font-size:11px;color:var(--muted);text-decoration:underline;cursor:pointer">Skann hele historikken på nytt (bygg opp Topp 3 igjen)</a></div>
       <div id="bestEffortsReview"></div>
     </div>
   </div>
@@ -5829,11 +5830,29 @@ const StravaBestEfforts = {
   // keep using the single-best bestEfforts values untouched).
   _top3() { try { return JSON.parse(localStorage.getItem('pulsStravaBETop3') || '{}'); } catch { return {}; } },
   _saveTop3(t) { localStorage.setItem('pulsStravaBETop3', JSON.stringify(t)); },
+  // Union two top-3 maps: dedupe on (t,d), fastest first, keep 3 per distance. Used so a
+  // scan (whose localStorage buffer is device-local and NOT Drive-synced) can never shrink
+  // the committed set — e.g. an incremental sync on the phone must not drop history that was
+  // scanned on the laptop and synced in via Drive.
+  _mergeTop3(a, b) {
+    const out = {};
+    for (const k of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) {
+      const seen = new Set(), list = [];
+      for (const e of [...(a[k] || []), ...(b[k] || [])]) {
+        const id = e.t + '|' + e.d;
+        if (!seen.has(id)) { seen.add(id); list.push(e); }
+      }
+      list.sort((x, y) => x.t - y.t);
+      out[k] = list.slice(0, 3);
+    }
+    return out;
+  },
   _commitTop3() {
-    const top3 = this._top3();
-    if (!Object.keys(top3).length) return;
-    if (JSON.stringify(Store.data.bestEffortsTop3 || {}) === JSON.stringify(top3)) return;
-    Store.data.bestEffortsTop3 = top3;
+    const buf = this._top3();
+    if (!Object.keys(buf).length) return;
+    const merged = this._mergeTop3(Store.data.bestEffortsTop3 || {}, buf);
+    if (JSON.stringify(Store.data.bestEffortsTop3 || {}) === JSON.stringify(merged)) return;
+    Store.data.bestEffortsTop3 = merged;
     Store.data.lastUpdated = new Date().toISOString();
     FileIO.save();
     if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
@@ -5852,13 +5871,27 @@ const StravaBestEfforts = {
     if (after !== undefined) localStorage.setItem('pulsStravaBENewestScanned', after);
   },
 
+  // Clear the historical checkpoint so the next batch re-scans all activities and
+  // re-collects every effort — for rebuilding a Topp 3 that lost entries (commit now
+  // merges, so this only adds back, never removes). Keeps the after-watermark.
+  forceRescan() {
+    localStorage.removeItem('pulsStravaBEScanComplete');
+    localStorage.removeItem('pulsStravaBEOldestScanned');
+    const msgEl = document.getElementById('bestEffortsSyncMsg');
+    if (msgEl) msgEl.textContent = 'Skanner hele historikken på nytt…';
+    this.runBatch();
+  },
+
   async runBatch() {
     const msgEl = document.getElementById('bestEffortsSyncMsg');
     const setMsg = t => { if (msgEl) msgEl.textContent = t; };
     if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava i Innstillinger først'); return; }
 
     const found = this._found();
-    const top3 = this._top3();
+    // Seed the scan buffer from the committed (Drive-synced) set too, so a device whose
+    // local buffer is empty/partial builds on the full history instead of a thin subset.
+    const top3 = this._mergeTop3(Store.data.bestEffortsTop3 || {}, this._top3());
+    this._saveTop3(top3);
     let { complete, before: cursorBefore, after: cursorAfter } = this._checkpoint();
 
     // One-time: top-3 collection was added after the original scan shipped — if a full
@@ -6032,6 +6065,7 @@ const Settings = {
     document.getElementById('btnAutoZones').addEventListener('click', () => this.autoZones());
     document.getElementById('btnStravaZones').addEventListener('click', () => this.importZonesFromStrava());
     document.getElementById('btnSyncBestEfforts').addEventListener('click', () => StravaBestEfforts.runBatch());
+    document.getElementById('btnForceRescanBE').addEventListener('click', (e) => { e.preventDefault(); StravaBestEfforts.forceRescan(); });
 
     // Treningsrytme thresholds
     document.getElementById('btnSaveConsistency').addEventListener('click', () => this.saveConsistency());
