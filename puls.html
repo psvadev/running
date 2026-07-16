@@ -167,6 +167,10 @@
     .event-row { gap: 8px; padding: 10px; }
     .event-row .er-date { min-width: 0; }
     .event-row .er-type { min-width: 0; }
+    /* Topp 3: stack each distance — label on its own line, medals below it */
+    .top3-list { gap: 14px; }
+    .top3-row { flex-direction: column; gap: 3px; }
+    .top3-row .t3-label { min-width: 0; margin-bottom: 1px; }
   }
 
   /* ── Records ── */
@@ -176,6 +180,13 @@
   .record-value { font-size: 22px; font-weight: 700; color: var(--accent); }
   .record-value.estimated { color: var(--muted); }
   .record-sub { font-size: 11px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Topp 3 · Strava — compact one-line-per-distance on desktop, stacked on mobile */
+  .top3-list { display: flex; flex-direction: column; gap: 6px; }
+  .top3-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+  .top3-row .t3-label { min-width: 90px; font-weight: 600; }
+  .top3-row .t3-effort { color: var(--muted); }
+  .top3-row .t3-effort.t3-first { color: var(--text); }
+  .top3-row .t3-date { font-size: 11px; color: var(--muted); }
 
   /* ── Table ── */
   .table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
@@ -5078,14 +5089,14 @@ function renderDashboard() {
   const top3Rows = BEST_EFFORT_DISTS.filter(({ key }) => (top3[key] || []).length);
   document.getElementById('top3Efforts').innerHTML = !top3Rows.length ? '' : `
     <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Topp 3 · Strava (utendørs)</div>
-    <div style="display:flex;flex-direction:column;gap:6px">
+    <div class="top3-list">
       ${top3Rows.map(({ label, key }) => `
-        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;font-size:13px">
-          <span style="min-width:90px;font-weight:600">${label}</span>
+        <div class="top3-row">
+          <span class="t3-label">${label}</span>
           ${top3[key].map((e, i) => `
-            <span style="color:${i === 0 ? 'var(--text)' : 'var(--muted)'}">
+            <span class="t3-effort${i === 0 ? ' t3-first' : ''}">
               ${['🥇','🥈','🥉'][i]} ${i === 0 ? '<b>' : ''}${secsToHms(e.t)}${i === 0 ? '</b>' : ''}
-              <span style="font-size:11px;color:var(--muted)">(${fmtDate(e.d)})</span>
+              <span class="t3-date">(${fmtDate(e.d)})</span>
             </span>`).join('')}
         </div>`).join('')}
     </div>`;
