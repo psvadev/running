@@ -4096,10 +4096,12 @@ function renderInsights(sessions) {
     const daysUntil = Math.round((new Date(next.date) - new Date(today)) / 86400000);
     if (daysUntil === 0) {
       candidates.push({ icon: '🏁', val: 'I dag', sub: `${next.title} — lykke til!`, priority: 5 });
-    } else {
+    } else if (daysUntil <= 30) {
+      // Only surface within 30 days — an insight must be timely, and a race two
+      // months out crowds the 6 slots. All races stay listed in Løp & Races.
       candidates.push({ icon: '🏁', val: `${daysUntil} ${daysUntil === 1 ? 'dag' : 'dager'}`,
         sub: `til ${next.title} (${fmtDate(next.date)})`,
-        priority: daysUntil <= 14 ? 5 : daysUntil <= 60 ? 4 : 3 });
+        priority: daysUntil <= 14 ? 5 : 4 });
     }
   }
 
