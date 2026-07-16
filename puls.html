@@ -143,6 +143,8 @@
   .atlas-badge.unlocked .ab-name { color:var(--yellow); }
   .atlas-badge .ab-desc { font-size:11px; color:var(--muted); margin-top:2px; }
   .atlas-badge .ab-date { font-size:10px; color:var(--muted); margin-top:4px; }
+  .atlas-badge .ab-flag { height:9px; border-radius:1px; margin-right:3px; vertical-align:baseline; }
+  .atlas-badge .ab-country { color:var(--text); }
 
   /* ── Dashboard grid ── */
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -1447,10 +1449,15 @@ const CONTINENTS = (() => {
 function continentOf(code) { return CONTINENTS[code] || null; }
 
 // Badge helpers: threshold badges return { unlocked, progress?{cur,target,unit?}, date? }.
-function _atlasCount(a, target)  { const cur = a.summary.foreignCount;   return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: a.foreignUnlockDate(target) }; }
+function _atlasCount(a, target)  { const cur = a.summary.foreignCount;   return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: a.foreignUnlockDate(target), country: a.foreignUnlockCountry(target) }; }
 function _atlasCont(a, target)   { const cur = a.summary.continentCount; return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: a.contUnlockDate(target) }; }
-function _atlasNordic(a, target) { const cur = a.nordicCount;            return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: a.nordicUnlockDate(target) }; }
-function _atlasDist(a, target, date, disp) { const cur = +a.longestAbroadKm.toFixed(2); return { unlocked: a.longestAbroadKm >= target, progress: a.longestAbroadKm >= target ? null : { cur, target: disp || target, unit:'km' }, date }; }
+function _atlasNordic(a, target) { const cur = a.nordicCount;            return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: a.nordicUnlockDate(target), country: a.nordicUnlockCountry(target) }; }
+function _atlasDist(a, target, date, disp, country) { const cur = +a.longestAbroadKm.toFixed(2); return { unlocked: a.longestAbroadKm >= target, progress: a.longestAbroadKm >= target ? null : { cur, target: disp || target, unit:'km' }, date, country: country || null }; }
+// Cumulative km abroad — a tiered ladder (10→250); the ladder display shows unlocked + only the next tier.
+const GLOBE_KM_TIERS = [10, 25, 50, 100, 250];
+function _atlasGlobeKm(a, target) { const km = a.summary.abroadKm; return { unlocked: km >= target, progress: km >= target ? null : { cur: +km.toFixed(1), target, unit:'km' }, date: a.globeTierDate[target] || null }; }
+// Distinct foreign countries run OUTDOORS — a breadth ladder (3→5→10), carries the Nth country.
+function _atlasOutdoorLand(a, target) { const cur = a.outdoorForeignCount; const c = a.outdoorForeignAt(target); return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: c ? c.date : null, country: c ? c.code : null }; }
 // Regional explorer: distinct countries run in within a continent (incl. home — it's a
 // country collection, not run volume). `conts` is an array so Americas = NA + SA.
 function _atlasRegion(a, conts, target) {
@@ -1458,7 +1465,7 @@ function _atlasRegion(a, conts, target) {
   conts.forEach(c => (a.byContinent[c] || []).forEach(x => codes.push(x)));
   codes.sort((x, y) => (a.byCountry[x].firstDate || '').localeCompare(a.byCountry[y].firstDate || ''));
   const cur = codes.length;
-  return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: codes[target - 1] ? a.byCountry[codes[target - 1]].firstDate : null };
+  return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: codes[target - 1] ? a.byCountry[codes[target - 1]].firstDate : null, country: codes[target - 1] || null };
 }
 
 // Travel achievements — all DERIVED from existing data (land/dato/distanse/løpetype/okttype/
@@ -1466,44 +1473,48 @@ function _atlasRegion(a, conts, target) {
 // Country-collection badges (Passport/World Traveler/Frequent Flyer/Globetrotter) count
 // FOREIGN countries only; continents + regional-explorer + Nordic count all resolved incl. home.
 const ATLAS_BADGES = [
-  // Start
-  { id:'first-abroad',     group:'Start',        icon:'🛫', name:'First Steps Abroad',   desc:'Første løp utenfor hjemlandet',            test:a => ({ unlocked: a.summary.foreignCount >= 1, date: a.firstForeignDate }) },
-  { id:'vacation',         group:'Start',        icon:'🏖️', name:'Vacation Runner',      desc:'Løp under en ferie',                       test:a => ({ unlocked: !!a.vacationRunDate, date: a.vacationRunDate }) },
+  // Milepæler
+  { id:'first-abroad',     group:'Milepæler',    icon:'🛫', name:'First Steps Abroad',   desc:'Første løp utenfor hjemlandet',            test:a => ({ unlocked: a.summary.foreignCount >= 1, date: a.firstForeignDate, country: a.firstForeignCountry }) },
+  { id:'vacation',         group:'Milepæler',    icon:'🏖️', name:'Vacation Runner',      desc:'Løp under en ferie',                       test:a => ({ unlocked: !!a.vacationRunDate, date: a.vacationRunDate, country: a.vacationRunCountry }) },
   // Land — foreign country collection
   { id:'passport',         group:'Land',         icon:'🛂', name:'Passport Stamp',       desc:'Løp i 3 land i utlandet',                  test:a => _atlasCount(a, 3) },
   { id:'world-traveler',   group:'Land',         icon:'🌍', name:'World Traveler',       desc:'Løp i 5 land i utlandet',                  test:a => _atlasCount(a, 5) },
   { id:'frequent-flyer',   group:'Land',         icon:'✈️', name:'Frequent Flyer',       desc:'Løp i 10 land i utlandet',                 test:a => _atlasCount(a, 10) },
   { id:'globetrotter',     group:'Land',         icon:'🧳', name:'Globetrotter',         desc:'Løp i 15 land i utlandet',                 test:a => _atlasCount(a, 15) },
-  { id:'jet-set-year',     group:'Land',         icon:'🛩️', name:'Jet-Set Year',         desc:'3 ulike land i utlandet i ett kalenderår', test:a => ({ unlocked: !!a.jetSetDate, progress: a.jetSetDate ? null : { cur:a.jetSetBest, target:3 }, date:a.jetSetDate }) },
+  { id:'jet-set-year',     group:'Land',         icon:'🛩️', name:'Jet-Set Year',         desc:'3 ulike land i utlandet i ett kalenderår', test:a => ({ unlocked: !!a.jetSetDate, progress: a.jetSetDate ? null : { cur:a.jetSetBest, target:3 }, date:a.jetSetDate, country:a.jetSetCountry }) },
   // Verdensdeler — continents reached + per-continent country collection
   { id:'continental',      group:'Verdensdeler', icon:'🧭', name:'Continental Explorer', desc:'Løp på 3 verdensdeler',                    test:a => _atlasCont(a, 3) },
   { id:'global',           group:'Verdensdeler', icon:'🌐', name:'Global Runner',        desc:'Løp på alle 6 bebodde verdensdeler',       test:a => _atlasCont(a, 6) },
   { id:'europe-explorer',  group:'Verdensdeler', icon:'🏰', name:'European Tour',        desc:'Løp i 5 europeiske land',                  test:a => _atlasRegion(a, ['EU'], 5) },
+  { id:'nordic-runner',    group:'Verdensdeler', icon:'❄️', name:'Nordic Runner',        desc:'Løp i 3 nordiske land',                    test:a => _atlasNordic(a, 3) },
+  { id:'nordic-complete',  group:'Verdensdeler', icon:'🏔️', name:'Nordic Complete',      desc:'Løp i Norge, Sverige, Danmark, Finland og Island', test:a => _atlasNordic(a, 5) },
   { id:'asia-explorer',    group:'Verdensdeler', icon:'🏯', name:'Asia Explorer',        desc:'Løp i 3 asiatiske land',                   test:a => _atlasRegion(a, ['AS'], 3) },
   { id:'americas-explorer',group:'Verdensdeler', icon:'🗽', name:'Americas Explorer',    desc:'Løp i 3 land i Nord- eller Sør-Amerika',   test:a => _atlasRegion(a, ['NA', 'SA'], 3) },
   { id:'africa-explorer',  group:'Verdensdeler', icon:'🦁', name:'Africa Explorer',      desc:'Løp i 3 afrikanske land',                  test:a => _atlasRegion(a, ['AF'], 3) },
-  { id:'cross-continental',group:'Verdensdeler', icon:'🔀', name:'Cross-Continental',    desc:'Løp på 2 verdensdeler i samme kalenderår', test:a => ({ unlocked: !!a.crossContDate, progress: a.crossContDate ? null : { cur:a.crossContBest, target:2 }, date:a.crossContDate }) },
-  { id:'both-hemispheres', group:'Verdensdeler', icon:'🌗', name:'Both Hemispheres',     desc:'Løp på både nordlige og sørlige halvkule', test:a => ({ unlocked: !!a.southernDate, date:a.southernDate }) },
-  // Norden
-  { id:'nordic-runner',    group:'Norden',       icon:'❄️', name:'Nordic Runner',        desc:'Løp i 3 nordiske land',                    test:a => _atlasNordic(a, 3) },
-  { id:'nordic-complete',  group:'Norden',       icon:'🏔️', name:'Nordic Complete',      desc:'Løp i Norge, Sverige, Danmark, Finland og Island', test:a => _atlasNordic(a, 5) },
+  { id:'cross-continental',group:'Verdensdeler', icon:'🔀', name:'Cross-Continental',    desc:'Løp på 2 verdensdeler i samme kalenderår', test:a => ({ unlocked: !!a.crossContDate, progress: a.crossContDate ? null : { cur:a.crossContBest, target:2 }, date:a.crossContDate, country:a.crossContCountry }) },
+  { id:'both-hemispheres', group:'Verdensdeler', icon:'🌗', name:'Both Hemispheres',     desc:'Løp på både nordlige og sørlige halvkule', test:a => ({ unlocked: !!a.southernDate, date:a.southernDate, country:a.southernCountry }) },
   // Distanse — abroad
-  { id:'intl-5k',          group:'Distanse',     icon:'🏅', name:'International 5K',      desc:'Minst 5 km i ett løp utenlands',           test:a => _atlasDist(a, 5, a.intl5kDate) },
-  { id:'intl-10k',         group:'Distanse',     icon:'🥇', name:'International 10K',     desc:'Minst 10 km i ett løp utenlands',          test:a => _atlasDist(a, 10, a.intl10kDate) },
-  { id:'intl-half',        group:'Distanse',     icon:'🎽', name:'International Half',    desc:'Minst 21,1 km i ett løp utenlands',        test:a => _atlasDist(a, 21.0975, a.intlHalfDate, 21.1) },
-  { id:'intl-mara',        group:'Distanse',     icon:'🏆', name:'International Marathon',desc:'Minst 42,2 km i ett løp utenlands',        test:a => _atlasDist(a, 42.195, a.intlMaraDate, 42.2) },
-  { id:'globe-miler',      group:'Distanse',     icon:'🌏', name:'Globe Miler',          desc:'100 km totalt i utlandet',                 test:a => ({ unlocked: a.summary.abroadKm >= 100, progress: a.summary.abroadKm >= 100 ? null : { cur:+a.summary.abroadKm.toFixed(1), target:100, unit:'km' }, date:a.globeMilerDate }) },
-  { id:'foreign-racer',    group:'Distanse',     icon:'🏁', name:'Foreign Racer',        desc:'Et Race-løp i utlandet',                   test:a => ({ unlocked: !!a.foreignRacerDate, date:a.foreignRacerDate }) },
-  // Stil / underlag
-  { id:'scenic',           group:'Stil',         icon:'🌄', name:'Scenic Route',         desc:'Utendørsløp i utlandet',                   test:a => ({ unlocked: !!a.scenicDate, date:a.scenicDate }) },
-  { id:'hotel-treadmill',  group:'Stil',         icon:'🏨', name:'Hotel Treadmill',      desc:'Innendørsløp i utlandet',                  test:a => ({ unlocked: !!a.hotelDate, date:a.hotelDate }) },
-  { id:'outdoor-explorer', group:'Stil',         icon:'🥾', name:'Outdoor Explorer',     desc:'Utendørsløp i 3 land i utlandet',          test:a => ({ unlocked: a.outdoorForeignCount >= 3, progress: a.outdoorForeignCount >= 3 ? null : { cur:a.outdoorForeignCount, target:3 }, date:a.outdoorForeignDate }) },
-  { id:'foreign-hills',    group:'Stil',         icon:'⛰️', name:'Foreign Hills',        desc:'Utendørs utenlandsløp med ≥ 200 høydemeter', test:a => ({ unlocked: !!a.foreignHillDate, date:a.foreignHillDate }) },
+  { id:'intl-5k',          group:'Distanse',     icon:'🏅', name:'International 5K',      desc:'Minst 5 km i ett løp utenlands',           test:a => _atlasDist(a, 5, a.intl5kDate, null, a.intl5kCountry) },
+  { id:'intl-10k',         group:'Distanse',     icon:'🥇', name:'International 10K',     desc:'Minst 10 km i ett løp utenlands',          test:a => _atlasDist(a, 10, a.intl10kDate, null, a.intl10kCountry) },
+  { id:'intl-half',        group:'Distanse',     icon:'🎽', name:'International Half',    desc:'Minst 21,1 km i ett løp utenlands',        test:a => _atlasDist(a, 21.0975, a.intlHalfDate, 21.1, a.intlHalfCountry) },
+  { id:'intl-mara',        group:'Distanse',     icon:'🏆', name:'International Marathon',desc:'Minst 42,2 km i ett løp utenlands',        test:a => _atlasDist(a, 42.195, a.intlMaraDate, 42.2, a.intlMaraCountry) },
+  { id:'globe-10',         group:'Distanse',     icon:'🌍', name:'Globe Starter',        desc:'10 km totalt i utlandet',                  test:a => _atlasGlobeKm(a, 10) },
+  { id:'globe-25',         group:'Distanse',     icon:'🌎', name:'Globe Wanderer',       desc:'25 km totalt i utlandet',                  test:a => _atlasGlobeKm(a, 25) },
+  { id:'globe-50',         group:'Distanse',     icon:'🌏', name:'Globe Explorer',       desc:'50 km totalt i utlandet',                  test:a => _atlasGlobeKm(a, 50) },
+  { id:'globe-miler',      group:'Distanse',     icon:'🌐', name:'Globe Miler',          desc:'100 km totalt i utlandet',                 test:a => _atlasGlobeKm(a, 100) },
+  { id:'globe-250',        group:'Distanse',     icon:'🚀', name:'Globe Voyager',        desc:'250 km totalt i utlandet',                 test:a => _atlasGlobeKm(a, 250) },
+  { id:'foreign-racer',    group:'Distanse',     icon:'🏁', name:'Foreign Racer',        desc:'Et Race-løp i utlandet',                   test:a => ({ unlocked: !!a.foreignRacerDate, date:a.foreignRacerDate, country:a.foreignRacerCountry }) },
+  // Omgivelser — ute/inne, terreng
+  { id:'scenic',           group:'Omgivelser',   icon:'🌄', name:'Scenic Route',         desc:'Utendørsløp i utlandet',                   test:a => ({ unlocked: !!a.scenicDate, date:a.scenicDate, country:a.scenicCountry }) },
+  { id:'hotel-treadmill',  group:'Omgivelser',   icon:'🏨', name:'Hotel Treadmill',      desc:'Innendørsløp i utlandet',                  test:a => ({ unlocked: !!a.hotelDate, date:a.hotelDate, country:a.hotelCountry }) },
+  { id:'outdoor-explorer', group:'Omgivelser',   icon:'🥾', name:'Outdoor Explorer',     desc:'Utendørsløp i 3 land i utlandet',          test:a => _atlasOutdoorLand(a, 3) },
+  { id:'outdoor-trail',    group:'Omgivelser',   icon:'🏕️', name:'Trail Nomad',          desc:'Utendørsløp i 5 land i utlandet',          test:a => _atlasOutdoorLand(a, 5) },
+  { id:'outdoor-wild',     group:'Omgivelser',   icon:'🌲', name:'Wilderness Wanderer',  desc:'Utendørsløp i 10 land i utlandet',         test:a => _atlasOutdoorLand(a, 10) },
+  { id:'foreign-hills',    group:'Omgivelser',   icon:'⛰️', name:'Foreign Hills',        desc:'Utendørs utenlandsløp med ≥ 200 høydemeter', test:a => ({ unlocked: !!a.foreignHillDate, date:a.foreignHillDate, country:a.foreignHillCountry }) },
   // Sesong / tid
-  { id:'new-country-year', group:'Sesong',       icon:'📅', name:'New Country Year',     desc:'Første løp i et nytt land dette kalenderåret', test:a => ({ unlocked: !!a.newCountryThisYear, date: a.newCountryThisYear ? a.byCountry[a.newCountryThisYear].firstDate : null }) },
-  { id:'winter-escape',    group:'Sesong',       icon:'⛄', name:'Winter Escape',        desc:'Løp i utlandet i vintermånedene (des–feb)', test:a => ({ unlocked: !!a.winterDate, date:a.winterDate }) },
-  { id:'new-year-abroad',  group:'Sesong',       icon:'🎆', name:'New Year Abroad',      desc:'Løp i utlandet på nyttårsdagen',           test:a => ({ unlocked: !!a.newYearDate, date:a.newYearDate }) },
-  { id:'multi-year',       group:'Sesong',       icon:'🗓️', name:'Multi-Year Traveler',  desc:'Løp i utlandet i 2+ kalenderår',           test:a => ({ unlocked: a.foreignYearCount >= 2, progress: a.foreignYearCount >= 2 ? null : { cur:a.foreignYearCount, target:2 }, date:a.multiYearDate }) },
+  { id:'new-country-year', group:'Sesong',       icon:'📅', name:'New Country Year',     desc:'Første løp i et nytt land dette kalenderåret', test:a => { const c = a.newCountryThisYear; return { name:`New Country Year (${a.year})`, desc: c ? `Første nye land i ${a.year}: ${landName(c)}` : `Første løp i et nytt land i ${a.year}`, unlocked: !!c, date: c ? a.byCountry[c].firstDate : null }; } },
+  { id:'winter-escape',    group:'Sesong',       icon:'⛄', name:'Winter Escape',        desc:'Løp i utlandet i vintermånedene (des–feb)', test:a => ({ unlocked: !!a.winterDate, date:a.winterDate, country:a.winterCountry }) },
+  { id:'multi-year',       group:'Sesong',       icon:'🗓️', name:'Multi-Year Traveler',  desc:'Løp i utlandet i 2+ kalenderår',           test:a => { const n = a.foreignYearCount; return { unlocked: n >= 2, progress: n >= 2 ? null : { cur:n, target:2 }, date:a.multiYearDate, desc: n >= 2 ? `Løp i utlandet i ${n} kalenderår: ${a.foreignYears.join(', ')}` : 'Løp i utlandet i 2+ kalenderår' }; } },
 ];
 // Tiered ladders (escalating thresholds on the same metric). In the expanded list we show
 // unlocked tiers + only the NEXT locked one, so you never see 3/5, 3/10, 3/15 stacked at once.
@@ -1513,6 +1524,8 @@ const ATLAS_LADDERS = {
   continental:'cont', global:'cont',
   'nordic-runner':'nordic', 'nordic-complete':'nordic',
   'intl-5k':'dist', 'intl-10k':'dist', 'intl-half':'dist', 'intl-mara':'dist',
+  'globe-10':'globekm', 'globe-25':'globekm', 'globe-50':'globekm', 'globe-miler':'globekm', 'globe-250':'globekm',
+  'outdoor-explorer':'outdoorland', 'outdoor-trail':'outdoorland', 'outdoor-wild':'outdoorland',
 };
 
 // Pure derivation over the workout log + events. No persistence, no side effects.
@@ -1556,32 +1569,35 @@ function computeAtlas(sessions, events, opts = {}) {
   // once lets each "first time X happened" date and each threshold-crossing fall out directly.
   const sortedSessions = sessions.filter(s => s.dato).slice().sort((x, y) => x.dato.localeCompare(y.dato));
   let scenicDate=null, intl5kDate=null, intl10kDate=null, intlHalfDate=null, intlMaraDate=null,
-      hotelDate=null, foreignHillDate=null, winterDate=null, newYearDate=null, foreignRacerDate=null,
-      southernDate=null, globeMilerDate=null, jetSetDate=null, crossContDate=null, multiYearDate=null;
-  let cumForeignKm = 0;
+      hotelDate=null, foreignHillDate=null, winterDate=null, foreignRacerDate=null,
+      southernDate=null, jetSetDate=null, crossContDate=null, multiYearDate=null;
+  // Country where each single-run/threshold badge was earned (for the "Låst opp" flag).
+  let scenicC=null, intl5kC=null, intl10kC=null, intlHalfC=null, intlMaraC=null,
+      hotelC=null, foreignHillC=null, winterC=null, foreignRacerC=null,
+      southernC=null, jetSetC=null, crossContC=null;
+  let cumForeignKm = 0; const globeTierDate = {};
   const yearForeignCountries = {}, yearContinents = {}, foreignYearsSeen = new Set(), firstOutdoorDate = {};
   sortedSessions.forEach(s => {
     const code = s.land || home, d = s.dato, km = s.distanse || 0, cont = continentOf(code);
     const isForeign = code !== home, outdoor = s.løpetype !== 'treadmill', yr = d.slice(0, 4);
     (yearContinents[yr] || (yearContinents[yr] = new Set()));                 // Cross-Continental (all runs, incl. home)
-    if (cont && !yearContinents[yr].has(cont)) { yearContinents[yr].add(cont); if (yearContinents[yr].size === 2 && !crossContDate) crossContDate = d; }
+    if (cont && !yearContinents[yr].has(cont)) { yearContinents[yr].add(cont); if (yearContinents[yr].size === 2 && !crossContDate) { crossContDate = d; crossContC = code; } }
     if (outdoor && !firstOutdoorDate[code]) firstOutdoorDate[code] = d;
-    if (SOUTHERN.has(code) && !southernDate) southernDate = d;               // Both Hemispheres (home is northern)
+    if (SOUTHERN.has(code) && !southernDate) { southernDate = d; southernC = code; }   // Both Hemispheres (home is northern)
     if (!isForeign) return;
-    cumForeignKm += km; if (cumForeignKm >= 100 && !globeMilerDate) globeMilerDate = d;
+    cumForeignKm += km; GLOBE_KM_TIERS.forEach(t => { if (cumForeignKm >= t && !globeTierDate[t]) globeTierDate[t] = d; });
     (yearForeignCountries[yr] || (yearForeignCountries[yr] = new Set()));
-    if (!yearForeignCountries[yr].has(code)) { yearForeignCountries[yr].add(code); if (yearForeignCountries[yr].size === 3 && !jetSetDate) jetSetDate = d; }
+    if (!yearForeignCountries[yr].has(code)) { yearForeignCountries[yr].add(code); if (yearForeignCountries[yr].size === 3 && !jetSetDate) { jetSetDate = d; jetSetC = code; } }
     if (!foreignYearsSeen.has(yr)) { if (foreignYearsSeen.size === 1 && !multiYearDate) multiYearDate = d; foreignYearsSeen.add(yr); }
-    if (outdoor && !scenicDate) scenicDate = d;
-    if (km >= 5 && !intl5kDate) intl5kDate = d;
-    if (km >= 10 && !intl10kDate) intl10kDate = d;
-    if (km >= 21.0975 && !intlHalfDate) intlHalfDate = d;
-    if (km >= 42.195 && !intlMaraDate) intlMaraDate = d;
-    if (!outdoor && !hotelDate) hotelDate = d;
-    if (outdoor && (s.hoydeMeter || 0) >= 200 && !foreignHillDate) foreignHillDate = d;
-    const mo = +d.slice(5, 7); if ((mo === 12 || mo <= 2) && !winterDate) winterDate = d;
-    if (d.slice(5) === '01-01' && !newYearDate) newYearDate = d;
-    if (s.okttype === 'Race' && !foreignRacerDate) foreignRacerDate = d;
+    if (outdoor && !scenicDate) { scenicDate = d; scenicC = code; }
+    if (km >= 5 && !intl5kDate) { intl5kDate = d; intl5kC = code; }
+    if (km >= 10 && !intl10kDate) { intl10kDate = d; intl10kC = code; }
+    if (km >= 21.0975 && !intlHalfDate) { intlHalfDate = d; intlHalfC = code; }
+    if (km >= 42.195 && !intlMaraDate) { intlMaraDate = d; intlMaraC = code; }
+    if (!outdoor && !hotelDate) { hotelDate = d; hotelC = code; }
+    if (outdoor && (s.hoydeMeter || 0) >= 200 && !foreignHillDate) { foreignHillDate = d; foreignHillC = code; }
+    const mo = +d.slice(5, 7); if ((mo === 12 || mo <= 2) && !winterDate) { winterDate = d; winterC = code; }
+    if (s.okttype === 'Race' && !foreignRacerDate) { foreignRacerDate = d; foreignRacerC = code; }
   });
   const jetSetBest     = Math.max(0, ...Object.values(yearForeignCountries).map(s => s.size));
   const crossContBest  = Math.max(0, ...Object.values(yearContinents).map(s => s.size));
@@ -1599,24 +1615,31 @@ function computeAtlas(sessions, events, opts = {}) {
 
   // Vacation Runner — earliest run whose date falls inside a `vacation` event (by type, not label).
   const vac = (events || []).filter(e => e.type === 'vacation');
-  let vacationRunDate = null;
+  let vacationRunDate = null, vacationRunC = null;
   if (vac.length) sessions.forEach(s => {
     const d = s.dato; if (!d) return;
-    if (vac.some(e => d >= e.date && d <= (e.endDate || e.date)) && (!vacationRunDate || d < vacationRunDate)) vacationRunDate = d;
+    if (vac.some(e => d >= e.date && d <= (e.endDate || e.date)) && (!vacationRunDate || d < vacationRunDate)) { vacationRunDate = d; vacationRunC = s.land || home; }
   });
 
   const a = {
     home, year, byCountry, countries, foreignCountries: foreign, continents, byContinent,
     nordicCount: nordicPresent.length, longestAbroadKm,
     firstForeignDate, scenicDate, intl5kDate, intl10kDate, newCountryThisYear, vacationRunDate,
-    intlHalfDate, intlMaraDate, hotelDate, foreignHillDate, winterDate, newYearDate, foreignRacerDate,
-    southernDate, globeMilerDate, jetSetDate, jetSetBest, crossContDate, crossContBest, multiYearDate,
-    foreignYearCount: foreignYearsSeen.size,
+    intlHalfDate, intlMaraDate, hotelDate, foreignHillDate, winterDate, foreignRacerDate,
+    southernDate, globeTierDate, jetSetDate, jetSetBest, crossContDate, crossContBest, multiYearDate,
+    // Countries where single-run/threshold badges were earned (for the "Låst opp" flag).
+    firstForeignCountry: foreignByFirst[0] || null, vacationRunCountry: vacationRunC,
+    scenicCountry: scenicC, intl5kCountry: intl5kC, intl10kCountry: intl10kC, intlHalfCountry: intlHalfC, intlMaraCountry: intlMaraC,
+    hotelCountry: hotelC, foreignHillCountry: foreignHillC, winterCountry: winterC, foreignRacerCountry: foreignRacerC,
+    southernCountry: southernC, jetSetCountry: jetSetC, crossContCountry: crossContC,
+    foreignYearCount: foreignYearsSeen.size, foreignYears: [...foreignYearsSeen].sort(),
     outdoorForeignCount: foreignOutdoor.length,
-    outdoorForeignDate: foreignOutdoor[2] ? firstOutdoorDate[foreignOutdoor[2]] : null,
-    foreignUnlockDate: n => foreignByFirst[n - 1] ? byCountry[foreignByFirst[n - 1]].firstDate : null,
+    outdoorForeignAt: n => foreignOutdoor[n - 1] ? { code: foreignOutdoor[n - 1], date: firstOutdoorDate[foreignOutdoor[n - 1]] } : null,
+    foreignUnlockDate:    n => foreignByFirst[n - 1] ? byCountry[foreignByFirst[n - 1]].firstDate : null,
+    foreignUnlockCountry: n => foreignByFirst[n - 1] || null,
     contUnlockDate:    n => contByFirst[n - 1]    ? contFirst[contByFirst[n - 1]]              : null,
     nordicUnlockDate:  n => nordicByFirst[n - 1]  ? byCountry[nordicByFirst[n - 1]].firstDate  : null,
+    nordicUnlockCountry: n => nordicByFirst[n - 1] || null,
     summary: {
       countryCount: countries.length, foreignCount: foreign.length, continentCount: continents.length,
       abroadRuns: foreignRuns, abroadKm: foreignKm, longestAbroad: longestAbroadKm, firstIntlDate: firstForeignDate,
@@ -1643,7 +1666,7 @@ function atlasBadgeCard(b) {
         <div class="ab-name">${escapeHtml(b.name)}${b.unlocked ? ' ✓' : ''}</div>
         <div class="ab-desc">${escapeHtml(b.desc)}</div>
         ${!b.unlocked && b.progress ? atlasBar(b.progress.cur, b.progress.target, b.progress.unit) : ''}
-        ${b.unlocked && b.date ? `<div class="ab-date">Låst opp ${fmtDate(b.date)}</div>` : ''}
+        ${b.unlocked && b.date ? `<div class="ab-date">${b.country && landFlagUrl(b.country) ? `<img class="ab-flag" src="${landFlagUrl(b.country)}" alt="" loading="lazy"><span class="ab-country">${escapeHtml(landName(b.country))}</span> · ` : ''}Låst opp ${fmtDate(b.date)}</div>` : ''}
       </div>
     </div>`;
 }
@@ -1711,7 +1734,7 @@ function renderAtlas(sessions, events) {
       if (ladderShown[lad]) return false;
       ladderShown[lad] = true; return true;
     });
-    body = ['Start', 'Land', 'Verdensdeler', 'Norden', 'Distanse', 'Stil', 'Sesong'].map(g => {
+    body = ['Milepæler', 'Land', 'Verdensdeler', 'Distanse', 'Omgivelser', 'Sesong'].map(g => {
       const items = visible.filter(b => b.group === g);
       return items.length ? `<div class="dp-section-label" style="margin-top:12px">${g}</div>
         <div class="atlas-badges-grid">${items.map(atlasBadgeCard).join('')}</div>` : '';
