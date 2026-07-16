@@ -126,6 +126,7 @@
   .land-chip:hover { border-color:var(--accent); }
   .land-chip img { height:14px; width:auto; border-radius:2px; display:block; }
   .land-chip .lc-count { color:var(--muted); font-weight:600; font-size:11px; }
+  .land-chip .lc-new { font-size:12px; line-height:1; }
   /* ── Løpeatlas ── */
   .atlas-summary { font-size:14px; color:var(--text); }
   .atlas-sub { font-size:12px; color:var(--muted); margin-top:4px; }
@@ -135,7 +136,7 @@
   .atlas-badge-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); font-size:13px; color:var(--muted); }
   .atlas-badges-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:10px; margin-top:8px; }
   .atlas-badge { display:flex; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
-  .atlas-badge.locked { opacity:.55; }
+  .atlas-badge.locked { opacity:.4; background:var(--surface); }
   .atlas-badge .ab-icon { font-size:20px; flex-shrink:0; line-height:1.2; }
   .atlas-badge .ab-name { font-size:13px; font-weight:600; color:var(--text); }
   .atlas-badge.unlocked .ab-name { color:var(--yellow); }
@@ -1583,6 +1584,9 @@ function renderAtlas(sessions, events) {
   const home = a.home;
   const chipKeys = a.countries.slice().sort((x, y) =>
     x === home ? -1 : y === home ? 1 : (a.byCountry[y].runs - a.byCountry[x].runs) || landName(x).localeCompare(landName(y), 'nb'));
+  // ✨ on the newest country — only while it's fresh (first run within the last 30 days)
+  const newCode = (a.summary.latestNewCountry && a.summary.latestNewCountry.date >= localISODaysAgo(30))
+    ? a.summary.latestNewCountry.code : null;
   document.getElementById('landStrip').innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:8px">
       ${chipKeys.map(code => {
@@ -1590,6 +1594,7 @@ function renderAtlas(sessions, events) {
         return `<span class="land-chip" data-land="${escapeHtml(code)}">
           ${flag ? `<img src="${flag}" alt="" loading="lazy">` : ''}
           <span>${escapeHtml(landName(code))}</span>
+          ${code === newCode ? '<span class="lc-new" title="Nyeste land">✨</span>' : ''}
           <span class="lc-count">${a.byCountry[code].runs}</span>
         </span>`;
       }).join('')}
