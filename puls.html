@@ -1664,7 +1664,7 @@ function computeAtlas(sessions, events, opts = {}) {
   const ncYears = new Set(Object.keys(ncByYear)); ncYears.add(String(year));
   const ncBadges = [...ncYears].sort().reverse().map(y => {
     const list = ncByYear[y] || [], c = list[0] || null, extra = list.length > 1 ? ` +${list.length - 1}` : '';
-    return { id:'new-country-year-' + y, group:'Sesong', icon:'📅', name:`New Country Year (${y})`,
+    return { id:'new-country-year-' + y, group:'Sesong', icon:'📅', name:`New Country, New Year (${y})`,
       desc: c ? `Nytt land i ${y}: ${landName(c)}${extra}` : `Løp i et nytt land i ${y}`,
       unlocked: !!c, date: c ? byCountry[c].firstDate : null, country: c };
   });
