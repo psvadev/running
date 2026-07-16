@@ -5767,13 +5767,14 @@ const StravaImport = {
       }
       // Land — Strava has largely deprecated location_country (usually null), so
       // fall back to the activity timezone (e.g. "Europe/Oslo" → NO). Prefill only
-      // when we resolve a known country; unknown → left blank for manual entry.
+      // for abroad runs — Norway is the blank home default, so a resolved 'NO' is
+      // left blank (keeps the "empty = Norge" convention). Unknown → blank too.
       const landEl = document.getElementById('fLand');
       if (!landEl.value) {
         let code = a.location_country
           ? LandNames.enToCode[a.location_country.trim().toLowerCase()] : '';
         if (!code) code = countryFromTz(a.timezone);
-        if (code) landEl.value = landName(code);
+        if (code && code !== 'NO') landEl.value = landName(code);
       }
     } catch (e) {
       console.error('Strava field population failed', e);
