@@ -963,7 +963,7 @@
   <!-- Beste innsats -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Beste innsats</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Synkroniser fra Strava henter utendørs GPS-tider automatisk. Fyll inn manuelt for tredemølle-PR-er eller løp Strava ikke har. Format: mm:ss eller h:mm:ss. Faktiske tider overskriver Riegel-estimatene i Ytelseskurven.</p>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Synkroniser fra Strava henter utendørs GPS-tider automatisk, men foreslår kun tider som er raskere enn det du har lagret (dine tredemølle-PR-er blir stående). Fyll inn manuelt for tredemølle-PR-er eller løp Strava ikke har. Format: mm:ss eller h:mm:ss. Faktiske tider overskriver Riegel-estimatene i Ytelseskurven.</p>
     <div id="bestEffortsForm"></div>
     <button class="btn" style="margin-top:10px" onclick="Settings.saveBestEfforts()">Lagre</button>
     <span id="bestEffortsMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
@@ -5952,10 +5952,21 @@ const StravaBestEfforts = {
     }
   },
 
+  // Distances where Strava's outdoor time is a genuine improvement — faster than
+  // the stored value, or filling an empty slot. bestEfforts holds the *fastest*
+  // time per distance; Strava has only outdoor GPS efforts, which are
+  // systematically slower than treadmill (belt) PRs (DATA.md belt-vs-GPS), so a
+  // slower Strava time is noise, not a record. Outdoor times still show in Topp 3.
+  _improvements() {
+    const found = this._found();
+    const current = Store.data.bestEfforts || {};
+    return this._dists.filter(({ key }) => found[key] && (!current[key] || found[key] < current[key]));
+  },
+
   showReview() {
     const found = this._found();
     const current = Store.data.bestEfforts || {};
-    const diffRows = this._dists.filter(({ key }) => found[key] && found[key] !== current[key]);
+    const diffRows = this._improvements();
     const el = document.getElementById('bestEffortsReview');
     if (!el) return;
     if (!diffRows.length) { el.innerHTML = ''; return; }
@@ -5982,7 +5993,7 @@ const StravaBestEfforts = {
 
   applyAll() {
     const found = this._found();
-    Object.keys(found).forEach(key => {
+    this._improvements().forEach(({ key }) => {
       const input = document.getElementById(`be_${key}`);
       if (input) input.value = secsToHmsShort(found[key]);
     });
