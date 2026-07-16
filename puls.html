@@ -126,6 +126,21 @@
   .land-chip:hover { border-color:var(--accent); }
   .land-chip img { height:14px; width:auto; border-radius:2px; display:block; }
   .land-chip .lc-count { color:var(--muted); font-weight:600; font-size:11px; }
+  /* ── Løpeatlas ── */
+  .atlas-summary { font-size:14px; color:var(--text); }
+  .atlas-sub { font-size:12px; color:var(--muted); margin-top:4px; }
+  .atlas-continents { display:flex; flex-wrap:wrap; gap:6px 14px; margin:4px 0; font-size:12px; }
+  .atlas-cont.on { color:var(--text); }
+  .atlas-cont.off { color:var(--muted); }
+  .atlas-badge-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); font-size:13px; color:var(--muted); }
+  .atlas-badges-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:10px; margin-top:8px; }
+  .atlas-badge { display:flex; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .atlas-badge.locked { opacity:.55; }
+  .atlas-badge .ab-icon { font-size:20px; flex-shrink:0; line-height:1.2; }
+  .atlas-badge .ab-name { font-size:13px; font-weight:600; color:var(--text); }
+  .atlas-badge.unlocked .ab-name { color:var(--yellow); }
+  .atlas-badge .ab-desc { font-size:11px; color:var(--muted); margin-top:2px; }
+  .atlas-badge .ab-date { font-size:10px; color:var(--muted); margin-top:4px; }
 
   /* ── Dashboard grid ── */
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -681,8 +696,11 @@
       <div class="chart-wrap"><canvas id="chartVenue"></canvas></div>
     </div>
     <div class="card span2" id="landCard" style="display:none">
-      <div class="card-title" id="landTitle">Land løpt i</div>
-      <div id="landStrip"></div>
+      <div class="card-title">Løpeatlas</div>
+      <div id="atlasSummary"></div>
+      <div id="landStrip" style="margin:10px 0"></div>
+      <div id="atlasContinents"></div>
+      <div id="atlasBadges"></div>
     </div>
     <div class="card span2" id="yearCompCard">
       <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
@@ -1396,6 +1414,216 @@ function buildLandDatalist() {
   dl.innerHTML = ISO_COUNTRY_CODES.map(c => landName(c))
     .sort((a, b) => a.localeCompare(b, 'nb'))
     .map(n => `<option value="${escapeHtml(n)}">`).join('');
+}
+
+// ── Løpeatlas — travel stats, continent collection, and travel achievements ──
+// Everything is DERIVED from sessions/events at render time — nothing persisted,
+// no duplicate totals. Home is a fixed constant (blank land already = Norway).
+const ATLAS_HOME = 'NO';
+const NORDIC = ['NO', 'SE', 'DK', 'FI', 'IS'];
+const CONTINENT_NAMES = { EU:'Europa', AS:'Asia', AF:'Afrika', NA:'Nord-Amerika', SA:'Sør-Amerika', OC:'Oseania' };
+const CONTINENT_ORDER = ['EU', 'AS', 'AF', 'NA', 'SA', 'OC']; // 6 inhabited (Antarctica excluded)
+// ISO alpha-2 → continent code. Static local map (same precedent as TZ_COUNTRY, no lib).
+// Transcontinental countries are assigned to a single continent; uninhabited codes are
+// left unmapped (excluded from continent logic but still shown as a flag chip).
+const CONTINENTS = (() => {
+  const groups = {
+    EU: 'AD AL AT AX BA BE BG BY CH CY CZ DE DK EE ES FI FO FR GB GG GI GR HR HU IE IM IS IT JE LI LT LU LV MC MD ME MK MT NL NO PL PT RO RS RU SE SI SJ SK SM UA VA',
+    AS: 'AE AF AM AZ BD BH BN BT CN GE HK ID IL IN IQ IR JO JP KG KH KP KR KW KZ LA LB LK MM MN MO MV MY NP OM PH PK PS QA SA SG SY TH TJ TL TM TR TW UZ VN YE',
+    AF: 'AO BF BI BJ BW CD CF CG CI CM CV DJ DZ EG EH ER ET GA GH GM GN GQ GW KE KM LR LS LY MA MG ML MR MU MW MZ NA NE NG RE RW SC SD SH SL SN SO SS ST SZ TD TG TN TZ UG YT ZA ZM ZW',
+    NA: 'AG AI AW BB BL BM BQ BS BZ CA CR CU CW DM DO GD GL GP GT HN HT JM KN KY LC MF MQ MS MX NI PA PM PR SV SX TC TT US VC VG VI',
+    SA: 'AR BO BR CL CO EC FK GF GY PE PY SR UY VE',
+    OC: 'AS AU CC CK CX FJ FM GU KI MH MP NC NF NR NU NZ PF PG PN PW SB TK TO TV UM VU WF WS',
+  };
+  const map = {};
+  for (const cont in groups) groups[cont].split(' ').forEach(c => { map[c] = cont; });
+  return map;
+})();
+function continentOf(code) { return CONTINENTS[code] || null; }
+
+// Badge helpers: threshold badges return { unlocked, progress?{cur,target,unit?}, date? }.
+function _atlasCount(a, target)  { const cur = a.summary.foreignCount;   return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: a.foreignUnlockDate(target) }; }
+function _atlasCont(a, target)   { const cur = a.summary.continentCount; return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: a.contUnlockDate(target) }; }
+function _atlasNordic(a, target) { const cur = a.nordicCount;            return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: a.nordicUnlockDate(target) }; }
+function _atlasDist(a, target, date) { const cur = +a.longestAbroadKm.toFixed(2); return { unlocked: a.longestAbroadKm >= target, progress: a.longestAbroadKm >= target ? null : { cur, target, unit:'km' }, date }; }
+
+// Curated ~13 badges. Names kept in English (achievement-title style, per spec); Norwegian
+// descriptions. Country-collection counts FOREIGN countries only; continents count all
+// resolved (incl. home Europe); Nordic counts Nordic incl. Norway.
+const ATLAS_BADGES = [
+  { id:'first-abroad',     group:'Start',        icon:'🛫', name:'First Steps Abroad',  desc:'Første løp utenfor hjemlandet',            test:a => ({ unlocked: a.summary.foreignCount >= 1, date: a.firstForeignDate }) },
+  { id:'vacation',         group:'Start',        icon:'🏖️', name:'Vacation Runner',     desc:'Løp under en ferie',                       test:a => ({ unlocked: !!a.vacationRunDate, date: a.vacationRunDate }) },
+  { id:'passport',         group:'Land',         icon:'🛂', name:'Passport Stamp',      desc:'Løp i 3 land i utlandet',                  test:a => _atlasCount(a, 3) },
+  { id:'world-traveler',   group:'Land',         icon:'🌍', name:'World Traveler',      desc:'Løp i 5 land i utlandet',                  test:a => _atlasCount(a, 5) },
+  { id:'frequent-flyer',   group:'Land',         icon:'✈️', name:'Frequent Flyer',      desc:'Løp i 10 land i utlandet',                 test:a => _atlasCount(a, 10) },
+  { id:'continental',      group:'Verdensdeler', icon:'🧭', name:'Continental Explorer',desc:'Løp på 3 verdensdeler',                    test:a => _atlasCont(a, 3) },
+  { id:'global',           group:'Verdensdeler', icon:'🌐', name:'Global Runner',       desc:'Løp på alle 6 bebodde verdensdeler',       test:a => _atlasCont(a, 6) },
+  { id:'nordic-runner',    group:'Norden',       icon:'❄️', name:'Nordic Runner',       desc:'Løp i 3 nordiske land',                    test:a => _atlasNordic(a, 3) },
+  { id:'nordic-complete',  group:'Norden',       icon:'🏔️', name:'Nordic Complete',     desc:'Løp i Norge, Sverige, Danmark, Finland og Island', test:a => _atlasNordic(a, 5) },
+  { id:'intl-5k',          group:'Erfaring',     icon:'🏅', name:'International 5K',     desc:'Minst 5 km i ett løp utenlands',           test:a => _atlasDist(a, 5, a.intl5kDate) },
+  { id:'intl-10k',         group:'Erfaring',     icon:'🥇', name:'International 10K',    desc:'Minst 10 km i ett løp utenlands',          test:a => _atlasDist(a, 10, a.intl10kDate) },
+  { id:'new-country-year', group:'Erfaring',     icon:'📅', name:'New Country Year',    desc:'Første løp i et nytt land dette kalenderåret', test:a => ({ unlocked: !!a.newCountryThisYear, date: a.newCountryThisYear ? a.byCountry[a.newCountryThisYear].firstDate : null }) },
+  { id:'scenic',           group:'Erfaring',     icon:'🌄', name:'Scenic Route',        desc:'Utendørsløp i utlandet',                   test:a => ({ unlocked: !!a.scenicDate, date: a.scenicDate }) },
+];
+
+// Pure derivation over the workout log + events. No persistence, no side effects.
+function computeAtlas(sessions, events, opts = {}) {
+  const home = opts.homeCountry || ATLAS_HOME;
+  const year = opts.currentYear || new Date().getFullYear();
+  const byCountry = {};
+  sessions.forEach(s => {
+    const code = s.land || home;               // blank = home (established rule)
+    const c = byCountry[code] || (byCountry[code] = { code, runs:0, km:0, firstDate:null, lastDate:null, longest:0, indoor:0, outdoor:0 });
+    const km = s.distanse || 0, d = s.dato || '';
+    c.runs++; c.km += km;
+    if (km > c.longest) c.longest = km;
+    if (d && (!c.firstDate || d < c.firstDate)) c.firstDate = d;
+    if (d && (!c.lastDate  || d > c.lastDate))  c.lastDate  = d;
+    if (s.løpetype === 'treadmill') c.indoor++; else c.outdoor++;
+  });
+  const countries = Object.keys(byCountry);
+  const foreign = countries.filter(c => c !== home);
+
+  // Resolved continents present, with the date each was first reached.
+  const contFirst = {};
+  countries.forEach(code => {
+    const cont = continentOf(code); if (!cont) return;
+    const fd = byCountry[code].firstDate;
+    if (fd && (!contFirst[cont] || fd < contFirst[cont])) contFirst[cont] = fd;
+  });
+  const continents = Object.keys(contFirst);
+
+  // Ordered first-appearance → unlock dates for the N-threshold badges.
+  const byFirst = codes => codes.slice().sort((x, y) => (byCountry[x].firstDate || '').localeCompare(byCountry[y].firstDate || ''));
+  const foreignByFirst = byFirst(foreign);
+  const nordicPresent  = NORDIC.filter(c => byCountry[c]);
+  const nordicByFirst  = byFirst(nordicPresent);
+  const contByFirst    = continents.slice().sort((x, y) => (contFirst[x] || '').localeCompare(contFirst[y] || ''));
+
+  // Abroad aggregates + experience-badge dates (single pass over foreign sessions).
+  let scenicDate = null, intl5kDate = null, intl10kDate = null;
+  sessions.forEach(s => {
+    const code = s.land || home; if (code === home) return;
+    const d = s.dato || '', km = s.distanse || 0;
+    if (s.løpetype !== 'treadmill' && d && (!scenicDate  || d < scenicDate))  scenicDate  = d;
+    if (km >= 5  && d && (!intl5kDate  || d < intl5kDate))  intl5kDate  = d;
+    if (km >= 10 && d && (!intl10kDate || d < intl10kDate)) intl10kDate = d;
+  });
+  const foreignRuns = foreign.reduce((n, c) => n + byCountry[c].runs, 0);
+  const foreignKm   = foreign.reduce((n, c) => n + byCountry[c].km, 0);
+  const longestAbroadKm = foreign.reduce((m, c) => Math.max(m, byCountry[c].longest), 0);
+  const firstForeignDate = foreignByFirst.length ? byCountry[foreignByFirst[0]].firstDate : null;
+  let latestNew = null, topAbroad = null;
+  foreign.forEach(c => {
+    if (!latestNew || byCountry[c].firstDate > byCountry[latestNew].firstDate) latestNew = c;
+    if (!topAbroad || byCountry[c].km > byCountry[topAbroad].km) topAbroad = c;
+  });
+  const newCountryThisYear = foreignByFirst.filter(c => byCountry[c].firstDate && +byCountry[c].firstDate.slice(0, 4) === year)[0] || null;
+
+  // Vacation Runner — earliest run whose date falls inside a `vacation` event (by type, not label).
+  const vac = (events || []).filter(e => e.type === 'vacation');
+  let vacationRunDate = null;
+  if (vac.length) sessions.forEach(s => {
+    const d = s.dato; if (!d) return;
+    if (vac.some(e => d >= e.date && d <= (e.endDate || e.date)) && (!vacationRunDate || d < vacationRunDate)) vacationRunDate = d;
+  });
+
+  const a = {
+    home, year, byCountry, countries, foreignCountries: foreign, continents,
+    nordicCount: nordicPresent.length, longestAbroadKm,
+    firstForeignDate, scenicDate, intl5kDate, intl10kDate, newCountryThisYear, vacationRunDate,
+    foreignUnlockDate: n => foreignByFirst[n - 1] ? byCountry[foreignByFirst[n - 1]].firstDate : null,
+    contUnlockDate:    n => contByFirst[n - 1]    ? contFirst[contByFirst[n - 1]]              : null,
+    nordicUnlockDate:  n => nordicByFirst[n - 1]  ? byCountry[nordicByFirst[n - 1]].firstDate  : null,
+    summary: {
+      countryCount: countries.length, foreignCount: foreign.length, continentCount: continents.length,
+      abroadRuns: foreignRuns, abroadKm: foreignKm, longestAbroad: longestAbroadKm, firstIntlDate: firstForeignDate,
+      latestNewCountry: latestNew ? { code: latestNew, date: byCountry[latestNew].firstDate } : null,
+      topAbroad: topAbroad ? { code: topAbroad, km: byCountry[topAbroad].km } : null,
+    },
+  };
+  a.badges = ATLAS_BADGES.map(b => ({ id:b.id, group:b.group, icon:b.icon, name:b.name, desc:b.desc, ...b.test(a) }));
+  return a;
+}
+
+let atlasExpanded = false; // "Vis alle" toggle state for the badge list (survives re-renders)
+function atlasBar(cur, target, unit) {
+  const pct = Math.max(0, Math.min(100, (cur / target) * 100));
+  return `<div style="background:rgba(255,255,255,.08);border-radius:6px;height:6px;overflow:hidden;margin-top:6px">
+      <div style="height:100%;width:${pct.toFixed(0)}%;background:var(--accent);border-radius:6px"></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:3px">${cur} / ${target}${unit ? ' ' + unit : ''}</div>`;
+}
+function atlasBadgeCard(b) {
+  return `<div class="atlas-badge ${b.unlocked ? 'unlocked' : 'locked'}">
+      <span class="ab-icon">${b.icon}</span>
+      <div class="ab-body">
+        <div class="ab-name">${escapeHtml(b.name)}${b.unlocked ? ' ✓' : ''}</div>
+        <div class="ab-desc">${escapeHtml(b.desc)}</div>
+        ${!b.unlocked && b.progress ? atlasBar(b.progress.cur, b.progress.target, b.progress.unit) : ''}
+        ${b.unlocked && b.date ? `<div class="ab-date">Låst opp ${fmtDate(b.date)}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+function renderAtlas(sessions, events) {
+  const card = document.getElementById('landCard');
+  if (!card) return;
+  card.style.display = sessions.length ? '' : 'none';
+  if (!sessions.length) return;
+  const a = computeAtlas(sessions, events, { homeCountry: ATLAS_HOME, currentYear: new Date().getFullYear() });
+  const su = a.summary;
+
+  // Summary line (matches "N land · N/6 verdensdeler · N utenlandsøkter · X km i utlandet")
+  document.getElementById('atlasSummary').innerHTML = `
+    <div class="atlas-summary">${su.countryCount} land · ${su.continentCount}/6 verdensdeler · ${su.abroadRuns} utenlandsøkter · ${su.abroadKm.toFixed(1)} km i utlandet</div>
+    ${su.foreignCount ? `<div class="atlas-sub">Lengste utenlands ${su.longestAbroad.toFixed(1)} km${su.firstIntlDate ? ` · Første ute ${fmtDate(su.firstIntlDate)}` : ''}${su.topAbroad ? ` · Mest ute ${escapeHtml(landName(su.topAbroad.code))}` : ''}</div>` : ''}`;
+
+  // Flag chips (all countries incl. home, home first then by run count) — reuses existing chip UI.
+  const home = a.home;
+  const chipKeys = a.countries.slice().sort((x, y) =>
+    x === home ? -1 : y === home ? 1 : (a.byCountry[y].runs - a.byCountry[x].runs) || landName(x).localeCompare(landName(y), 'nb'));
+  document.getElementById('landStrip').innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${chipKeys.map(code => {
+        const flag = landFlagUrl(code);
+        return `<span class="land-chip" data-land="${escapeHtml(code)}">
+          ${flag ? `<img src="${flag}" alt="" loading="lazy">` : ''}
+          <span>${escapeHtml(landName(code))}</span>
+          <span class="lc-count">${a.byCountry[code].runs}</span>
+        </span>`;
+      }).join('')}
+    </div>`;
+  document.querySelectorAll('#landStrip [data-land]').forEach(chip =>
+    chip.addEventListener('click', () => DetailPanel.openLand(chip.dataset.land)));
+
+  // Continent collection line
+  document.getElementById('atlasContinents').innerHTML = `
+    <div class="atlas-continents">${CONTINENT_ORDER.map(cont => {
+      const on = a.continents.includes(cont);
+      return `<span class="atlas-cont ${on ? 'on' : 'off'}">${escapeHtml(CONTINENT_NAMES[cont])} ${on ? '✓' : '🔒'}</span>`;
+    }).join('')}</div>`;
+
+  // Travel achievements — collapsed summary + [Vis alle] toggle
+  const badges = a.badges;
+  const unlocked = badges.filter(b => b.unlocked).length;
+  const last = badges.filter(b => b.unlocked && b.date).sort((x, y) => y.date.localeCompare(x.date))[0];
+  const head = `<div class="atlas-badge-head">
+      <span>Reiseutmerkelser: <b style="color:var(--text)">${unlocked} / ${badges.length}</b>${last ? ` · Sist låst opp: ${escapeHtml(last.name)}` : ''}</span>
+      <a href="#" id="atlasToggle" style="color:var(--accent);font-size:12px;text-decoration:none">${atlasExpanded ? 'Skjul' : 'Vis alle'}</a>
+    </div>`;
+  let body = '';
+  if (atlasExpanded) {
+    body = ['Start', 'Land', 'Verdensdeler', 'Norden', 'Erfaring'].map(g => {
+      const items = badges.filter(b => b.group === g);
+      return items.length ? `<div class="dp-section-label" style="margin-top:12px">${g}</div>
+        <div class="atlas-badges-grid">${items.map(atlasBadgeCard).join('')}</div>` : '';
+    }).join('');
+  }
+  document.getElementById('atlasBadges').innerHTML = head + body;
+  document.getElementById('atlasToggle')?.addEventListener('click', e => {
+    e.preventDefault(); atlasExpanded = !atlasExpanded; renderAtlas(Store.data.sessions, Store.data.events);
+  });
 }
 
 function showToast(msg, type = 'info', duration = 4000) {
@@ -5107,27 +5335,9 @@ function renderDashboard() {
         </div>`).join('')}
     </div>`;
 
-  // Land løpt i — all-time count per country (empty land = Norge, the home default);
-  // ignores the year pills and utenforAnalyse, like the Ytelseskurve. Own dashboard card.
-  const landCounts = {};
-  Store.data.sessions.forEach(s => { const c = s.land || 'NO'; landCounts[c] = (landCounts[c] || 0) + 1; });
-  const landKeys = Object.keys(landCounts).sort((a, b) =>
-    a === 'NO' ? -1 : b === 'NO' ? 1 : (landCounts[b] - landCounts[a]) || landName(a).localeCompare(landName(b), 'nb'));
-  document.getElementById('landCard').style.display = Store.data.sessions.length ? '' : 'none';
-  document.getElementById('landTitle').textContent = `Land løpt i (${landKeys.length})`;
-  document.getElementById('landStrip').innerHTML = `
-    <div style="display:flex;flex-wrap:wrap;gap:8px">
-      ${landKeys.map(code => {
-        const flag = landFlagUrl(code);
-        return `<span class="land-chip" data-land="${escapeHtml(code)}">
-          ${flag ? `<img src="${flag}" alt="" loading="lazy">` : ''}
-          <span>${escapeHtml(landName(code))}</span>
-          <span class="lc-count">${landCounts[code]}</span>
-        </span>`;
-      }).join('')}
-    </div>`;
-  document.querySelectorAll('#landStrip [data-land]').forEach(chip =>
-    chip.addEventListener('click', () => DetailPanel.openLand(chip.dataset.land)));
+  // Løpeatlas — travel stats, continent collection, and derived travel badges (all-time,
+  // unfiltered — ignores the year pills and utenforAnalyse, like the Ytelseskurve).
+  renderAtlas(Store.data.sessions, Store.data.events);
 
   // Training load per week (zone minutes × zone weight, summed per week)
   const ZONE_WEIGHTS = [1, 2, 3, 4, 5];

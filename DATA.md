@@ -45,10 +45,11 @@ Syk/Ferie/Deload/Taper events **explain gaps and dips in the volume charts** —
 
 ## Other data stores
 
-- `bestEfforts` — manual best-effort times (seconds) per distance; may be belt- or GPS-based (user-entered); overrides Riegel estimates in Ytelseskurve.
-- `bestEffortsTop3` — Strava-scanned top-3 per distance `{t, d}`; GPS/outdoor only.
+- `bestEfforts` — best-effort times (seconds) per distance; may be belt- or GPS-based (user-entered); overrides Riegel estimates in Ytelseskurve. Holds the *fastest* time per distance: the Strava sync only offers a value when it's faster than the stored one (or fills an empty slot), so a treadmill PR is never overwritten by a slower outdoor GPS time.
+- `bestEffortsTop3` — Strava-scanned top-3 per distance `{t, d}`; GPS/outdoor only. The scan's `localStorage` buffer is **device-local** (not Drive-synced); only this committed field syncs. Commits **merge** (union, dedupe on `(t,d)`, fastest 3) into the existing set — never overwrite — so a sync on one device can't drop history scanned on another. Rebuild a depleted set via Innstillinger → "Skann hele historikken på nytt".
 - `shoes` — `{ name, retirementKm?, retired? }`.
 - `goals` — yearly km targets keyed by year.
+- **Løpeatlas** (travel stats + ~13 achievements) is **fully derived** from `sessions` (`land`/`dato`/`distanse`/`løpetype`) + `events` (`vacation` overlap for the Vacation Runner badge) via `computeAtlas()` — **nothing persisted**, no badge state, so editing an old run's date/country can shift derived unlock dates ("Sist låst opp"). Home = `ATLAS_HOME='NO'`; blank `land` = home. Country-collection badges count foreign countries only; continents count all resolved (incl. home Europe) via the static `CONTINENTS` map (6 inhabited; Antarctica excluded); unresolvable `land` text still shows as a chip but has no continent.
 
 ## Computation conventions
 
