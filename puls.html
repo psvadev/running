@@ -667,7 +667,7 @@
       <div class="chart-wrap"><canvas id="chartVenue"></canvas></div>
     </div>
     <div class="card span2" id="landCard" style="display:none">
-      <div class="card-title">Land løpt i</div>
+      <div class="card-title" id="landTitle">Land løpt i</div>
       <div id="landStrip"></div>
     </div>
     <div class="card span2" id="yearCompCard">
@@ -1290,6 +1290,85 @@ function landName(code) {           // 'NO' → "Norge"; raw fallback text passe
 function landFlagUrl(code) {
   return /^[A-Z]{2}$/.test(code) ? `https://flagcdn.com/h24/${code.toLowerCase()}.png` : null;
 }
+// Map an IANA timezone → ISO country code. Strava's location_country is
+// deprecated (usually null), but every activity still carries a `timezone`
+// like "(GMT+01:00) Europe/Oslo". A zone name doesn't decode to a country by
+// rule, so this is a lookup of the tz database's populated zones, grouped by
+// country. Unknown zones return '' → the Land field is left for manual entry.
+const TZ_COUNTRY = (() => {
+  const groups = {
+    // Europe
+    AD:'Europe/Andorra', AL:'Europe/Tirane', AT:'Europe/Vienna', AX:'Europe/Mariehamn',
+    BA:'Europe/Sarajevo', BE:'Europe/Brussels', BG:'Europe/Sofia', BY:'Europe/Minsk',
+    CH:'Europe/Zurich', CY:'Asia/Nicosia,Asia/Famagusta', CZ:'Europe/Prague',
+    DE:'Europe/Berlin,Europe/Busingen', DK:'Europe/Copenhagen', EE:'Europe/Tallinn',
+    ES:'Europe/Madrid,Africa/Ceuta,Atlantic/Canary', FI:'Europe/Helsinki',
+    FO:'Atlantic/Faroe', FR:'Europe/Paris', GB:'Europe/London', GG:'Europe/Guernsey',
+    GI:'Europe/Gibraltar', GR:'Europe/Athens', HR:'Europe/Zagreb', HU:'Europe/Budapest',
+    IE:'Europe/Dublin', IM:'Europe/Isle_of_Man', IS:'Atlantic/Reykjavik', IT:'Europe/Rome',
+    JE:'Europe/Jersey', LI:'Europe/Vaduz', LT:'Europe/Vilnius', LU:'Europe/Luxembourg',
+    LV:'Europe/Riga', MC:'Europe/Monaco', MD:'Europe/Chisinau', ME:'Europe/Podgorica',
+    MK:'Europe/Skopje', MT:'Europe/Malta', NL:'Europe/Amsterdam', NO:'Europe/Oslo',
+    PL:'Europe/Warsaw', PT:'Europe/Lisbon,Atlantic/Madeira,Atlantic/Azores',
+    RO:'Europe/Bucharest', RS:'Europe/Belgrade', SE:'Europe/Stockholm', SI:'Europe/Ljubljana',
+    SJ:'Arctic/Longyearbyen', SK:'Europe/Bratislava', SM:'Europe/San_Marino',
+    UA:'Europe/Kiev,Europe/Kyiv,Europe/Uzhgorod,Europe/Zaporozhye,Europe/Simferopol',
+    VA:'Europe/Vatican',
+    RU:'Europe/Moscow,Europe/Kaliningrad,Europe/Volgograd,Europe/Samara,Asia/Yekaterinburg,Asia/Omsk,Asia/Novosibirsk,Asia/Krasnoyarsk,Asia/Irkutsk,Asia/Yakutsk,Asia/Vladivostok,Asia/Magadan,Asia/Kamchatka,Asia/Sakhalin',
+    // Americas
+    US:'America/New_York,America/Detroit,America/Chicago,America/Denver,America/Boise,America/Phoenix,America/Los_Angeles,America/Anchorage,America/Juneau,America/Nome,America/Adak,Pacific/Honolulu,America/Indiana/Indianapolis,America/Menominee',
+    CA:'America/St_Johns,America/Halifax,America/Glace_Bay,America/Moncton,America/Goose_Bay,America/Toronto,America/Winnipeg,America/Regina,America/Edmonton,America/Vancouver,America/Whitehorse,America/Dawson,America/Yellowknife,America/Iqaluit',
+    MX:'America/Mexico_City,America/Cancun,America/Merida,America/Monterrey,America/Mazatlan,America/Chihuahua,America/Hermosillo,America/Tijuana,America/Bahia_Banderas',
+    BR:'America/Sao_Paulo,America/Bahia,America/Fortaleza,America/Recife,America/Belem,America/Manaus,America/Cuiaba,America/Campo_Grande,America/Rio_Branco,America/Noronha',
+    AR:'America/Argentina/Buenos_Aires,America/Argentina/Cordoba,America/Argentina/Mendoza,America/Argentina/Salta,America/Argentina/Tucuman,America/Argentina/Ushuaia',
+    CL:'America/Santiago,America/Punta_Arenas,Pacific/Easter', CO:'America/Bogota',
+    PE:'America/Lima', VE:'America/Caracas', EC:'America/Guayaquil,Pacific/Galapagos',
+    BO:'America/La_Paz', PY:'America/Asuncion', UY:'America/Montevideo', GY:'America/Guyana',
+    SR:'America/Paramaribo', GT:'America/Guatemala', CR:'America/Costa_Rica',
+    PA:'America/Panama', CU:'America/Havana', DO:'America/Santo_Domingo',
+    JM:'America/Jamaica', HT:'America/Port-au-Prince', BS:'America/Nassau',
+    HN:'America/Tegucigalpa', SV:'America/El_Salvador', NI:'America/Managua',
+    BZ:'America/Belize', PR:'America/Puerto_Rico', TT:'America/Port_of_Spain',
+    BB:'America/Barbados', GL:'America/Nuuk,America/Godthab,America/Danmarkshavn',
+    // Africa
+    MA:'Africa/Casablanca', DZ:'Africa/Algiers', TN:'Africa/Tunis', LY:'Africa/Tripoli',
+    EG:'Africa/Cairo', SD:'Africa/Khartoum', ET:'Africa/Addis_Ababa', KE:'Africa/Nairobi',
+    TZ:'Africa/Dar_es_Salaam', UG:'Africa/Kampala', NG:'Africa/Lagos', GH:'Africa/Accra',
+    CI:'Africa/Abidjan', SN:'Africa/Dakar', CM:'Africa/Douala', ZA:'Africa/Johannesburg',
+    ZW:'Africa/Harare', ZM:'Africa/Lusaka', MZ:'Africa/Maputo', AO:'Africa/Luanda',
+    NA:'Africa/Windhoek', BW:'Africa/Gaborone', RW:'Africa/Kigali', MU:'Indian/Mauritius',
+    RE:'Indian/Reunion', MG:'Indian/Antananarivo', SC:'Indian/Mahe',
+    // Middle East & Asia
+    TR:'Europe/Istanbul,Asia/Istanbul', IL:'Asia/Jerusalem,Asia/Tel_Aviv',
+    PS:'Asia/Gaza,Asia/Hebron', JO:'Asia/Amman', LB:'Asia/Beirut', SY:'Asia/Damascus',
+    IQ:'Asia/Baghdad', SA:'Asia/Riyadh', AE:'Asia/Dubai', QA:'Asia/Qatar',
+    KW:'Asia/Kuwait', BH:'Asia/Bahrain', OM:'Asia/Muscat', YE:'Asia/Aden',
+    IR:'Asia/Tehran', AF:'Asia/Kabul', PK:'Asia/Karachi', IN:'Asia/Kolkata,Asia/Calcutta',
+    LK:'Asia/Colombo', NP:'Asia/Kathmandu', BD:'Asia/Dhaka', BT:'Asia/Thimphu',
+    MM:'Asia/Yangon', TH:'Asia/Bangkok', LA:'Asia/Vientiane', KH:'Asia/Phnom_Penh',
+    VN:'Asia/Ho_Chi_Minh,Asia/Saigon', MY:'Asia/Kuala_Lumpur,Asia/Kuching',
+    SG:'Asia/Singapore', ID:'Asia/Jakarta,Asia/Makassar,Asia/Jayapura,Asia/Pontianak',
+    PH:'Asia/Manila', HK:'Asia/Hong_Kong', MO:'Asia/Macau', TW:'Asia/Taipei',
+    CN:'Asia/Shanghai,Asia/Urumqi', MN:'Asia/Ulaanbaatar', KP:'Asia/Pyongyang',
+    KR:'Asia/Seoul', JP:'Asia/Tokyo', KZ:'Asia/Almaty,Asia/Aqtobe,Asia/Aqtau',
+    UZ:'Asia/Tashkent,Asia/Samarkand', TM:'Asia/Ashgabat', KG:'Asia/Bishkek',
+    TJ:'Asia/Dushanbe', AZ:'Asia/Baku', AM:'Asia/Yerevan', GE:'Asia/Tbilisi',
+    // Oceania
+    AU:'Australia/Sydney,Australia/Melbourne,Australia/Brisbane,Australia/Perth,Australia/Adelaide,Australia/Hobart,Australia/Darwin,Australia/Lord_Howe',
+    NZ:'Pacific/Auckland,Pacific/Chatham', FJ:'Pacific/Fiji', PG:'Pacific/Port_Moresby',
+    NC:'Pacific/Noumea', PF:'Pacific/Tahiti,Pacific/Marquesas,Pacific/Gambier',
+    WS:'Pacific/Apia', TO:'Pacific/Tongatapu', GU:'Pacific/Guam', VU:'Pacific/Efate',
+    SB:'Pacific/Guadalcanal', CK:'Pacific/Rarotonga', PW:'Pacific/Palau',
+  };
+  const map = {};
+  for (const cc in groups) groups[cc].split(',').forEach(z => { map[z] = cc; });
+  return map;
+})();
+function countryFromTz(tz) {          // "(GMT+01:00) Europe/Oslo" → "NO"; unknown → ''
+  if (!tz) return '';
+  return TZ_COUNTRY[tz.trim().split(' ').pop()] || '';
+}
+
 function resolveLandInput(txt) {    // typed Norwegian name or 2-letter code → ISO code, else raw text
   const t = (txt || '').trim();
   if (!t) return null;
@@ -5018,6 +5097,7 @@ function renderDashboard() {
   const landKeys = Object.keys(landCounts).sort((a, b) =>
     a === 'NO' ? -1 : b === 'NO' ? 1 : (landCounts[b] - landCounts[a]) || landName(a).localeCompare(landName(b), 'nb'));
   document.getElementById('landCard').style.display = Store.data.sessions.length ? '' : 'none';
+  document.getElementById('landTitle').textContent = `Land løpt i (${landKeys.length})`;
   document.getElementById('landStrip').innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:8px">
       ${landKeys.map(code => {
@@ -5685,11 +5765,14 @@ const StravaImport = {
       if (detail?.description && !beskrivelseEl.value) {
         beskrivelseEl.value = detail.description;
       }
-      // Land — Strava has largely deprecated location_country; prefill only when it
-      // resolves to a known country (avoid storing raw English text like "Sweden").
+      // Land — Strava has largely deprecated location_country (usually null), so
+      // fall back to the activity timezone (e.g. "Europe/Oslo" → NO). Prefill only
+      // when we resolve a known country; unknown → left blank for manual entry.
       const landEl = document.getElementById('fLand');
-      if (a.location_country && !landEl.value) {
-        const code = LandNames.enToCode[a.location_country.trim().toLowerCase()];
+      if (!landEl.value) {
+        let code = a.location_country
+          ? LandNames.enToCode[a.location_country.trim().toLowerCase()] : '';
+        if (!code) code = countryFromTz(a.timezone);
         if (code) landEl.value = landName(code);
       }
     } catch (e) {
