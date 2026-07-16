@@ -127,6 +127,7 @@
   .land-chip img { height:14px; width:auto; border-radius:2px; display:block; }
   .land-chip .lc-count { color:var(--muted); font-weight:600; font-size:11px; }
   .land-chip .lc-new { font-size:12px; line-height:1; }
+  .land-chip .lc-note { font-size:11px; line-height:1; }
   /* ── Løpeatlas ── */
   .atlas-summary { font-size:14px; color:var(--text); }
   .atlas-sub { font-size:12px; color:var(--muted); margin-top:4px; }
@@ -1667,6 +1668,7 @@ function renderAtlas(sessions, events) {
   // ✨ on the newest country — only while it's fresh (first run within the last 30 days)
   const newCode = (a.summary.latestNewCountry && a.summary.latestNewCountry.date >= localISODaysAgo(30))
     ? a.summary.latestNewCountry.code : null;
+  const notes = Store.data.countryNotes || {};
   document.getElementById('landStrip').innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:8px">
       ${chipKeys.map(code => {
@@ -1674,6 +1676,7 @@ function renderAtlas(sessions, events) {
         return `<span class="land-chip" data-land="${escapeHtml(code)}">
           ${flag ? `<img src="${flag}" alt="" loading="lazy">` : ''}
           <span>${escapeHtml(landName(code))}</span>
+          ${notes[code] ? '<span class="lc-note" title="Har notat">📝</span>' : ''}
           ${code === newCode ? '<span class="lc-new" title="Nyeste land">✨</span>' : ''}
           <span class="lc-count">${a.byCountry[code].runs}</span>
         </span>`;
@@ -5028,11 +5031,31 @@ const DetailPanel = {
       </div>`
     ).join('');
     const flag = landFlagUrl(code);
+    const note = (Store.data.countryNotes || {})[code] || '';
     this.open(`Løpt i ${landName(code)}`, `
       ${flag ? `<img src="${flag}" alt="" style="height:16px;border-radius:2px;margin-bottom:10px">` : ''}
       <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      <div class="dp-section-label">Notat</div>
+      <textarea id="landNoteInput" rows="3" placeholder="Et minne eller notat for dette landet…" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
+      <div style="margin:6px 0 2px"><button class="btn-secondary btn-sm" id="landNoteSave">Lagre notat</button><span id="landNoteMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span></div>
       <div class="dp-section-label">Øktene</div>${rows || '<div style="color:var(--muted);font-size:12px">Ingen løp logget</div>'}`
     );
+    const noteBtn = document.getElementById('landNoteSave');
+    if (noteBtn) noteBtn.addEventListener('click', () => this.saveLandNote(code));
+  },
+
+  // Per-country note/memory — the one bit of Løpeatlas that stores data (user-authored,
+  // not derivable). Text only; absent = no note. Keyed by ISO code in Store.data.countryNotes.
+  saveLandNote(code) {
+    const el = document.getElementById('landNoteInput');
+    if (!el) return;
+    const txt = el.value.trim();
+    Store.data.countryNotes = Store.data.countryNotes || {};
+    if (txt) Store.data.countryNotes[code] = txt; else delete Store.data.countryNotes[code];
+    FileIO.save();
+    const msg = document.getElementById('landNoteMsg');
+    if (msg) { msg.textContent = 'Lagret ✓'; setTimeout(() => { if (msg) msg.textContent = ''; }, 1800); }
+    if (document.getElementById('panel-dash')?.classList.contains('active')) renderAtlas(Store.data.sessions, Store.data.events);
   },
 
   openBlock(block) {
