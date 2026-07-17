@@ -156,6 +156,10 @@
   .dp-badge-row .dbr-here { color:var(--yellow); font-weight:600; }
   .dp-badge-row .dbr-done { color:var(--green); }
   .dp-badge-row .dbr-prog { color:var(--muted); }
+  .dp-badge-legend { font-size:11px; color:var(--muted); margin:1px 0 8px; }
+  .dp-badge-legend .dbr-here { color:var(--yellow); font-weight:600; }
+  .dp-badge-legend .dbr-done { color:var(--green); }
+  .dp-badge-legend .dbr-prog { color:var(--muted); }
 
   /* ── Dashboard grid ── */
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -5115,15 +5119,17 @@ const DetailPanel = {
     const atlas = computeAtlas(Store.data.sessions, Store.data.events, { homeCountry: ATLAS_HOME, currentYear: new Date().getFullYear() });
     const cBadges = atlasBadgesForCountry(atlas, code);
     const badgeRows = cBadges.map(b => {
-      const status = b.here ? '<span class="dbr-here">✓ her</span>'
+      const status = b.here ? '<span class="dbr-here">✓</span>'
         : b.unlocked ? '<span class="dbr-done">✓</span>'
         : (b.progress ? `<span class="dbr-prog">${b.progress.cur}/${b.progress.target}</span>` : '');
       return `<div class="dp-badge-row ${b.unlocked ? '' : 'locked'}"><span class="dbr-icon">${b.icon}</span><span class="dbr-name">${escapeHtml(b.name)}</span>${status}</div>`;
     }).join('');
+    const badgeLegend = cBadges.length
+      ? `<div class="dp-badge-legend"><span class="dbr-here">✓</span> låst opp her · <span class="dbr-done">✓</span> låst opp · <span class="dbr-prog">3/5</span> gjenstår</div>` : '';
     this.open(`Løpt i ${landName(code)}`, `
       ${flag ? `<img src="${flag}" alt="" style="height:16px;border-radius:2px;margin-bottom:10px">` : ''}
       <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
-      ${badgeRows ? `<div class="dp-section-label">Teller mot</div>${badgeRows}` : ''}
+      ${badgeRows ? `<div class="dp-section-label">Teller mot</div>${badgeLegend}${badgeRows}` : ''}
       <div class="dp-section-label">Notat</div>
       <textarea id="landNoteInput" rows="3" placeholder="Et minne eller notat for dette landet…" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
       <div style="margin:6px 0 2px"><button class="btn-secondary btn-sm" id="landNoteSave">Lagre notat</button><span id="landNoteMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span></div>
