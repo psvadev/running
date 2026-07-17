@@ -149,6 +149,13 @@
   .atlas-filter .af-btn { font-size:11px; padding:3px 11px; border-radius:999px; border:1px solid var(--border); color:var(--muted); text-decoration:none; }
   .atlas-filter .af-btn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   .atlas-empty { font-size:12px; color:var(--muted); margin-top:12px; }
+  .dp-badge-row { display:flex; align-items:center; gap:8px; font-size:12px; padding:3px 0; }
+  .dp-badge-row.locked { opacity:.55; }
+  .dp-badge-row .dbr-icon { width:18px; text-align:center; flex-shrink:0; }
+  .dp-badge-row .dbr-name { flex:1; color:var(--text); }
+  .dp-badge-row .dbr-here { color:var(--yellow); font-weight:600; }
+  .dp-badge-row .dbr-done { color:var(--green); }
+  .dp-badge-row .dbr-prog { color:var(--muted); }
 
   /* ── Dashboard grid ── */
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -1670,6 +1677,25 @@ function computeAtlas(sessions, events, opts = {}) {
   });
   a.badges = ncBadges.concat(ATLAS_BADGES.map(b => ({ id:b.id, group:b.group, icon:b.icon, name:b.name, desc:b.desc, ...b.test(a) })));
   return a;
+}
+
+// Which Løpeatlas badges a given country counts toward (for the country drill-down): membership
+// in the collection/continent/regional/Nordic sets this country belongs to, plus anything unlocked
+// specifically here. Aggregate/temporal badges (globe-km, jet-set, distance, etc.) are only shown
+// when unlocked here — they aren't "this country is a member of a set". Sorted here → done → in progress.
+function atlasBadgesForCountry(a, code) {
+  const isForeign = code !== a.home, cont = continentOf(code), isNordic = NORDIC.includes(code);
+  const member = {
+    passport: isForeign, 'world-traveler': isForeign, 'frequent-flyer': isForeign, globetrotter: isForeign,
+    continental: !!cont, global: !!cont,
+    'europe-explorer': cont === 'EU', 'asia-explorer': cont === 'AS',
+    'americas-explorer': cont === 'NA' || cont === 'SA', 'africa-explorer': cont === 'AF',
+    'nordic-runner': isNordic, 'nordic-complete': isNordic,
+  };
+  return a.badges
+    .map(b => ({ ...b, here: b.unlocked && b.country === code }))
+    .filter(b => b.here || member[b.id])
+    .sort((x, y) => (y.here - x.here) || (y.unlocked - x.unlocked));
 }
 
 let atlasExpanded = false; // "Vis alle" toggle state for the badge list (survives re-renders)
@@ -5073,8 +5099,8 @@ const DetailPanel = {
     const stats = [
       { v: sessions.length,        l: 'løp' },
       { v: totalKm.toFixed(1)+' km', l: 'distanse' },
-      ...(sorted.length ? [{ v: fmtDate(sorted[sorted.length-1].dato), l: 'første' },
-                           { v: fmtDate(sorted[0].dato),               l: 'siste'  }] : []),
+      ...(sorted.length ? [{ v: fmtDate(sorted[sorted.length-1].dato), l: 'første løp' },
+                           { v: fmtDate(sorted[0].dato),               l: 'siste løp'  }] : []),
     ];
     const rows = sorted.map(s=>
       `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
@@ -5085,9 +5111,19 @@ const DetailPanel = {
     ).join('');
     const flag = landFlagUrl(code);
     const note = (Store.data.countryNotes || {})[code] || '';
+    // Badges this country counts toward (unlocked here + set memberships).
+    const atlas = computeAtlas(Store.data.sessions, Store.data.events, { homeCountry: ATLAS_HOME, currentYear: new Date().getFullYear() });
+    const cBadges = atlasBadgesForCountry(atlas, code);
+    const badgeRows = cBadges.map(b => {
+      const status = b.here ? '<span class="dbr-here">✓ her</span>'
+        : b.unlocked ? '<span class="dbr-done">✓</span>'
+        : (b.progress ? `<span class="dbr-prog">${b.progress.cur}/${b.progress.target}</span>` : '');
+      return `<div class="dp-badge-row ${b.unlocked ? '' : 'locked'}"><span class="dbr-icon">${b.icon}</span><span class="dbr-name">${escapeHtml(b.name)}</span>${status}</div>`;
+    }).join('');
     this.open(`Løpt i ${landName(code)}`, `
       ${flag ? `<img src="${flag}" alt="" style="height:16px;border-radius:2px;margin-bottom:10px">` : ''}
       <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      ${badgeRows ? `<div class="dp-section-label">Teller mot</div>${badgeRows}` : ''}
       <div class="dp-section-label">Notat</div>
       <textarea id="landNoteInput" rows="3" placeholder="Et minne eller notat for dette landet…" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
       <div style="margin:6px 0 2px"><button class="btn-secondary btn-sm" id="landNoteSave">Lagre notat</button><span id="landNoteMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span></div>
