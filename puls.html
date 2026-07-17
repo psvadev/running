@@ -1623,6 +1623,9 @@ function computeAtlas(sessions, events, opts = {}) {
     if (s.okttype === 'Race' && !foreignRacerDate) { foreignRacerDate = d; foreignRacerC = code; }
   });
   const jetSetBest     = Math.max(0, ...Object.values(yearForeignCountries).map(s => s.size));
+  // Jet-Set counts foreign countries within a single year — surface the best year's set (not all-time foreign).
+  const jetSetYear     = Object.keys(yearForeignCountries).sort((x, y) => yearForeignCountries[y].size - yearForeignCountries[x].size || y.localeCompare(x))[0] || null;
+  const jetSetCountries = jetSetYear ? [...yearForeignCountries[jetSetYear]] : [];
   const crossContBest  = Math.max(0, ...Object.values(yearContinents).map(s => s.size));
   const foreignOutdoor = foreign.filter(c => firstOutdoorDate[c]).sort((x, y) => firstOutdoorDate[x].localeCompare(firstOutdoorDate[y]));
   const foreignRuns = foreign.reduce((n, c) => n + byCountry[c].runs, 0);
@@ -1649,7 +1652,7 @@ function computeAtlas(sessions, events, opts = {}) {
     firstForeignDate, scenicDate, intl5kDate, intl10kDate, vacationRunDate,
     intlHalfDate, intlMaraDate, hotelDate, winterDate, foreignRacerDate, maxForeignHill,
     hillTierAt: t => hillTierDate[t] ? { code: hillTierC[t], date: hillTierDate[t] } : null,
-    southernDate, globeTierDate, jetSetDate, jetSetBest, crossContDate, crossContBest, multiYearDate,
+    southernDate, globeTierDate, jetSetDate, jetSetBest, jetSetCountries, crossContDate, crossContBest, multiYearDate,
     // Countries where single-run/threshold badges were earned (for the "Låst opp" flag).
     firstForeignCountry: foreignByFirst[0] || null, vacationRunCountry: vacationRunC,
     scenicCountry: scenicC, intl5kCountry: intl5kC, intl10kCountry: intl10kC, intlHalfCountry: intlHalfC, intlMaraCountry: intlMaraC,
@@ -1713,7 +1716,8 @@ function atlasBadgeContext(a, badge) {
   const region = conts => byFirst(conts.flatMap(c => a.byContinent[c] || []));
   let countries = null, continents = null;
   switch (id) {
-    case 'passport': case 'world-traveler': case 'frequent-flyer': case 'globetrotter': case 'jet-set-year': countries = foreign; break;
+    case 'passport': case 'world-traveler': case 'frequent-flyer': case 'globetrotter': countries = foreign; break;
+    case 'jet-set-year': countries = byFirst(a.jetSetCountries); break;   // the best single year's foreign countries, not all-time
     case 'europe-explorer': countries = region(['EU']); break;
     case 'asia-explorer':   countries = region(['AS']); break;
     case 'americas-explorer': countries = region(['NA', 'SA']); break;
