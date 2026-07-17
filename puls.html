@@ -5125,7 +5125,7 @@ const DetailPanel = {
       return `<div class="dp-badge-row ${b.unlocked ? '' : 'locked'}"><span class="dbr-icon">${b.icon}</span><span class="dbr-name">${escapeHtml(b.name)}</span>${status}</div>`;
     }).join('');
     const badgeLegend = cBadges.length
-      ? `<div class="dp-badge-legend"><span class="dbr-here">✓</span> låst opp her · <span class="dbr-done">✓</span> låst opp · <span class="dbr-prog">3/5</span> gjenstår</div>` : '';
+      ? `<div class="dp-badge-legend"><span class="dbr-here">✓</span> låst opp i ${escapeHtml(landName(code))} · <span class="dbr-done">✓</span> låst opp</div>` : '';
     this.open(`Løpt i ${landName(code)}`, `
       ${flag ? `<img src="${flag}" alt="" style="height:16px;border-radius:2px;margin-bottom:10px">` : ''}
       <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
