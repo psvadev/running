@@ -136,7 +136,8 @@
   .atlas-cont.off { color:var(--muted); }
   .atlas-badge-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); font-size:13px; color:var(--muted); }
   .atlas-badges-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:10px; margin-top:8px; }
-  .atlas-badge { display:flex; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .atlas-badge { display:flex; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; cursor:pointer; }
+  .atlas-badge:hover { border-color:var(--accent); }
   .atlas-badge.locked { opacity:.4; background:var(--surface); }
   .atlas-badge .ab-icon { font-size:20px; flex-shrink:0; line-height:1.2; }
   .atlas-badge .ab-name { font-size:13px; font-weight:600; color:var(--text); }
@@ -156,6 +157,8 @@
   .dp-badge-row .dbr-here { color:var(--yellow); font-weight:600; }
   .dp-badge-row .dbr-done { color:var(--green); }
   .dp-badge-row .dbr-prog { color:var(--muted); }
+  .dp-badge-row.current { opacity:1; }
+  .dp-badge-row.current .dbr-name { color:var(--accent); font-weight:600; }
   .dp-badge-legend { font-size:11px; color:var(--muted); margin:1px 0 8px; }
   .dp-badge-legend .dbr-here { color:var(--yellow); font-weight:600; }
   .dp-badge-legend .dbr-done { color:var(--green); }
@@ -1702,6 +1705,29 @@ function atlasBadgesForCountry(a, code) {
     .sort((x, y) => (y.here - x.here) || (y.unlocked - x.unlocked));
 }
 
+// The inverse (for the badge drill-down): which countries/continents count toward a badge.
+function atlasBadgeContext(a, badge) {
+  const id = badge.id;
+  const byFirst = codes => codes.slice().sort((x, y) => (a.byCountry[x].firstDate || '').localeCompare(a.byCountry[y].firstDate || ''));
+  const foreign = byFirst(a.foreignCountries);
+  const region = conts => byFirst(conts.flatMap(c => a.byContinent[c] || []));
+  let countries = null, continents = null;
+  switch (id) {
+    case 'passport': case 'world-traveler': case 'frequent-flyer': case 'globetrotter': case 'jet-set-year': countries = foreign; break;
+    case 'europe-explorer': countries = region(['EU']); break;
+    case 'asia-explorer':   countries = region(['AS']); break;
+    case 'americas-explorer': countries = region(['NA', 'SA']); break;
+    case 'africa-explorer': countries = region(['AF']); break;
+    case 'nordic-runner': case 'nordic-complete': countries = NORDIC.filter(c => a.byCountry[c]); break;
+    case 'continental': case 'global': continents = a.continents.slice(); break;
+    default:
+      if (id.startsWith('globe-')) countries = foreign;
+      else if (id.startsWith('new-country-year-')) { const y = id.slice(-4); countries = foreign.filter(c => (a.byCountry[c].firstDate || '').slice(0, 4) === y); }
+      else if (badge.country) countries = [badge.country];
+  }
+  return { countries, continents };
+}
+
 let atlasExpanded = false; // "Vis alle" toggle state for the badge list (survives re-renders)
 let atlasFilter = 'all';   // badge filter: 'all' | 'done' | 'todo' (survives re-renders)
 function atlasBar(cur, target, unit) {
@@ -1712,7 +1738,7 @@ function atlasBar(cur, target, unit) {
     <div style="font-size:11px;color:var(--muted);margin-top:3px">${cur} / ${target}${unit ? ' ' + unit : ''}</div>`;
 }
 function atlasBadgeCard(b) {
-  return `<div class="atlas-badge ${b.unlocked ? 'unlocked' : 'locked'}">
+  return `<div class="atlas-badge ${b.unlocked ? 'unlocked' : 'locked'}" data-badge="${escapeHtml(b.id)}" role="button" tabindex="0">
       <span class="ab-icon">${b.icon}</span>
       <div class="ab-body">
         <div class="ab-name">${escapeHtml(b.name)}${b.unlocked ? ' ✓' : ''}</div>
@@ -1804,6 +1830,7 @@ function renderAtlas(sessions, events) {
   document.querySelectorAll('#atlasBadges .af-btn').forEach(el => el.addEventListener('click', e => {
     e.preventDefault(); atlasFilter = el.dataset.filter; renderAtlas(Store.data.sessions, Store.data.events);
   }));
+  document.querySelectorAll('#atlasBadges [data-badge]').forEach(el => el.addEventListener('click', () => DetailPanel.openBadge(el.dataset.badge)));
 }
 
 function showToast(msg, type = 'info', duration = 4000) {
@@ -5151,6 +5178,36 @@ const DetailPanel = {
     const msg = document.getElementById('landNoteMsg');
     if (msg) { msg.textContent = 'Lagret ✓'; setTimeout(() => { if (msg) msg.textContent = ''; }, 1800); }
     if (document.getElementById('panel-dash')?.classList.contains('active')) renderAtlas(Store.data.sessions, Store.data.events);
+  },
+
+  // Badge drill-down (from the Løpeatlas grid): status, the full ladder progression for
+  // laddered badges, and the countries/continents that count toward it (chips → openLand).
+  openBadge(id) {
+    const a = computeAtlas(Store.data.sessions, Store.data.events, { homeCountry: ATLAS_HOME, currentYear: new Date().getFullYear() });
+    const b = a.badges.find(x => x.id === id);
+    if (!b) return;
+    const { countries, continents } = atlasBadgeContext(a, b);
+    const status = b.unlocked
+      ? `<div style="color:var(--green);font-size:13px;margin-bottom:8px">✓ Låst opp${b.date ? ` ${fmtDate(b.date)}` : ''}${b.country ? ` i ${escapeHtml(landName(b.country))}` : ''}</div>`
+      : (b.progress ? atlasBar(b.progress.cur, b.progress.target, b.progress.unit) : '<div style="color:var(--muted);font-size:12px;margin-bottom:8px">Ikke låst opp ennå</div>');
+    const lad = ATLAS_LADDERS[id];
+    const tiers = lad ? a.badges.filter(x => ATLAS_LADDERS[x.id] === lad) : [];
+    const tiersHtml = tiers.map(t => {
+      const st = t.unlocked ? '<span class="dbr-done">✓</span>' : (t.progress ? `<span class="dbr-prog">${t.progress.cur}/${t.progress.target}</span>` : '');
+      return `<div class="dp-badge-row ${t.unlocked ? '' : 'locked'}${t.id === id ? ' current' : ''}"><span class="dbr-icon">${t.icon}</span><span class="dbr-name">${escapeHtml(t.name)}</span>${st}</div>`;
+    }).join('');
+    const chip = c => `<span class="land-chip" data-land="${escapeHtml(c)}">${landFlagUrl(c) ? `<img src="${landFlagUrl(c)}" alt="" loading="lazy">` : ''}<span>${escapeHtml(landName(c))}</span><span class="lc-count">${a.byCountry[c] ? a.byCountry[c].runs : 0}</span></span>`;
+    const countryHtml = countries && countries.length
+      ? `<div class="dp-section-label">Land som teller (${countries.length})</div><div style="display:flex;flex-wrap:wrap;gap:8px">${countries.map(chip).join('')}</div>` : '';
+    const contHtml = continents && continents.length
+      ? `<div class="dp-section-label">Verdensdeler</div><div class="atlas-continents">${continents.map(cc => `<span class="atlas-cont on">${escapeHtml(CONTINENT_NAMES[cc])} ✓</span>`).join('')}</div>` : '';
+    this.open(`${b.icon}  ${b.name}`, `
+      <div style="font-size:13px;color:var(--muted);margin-bottom:10px">${escapeHtml(b.desc)}</div>
+      ${status}
+      ${tiersHtml ? `<div class="dp-section-label">Nivåer</div>${tiersHtml}` : ''}
+      ${countryHtml}${contHtml}`);
+    document.querySelectorAll('#detailBody [data-land]').forEach(chipEl =>
+      chipEl.addEventListener('click', () => this.openLand(chipEl.dataset.land)));
   },
 
   openBlock(block) {
