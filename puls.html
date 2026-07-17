@@ -730,21 +730,26 @@
       <div id="yearCompTable"></div>
     </div>
     <div class="card span2">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-        <div class="card-title" style="margin-bottom:0">Aerob effektivitet (Easy-økter)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+        <div class="card-title" style="margin-bottom:0">Aerob effektivitet (rolige økter)</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="aeTypeBegge">Begge</span>
+          <span class="year-pill" id="aeTypeEasy">Easy</span>
+          <span class="year-pill" id="aeTypeLang">Long</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap">
         <div style="display:flex;gap:6px">
           <span class="year-pill active" id="aeToggleAlle">Alle</span>
           <span class="year-pill" id="aeToggleUte">Utendørs</span>
           <span class="year-pill" id="aeToggleInn">Tredemølle</span>
         </div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div style="font-size:11px;color:var(--muted)">Høyere = mer fart per hjerteslag. Stigende trend betyr bedre kondisjon.</div>
         <div style="display:flex;gap:6px">
-          <span class="year-pill active" id="aeZ2Alle">Alle Easy</span>
+          <span class="year-pill active" id="aeZ2Alle">Alle</span>
           <span class="year-pill" id="aeZ2Only">Sone 2</span>
         </div>
       </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Høyere = mer fart per hjerteslag. Stigende trend = lavere puls på samme fart, eller høyere fart på samme puls — bedre aerob form. Kun rolige økter (Easy + Long); Steady/intervaller/tempo er ikke med.</div>
       <div id="aeZ2Count" style="font-size:11px;color:var(--muted);margin-bottom:8px;display:none"></div>
       <div class="chart-wrap"><canvas id="chartEfficiency"></canvas></div>
     </div>
@@ -3370,6 +3375,7 @@ let distGroupBy = 'week';
 let venueGroupBy = 'week';
 let aeVenueFilter = 'all';
 let aeZ2Filter = 'all';
+let aeTypeFilter = 'both';   // 'both' (Easy+Long) | 'Easy' | 'Long' — rolige-økter type filter
 let paceUnit = 'pace';     // 'pace' | 'kmh' — global unit for all pace charts
 let cachedBlocks = [];
 
@@ -3789,14 +3795,22 @@ function renderPMCChart(allSessions) {
 function renderEfficiencyChart(sessions) {
   sessions = sessions.filter(s => !s.utenforAnalyse); // quality chart — skip flagged outliers
   const vf = aeVenueFilter;
+  const tf = aeTypeFilter;
   const z2CountEl = document.getElementById('aeZ2Count');
+  document.getElementById('aeTypeBegge')?.classList.toggle('active', tf === 'both');
+  document.getElementById('aeTypeEasy')?.classList.toggle('active', tf === 'Easy');
+  document.getElementById('aeTypeLang')?.classList.toggle('active', tf === 'Long');
   document.getElementById('aeZ2Alle')?.classList.toggle('active', aeZ2Filter === 'all');
   document.getElementById('aeZ2Only')?.classList.toggle('active', aeZ2Filter === 'z2');
   if (z2CountEl) z2CountEl.style.display = 'none';
 
+  // Only conversational-pace runs (Easy + Long); intervals/tempo/steady/test never qualify
+  const typeMatch = s => tf === 'both' ? (s.okttype === 'Easy' || s.okttype === 'Long') : s.okttype === tf;
+  const typeNoun = tf === 'Easy' ? 'Easy' : tf === 'Long' ? 'Long' : 'rolige';
+
   let easySessions = sessions
     .filter(s => {
-      if (s.okttype !== 'Easy' || s.gjsnittspuls <= 0) return false;
+      if (!typeMatch(s) || s.gjsnittspuls <= 0) return false;
       const isIndoor = (s.løpetype || 'utendors') === 'treadmill';
       if (vf === 'outdoor' && isIndoor) return false;
       if (vf === 'indoor' && !isIndoor) return false;
@@ -3822,12 +3836,12 @@ function renderEfficiencyChart(sessions) {
       return totalSone > 0 && (s.soner[1] || 0) / totalSone >= 0.70;
     });
     if (z2CountEl) {
-      z2CountEl.textContent = `Sone 2: ${easySessions.length} av ${beforeCount} Easy-løp inkludert`;
+      z2CountEl.textContent = `Sone 2: ${easySessions.length} av ${beforeCount} ${typeNoun} løp inkludert`;
       z2CountEl.style.display = '';
     }
   }
 
-  showChartEmpty('chartEfficiency', easySessions.length < 2, `Trenger minst 2 Easy-økter${venueLabel} med pulsmåling.`);
+  showChartEmpty('chartEfficiency', easySessions.length < 2, `Trenger minst 2 ${typeNoun} økter${venueLabel} med pulsmåling.`);
   if (easySessions.length < 2) return;
 
   const scores = easySessions.map(s => +(s.snittkmh / s.gjsnittspuls * 100).toFixed(2));
@@ -6720,6 +6734,14 @@ document.addEventListener('DOMContentLoaded', () => {
     Settings.render();
   });
 
+  // Aerobic efficiency run-type toggle (Begge / Easy / Long)
+  [['aeTypeBegge','both'],['aeTypeEasy','Easy'],['aeTypeLang','Long']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      aeTypeFilter = val;
+      renderEfficiencyChart(DashFilter.get(Store.data.sessions));
+    });
+  });
+
   // Aerobic efficiency venue toggle
   [['aeToggleAlle','all'],['aeToggleUte','outdoor'],['aeToggleInn','indoor']].forEach(([id, val]) => {
     document.getElementById(id).addEventListener('click', () => {
@@ -6789,6 +6811,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('input[name="dfPaceUnit"][value="pace"]').checked = true;
     showEventMarkers = eventMarkersDefault();
     document.getElementById('chkEvents').checked = showEventMarkers;
+    aeTypeFilter = 'both';
+    document.querySelectorAll('#aeTypeBegge,#aeTypeEasy,#aeTypeLang').forEach(el => el.classList.remove('active'));
+    document.getElementById('aeTypeBegge').classList.add('active');
     aeVenueFilter = 'all';
     document.querySelectorAll('#aeToggleAlle,#aeToggleUte,#aeToggleInn').forEach(el => el.classList.remove('active'));
     document.getElementById('aeToggleAlle').classList.add('active');
