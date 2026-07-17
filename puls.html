@@ -1719,6 +1719,7 @@ function atlasBadgeContext(a, badge) {
     case 'americas-explorer': countries = region(['NA', 'SA']); break;
     case 'africa-explorer': countries = region(['AF']); break;
     case 'nordic-runner': case 'nordic-complete': countries = NORDIC.filter(c => a.byCountry[c]); break;
+    case 'outdoor-explorer': case 'outdoor-trail': case 'outdoor-wild': countries = byFirst(a.foreignCountries.filter(c => a.byCountry[c].outdoor > 0)); break;
     case 'continental': case 'global': continents = a.continents.slice(); break;
     default:
       if (id.startsWith('globe-')) countries = foreign;
