@@ -5051,10 +5051,18 @@ function renderDashboard() {
     const weeksLeft = Math.ceil(remaining / 7);
     const neededPerWeek = weeksLeft > 0 ? ((goalKm - doneKm) / weeksLeft).toFixed(1) : '–';
     const onTrack = projected >= goalKm * 0.97;
+    const projPct = Math.max(0, Math.min(100, projected / goalKm * 100));
+    const projColor = onTrack ? 'var(--green)' : '#f87171';
+    const projMarker = projected > 0
+      ? `<div title="Prognose: ${projected} km (${projPct.toFixed(1)}% av målet)" style="position:absolute;top:-4px;bottom:-4px;left:${projPct.toFixed(1)}%;width:0;border-left:2px dashed ${projColor};transform:translateX(-1px)"></div>`
+      : '';
     document.getElementById('goalProgress').innerHTML = `
       <div style="font-size:13px;color:var(--muted);margin-bottom:8px">${doneKm.toFixed(1)} km av ${goalKm} km — ${pct.toFixed(1)}%</div>
-      <div style="background:var(--surface2);border-radius:8px;height:14px;overflow:hidden;margin-bottom:18px">
-        <div style="height:100%;width:${pct.toFixed(1)}%;background:${onTrack?'var(--green)':'var(--accent)'};border-radius:8px;transition:width .4s"></div>
+      <div style="position:relative;margin-bottom:18px">
+        <div style="background:var(--surface2);border-radius:8px;height:14px;overflow:hidden">
+          <div style="height:100%;width:${pct.toFixed(1)}%;background:${onTrack?'var(--green)':'var(--accent)'};border-radius:8px;transition:width .4s"></div>
+        </div>
+        ${projMarker}
       </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
         <div><div style="font-size:22px;font-weight:700;color:var(--text)">${doneKm.toFixed(1)}</div><div style="font-size:11px;color:var(--muted);margin-top:3px">km løpt</div></div>
