@@ -5117,7 +5117,7 @@ function renderDashboard() {
     { label:'Beste tempo', value: recs.bestePace ? secsToMmSs(recs.bestePace.tempo)+' /km' : '–', sub: recs.bestePace ? fmtDate(recs.bestePace.dato) : '' },
     { label:'Beste snitt km/t', value: recs.bestKmh ? recs.bestKmh.snittkmh.toFixed(1)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
     { label:'Beste Easy pace', value: recs.bestEasyPace ? secsToMmSs(recs.bestEasyPace.tempo)+' /km' : '–', sub: recs.bestEasyPace ? fmtDate(recs.bestEasyPace.dato) : '' },
-    { label:'Beste Long pace', value: recs.bestLangturPace ? secsToMmSs(recs.bestLangturPace.tempo)+' /km' : '–', sub: recs.bestLangturPace ? fmtDate(recs.bestLangturPace.dato) : '' },
+    { label:'Beste Long pace', value: recs.bestLongPace ? secsToMmSs(recs.bestLongPace.tempo)+' /km' : '–', sub: recs.bestLongPace ? fmtDate(recs.bestLongPace.dato) : '' },
     { label:'Beste Tempo pace', value: recs.bestTempoPace ? secsToMmSs(recs.bestTempoPace.tempo)+' /km' : '–', sub: recs.bestTempoPace ? fmtDate(recs.bestTempoPace.dato) : '' },
     { label:'Beste Test pace', value: recs.bestTestPace ? secsToMmSs(recs.bestTestPace.tempo)+' /km' : '–', sub: recs.bestTestPace ? fmtDate(recs.bestTestPace.dato) : '' },
     { label:'Beste Race pace', value: recs.bestRacePace ? secsToMmSs(recs.bestRacePace.tempo)+' /km' : '–', sub: recs.bestRacePace ? fmtDate(recs.bestRacePace.dato) : '' },
@@ -5484,7 +5484,7 @@ const PR_BRACKETS = [
 
 function computeRecords(sessions) {
   let bestePace=null, longestDist=null, longestTime=null, bestKmh=null;
-  let bestEasyPace=null, bestLangturPace=null, bestTempoPace=null, bestTestPace=null, bestRacePace=null, bestAerobEff=null, lavPuls=null;
+  let bestEasyPace=null, bestLongPace=null, bestTempoPace=null, bestTestPace=null, bestRacePace=null, bestAerobEff=null, lavPuls=null;
   let bestHoyde=null;
   let totalDist=0, totalTime=0, totalHoyde=0, totalOutdoorKm=0, totalIndoorKm=0;
   const weekKm = {}, monthKm = {}, absWeekKm = {};
@@ -5504,7 +5504,7 @@ function computeRecords(sessions) {
       if (s.tempo && (!bestePace || s.tempo < bestePace.tempo)) bestePace=s;
       if (s.snittkmh && (!bestKmh || s.snittkmh > bestKmh.snittkmh)) bestKmh=s;
       if (s.okttype==='Easy'  && s.tempo && (!bestEasyPace   || s.tempo < bestEasyPace.tempo))   bestEasyPace=s;
-      if (s.okttype==='Long'  && s.tempo && (!bestLangturPace|| s.tempo < bestLangturPace.tempo)) bestLangturPace=s;
+      if (s.okttype==='Long'  && s.tempo && (!bestLongPace|| s.tempo < bestLongPace.tempo)) bestLongPace=s;
       if (s.okttype==='Tempo' && s.tempo && (!bestTempoPace  || s.tempo < bestTempoPace.tempo))   bestTempoPace=s;
       if (s.okttype==='Test'  && s.tempo && (!bestTestPace   || s.tempo < bestTestPace.tempo))    bestTestPace=s;
       if (s.okttype==='Race'  && s.tempo && (!bestRacePace   || s.tempo < bestRacePace.tempo))    bestRacePace=s;
@@ -5557,7 +5557,7 @@ function computeRecords(sessions) {
     if (!candidates.length) return { label: b.label, session: null };
     return { label: b.label, session: candidates.reduce((a, s) => s.tempo < a.tempo ? s : a) };
   });
-  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, totalHoyde, totalOutdoorKm:+totalOutdoorKm.toFixed(1), totalIndoorKm:+totalIndoorKm.toFixed(1), besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLangturPace, bestTempoPace, bestTestPace, bestRacePace, bestHoyde, bestAerobEff, lavPuls, distPRs };
+  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, totalHoyde, totalOutdoorKm:+totalOutdoorKm.toFixed(1), totalIndoorKm:+totalIndoorKm.toFixed(1), besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLongPace, bestTempoPace, bestTestPace, bestRacePace, bestHoyde, bestAerobEff, lavPuls, distPRs };
 }
 
 // Formkurve: every Test/Race normalized to a Riegel 5K-equivalent time so tests at
