@@ -4655,6 +4655,23 @@ const DetailPanel = {
       ...(sorted.length ? [{ v: fmtDate(sorted[sorted.length-1].dato), l: 'første løp' },
                            { v: fmtDate(sorted[0].dato),               l: 'siste løp'  }] : []),
     ];
+    // Per-country records + venue split (ute/inne). Pace skips flagged outliers (quality record).
+    const isIndoor  = s => (s.løpetype || 'utendors') === 'treadmill';
+    const outdoorKm = sessions.filter(s => !isIndoor(s)).reduce((a,s)=>a+(s.distanse||0),0);
+    const indoorKm  = sessions.filter(s =>  isIndoor(s)).reduce((a,s)=>a+(s.distanse||0),0);
+    const longest   = sessions.reduce((m,s)=> (s.distanse||0) > ((m&&m.distanse)||0) ? s : m, null);
+    const paceCands = sessions.filter(s => s.tempo > 0 && !s.utenforAnalyse);
+    const fastest   = paceCands.length ? paceCands.reduce((m,s)=> s.tempo < m.tempo ? s : m) : null;
+    const elevCands = sessions.filter(s => (s.hoydeMeter||0) > 0);
+    const hilliest  = elevCands.length ? elevCands.reduce((m,s)=> (s.hoydeMeter||0) > (m.hoydeMeter||0) ? s : m) : null;
+    const recStats = [
+      ...(longest && longest.distanse ? [{ v: longest.distanse.toFixed(1)+' km', l: 'lengste løp' }] : []),
+      ...(fastest  ? [{ v: secsToMmSs(fastest.tempo)+' /km', l: 'raskeste tempo' }] : []),
+      ...(hilliest ? [{ v: hilliest.hoydeMeter+' m',         l: 'mest høyde'     }] : []),
+    ];
+    const venueSplit = (indoorKm > 0 && outdoorKm > 0)
+      ? `<div style="font-size:12px;color:var(--muted);margin:-2px 0 10px">🏃 Ute ${outdoorKm.toFixed(1)} km · ⚙️ Inne ${indoorKm.toFixed(1)} km</div>`
+      : '';
     const rows = sorted.map(s=>
       `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
         <span style="min-width:80px;color:var(--muted)">${fmtDate(s.dato)}</span>
@@ -4678,6 +4695,8 @@ const DetailPanel = {
     this.open(`Løpt i ${landName(code)}`, `
       ${flag ? `<img src="${flag}" alt="" style="height:16px;border-radius:2px;margin-bottom:10px">` : ''}
       <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      ${venueSplit}
+      ${recStats.length ? `<div class="dp-section-label">Rekorder her</div><div class="dp-stat-row">${recStats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>` : ''}
       ${badgeRows ? `<div class="dp-section-label">Teller mot</div>${badgeLegend}${badgeRows}` : ''}
       <div class="dp-section-label">Notat</div>
       <textarea id="landNoteInput" rows="3" placeholder="Et minne eller notat for dette landet…" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
