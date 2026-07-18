@@ -122,19 +122,13 @@
   .shoe-stat { display:inline-flex; gap:3px; align-items:baseline; background:rgba(255,255,255,.04); border-radius:4px; padding:2px 7px; font-size:10px; }
   .shoe-stat .sl { color:var(--muted); }
   .shoe-stat .sv { color:var(--text); font-weight:500; }
-  .land-chip { display:inline-flex; align-items:center; gap:7px; background:var(--surface2); border:1px solid var(--border); border-radius:16px; padding:5px 12px; font-size:12px; cursor:pointer; transition:border-color .15s; }
+  .land-chip { display:inline-flex; align-items:center; gap:8px; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:6px 14px; font-size:13px; cursor:pointer; transition:border-color .15s; }
   .land-chip:hover { border-color:var(--accent); }
-  .land-chip img { height:14px; width:auto; border-radius:2px; display:block; }
-  .land-chip .lc-count { color:var(--muted); font-weight:600; font-size:11px; }
+  .land-chip img { height:16px; width:auto; border-radius:2px; display:block; }
+  .land-chip .lc-count { color:var(--muted); font-weight:600; font-size:12px; }
   .land-chip .lc-new { font-size:12px; line-height:1; }
   .land-chip .lc-note { font-size:11px; line-height:1; }
   /* ── Løpeatlas ── */
-  .atlas-summary { font-size:14px; color:var(--text); }
-  .atlas-sub { font-size:12px; color:var(--muted); margin-top:4px; }
-  .atlas-continents { display:flex; flex-wrap:wrap; gap:6px 14px; margin:4px 0; font-size:12px; }
-  .atlas-cont.on { color:var(--text); }
-  .atlas-cont.off { color:var(--muted); }
-  .atlas-badge-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); font-size:13px; color:var(--muted); }
   .atlas-badges-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:10px; margin-top:8px; }
   .atlas-badge { display:flex; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; cursor:pointer; }
   .atlas-badge:hover { border-color:var(--accent); }
@@ -150,6 +144,22 @@
   .atlas-filter .af-btn { font-size:11px; padding:3px 11px; border-radius:999px; border:1px solid var(--border); color:var(--muted); text-decoration:none; }
   .atlas-filter .af-btn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   .atlas-empty { font-size:12px; color:var(--muted); margin-top:12px; }
+  /* Reisestatistikk tiles + venue meta + continent pills (own-tab layout) */
+  .atlas-stat-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(148px, 1fr)); gap:12px; }
+  .atlas-stat { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:16px 18px; }
+  .atlas-stat .asv { font-size:30px; font-weight:700; line-height:1; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+  .atlas-stat .asv small { font-size:15px; font-weight:600; color:var(--muted); margin-left:3px; }
+  .atlas-stat.accent .asv { color:var(--accent); }
+  .atlas-stat .asv img { height:17px; width:auto; border-radius:2px; margin-right:6px; }
+  .atlas-stat .asl { font-size:12px; color:var(--muted); margin-top:8px; }
+  .atlas-meta { display:flex; flex-wrap:wrap; gap:8px 26px; margin-top:16px; padding-top:14px; border-top:1px solid var(--border); font-size:12.5px; color:var(--muted); }
+  .atlas-meta b { color:var(--text); font-weight:600; }
+  .atlas-meta img { height:11px; width:auto; border-radius:2px; margin-right:3px; vertical-align:baseline; }
+  .atlas-cont-pills { display:flex; flex-wrap:wrap; gap:8px; }
+  .atlas-cont-pill { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; border-radius:8px; padding:6px 12px; border:1px solid var(--border); color:var(--muted); }
+  .atlas-cont-pill.on { color:var(--text); background:rgba(76,175,135,.10); border-color:rgba(76,175,135,.4); }
+  .atlas-sub-label { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:2px 0 10px; }
+  .ct-sub { color:var(--muted); font-weight:400; font-size:12px; margin-left:8px; }
   .dp-badge-row { display:flex; align-items:center; gap:8px; font-size:12px; padding:3px 0; }
   .dp-badge-row.locked { opacity:.55; }
   .dp-badge-row .dbr-icon { width:18px; text-align:center; flex-shrink:0; }
@@ -780,12 +790,20 @@
 
 <!-- ══════════════ TAB: LØPEATLAS ══════════════ -->
 <div class="panel" id="panel-atlas" style="max-width:1200px;margin:0 auto">
-  <div class="card" id="landCard" style="display:none">
-    <div class="card-title">Løpeatlas</div>
-    <div id="atlasSummary"></div>
-    <div id="landStrip" style="margin:10px 0"></div>
-    <div id="atlasContinents"></div>
-    <div id="atlasBadges"></div>
+  <div id="landCard" style="display:none">
+    <div class="card">
+      <div class="card-title">Reisestatistikk</div>
+      <div id="atlasStats"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">Land &amp; verdensdeler</div>
+      <div id="landStrip" style="margin-bottom:18px"></div>
+      <div id="atlasContinents"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-title" id="atlasBadgeTitle">Reiseutmerkelser</div>
+      <div id="atlasBadges"></div>
+    </div>
   </div>
   <div id="atlasEmpty" style="display:none;color:var(--muted);text-align:center;padding:48px 20px;font-size:14px">Logg noen økter, så bygger løpeatlaset seg opp automatisk. 🗺️</div>
 </div>
@@ -1525,13 +1543,13 @@ function computeAtlas(sessions, events, opts = {}) {
   const byCountry = {};
   sessions.forEach(s => {
     const code = s.land || home;               // blank = home (established rule)
-    const c = byCountry[code] || (byCountry[code] = { code, runs:0, km:0, firstDate:null, lastDate:null, longest:0, indoor:0, outdoor:0 });
+    const c = byCountry[code] || (byCountry[code] = { code, runs:0, km:0, firstDate:null, lastDate:null, longest:0, indoor:0, outdoor:0, indoorKm:0, outdoorKm:0 });
     const km = s.distanse || 0, d = s.dato || '';
     c.runs++; c.km += km;
     if (km > c.longest) c.longest = km;
     if (d && (!c.firstDate || d < c.firstDate)) c.firstDate = d;
     if (d && (!c.lastDate  || d > c.lastDate))  c.lastDate  = d;
-    if (s.løpetype === 'treadmill') c.indoor++; else c.outdoor++;
+    if (s.løpetype === 'treadmill') { c.indoor++; c.indoorKm += km; } else { c.outdoor++; c.outdoorKm += km; }
   });
   const countries = Object.keys(byCountry);
   const foreign = countries.filter(c => c !== home);
@@ -1599,10 +1617,12 @@ function computeAtlas(sessions, events, opts = {}) {
   const foreignKm   = foreign.reduce((n, c) => n + byCountry[c].km, 0);
   const longestAbroadKm = foreign.reduce((m, c) => Math.max(m, byCountry[c].longest), 0);
   const firstForeignDate = foreignByFirst.length ? byCountry[foreignByFirst[0]].firstDate : null;
-  let latestNew = null, topAbroad = null;
+  let latestNew = null, topAbroad = null, topOutdoor = null, topIndoor = null;
   foreign.forEach(c => {
     if (!latestNew || byCountry[c].firstDate > byCountry[latestNew].firstDate) latestNew = c;
     if (!topAbroad || byCountry[c].km > byCountry[topAbroad].km) topAbroad = c;
+    if (byCountry[c].outdoorKm > 0 && (!topOutdoor || byCountry[c].outdoorKm > byCountry[topOutdoor].outdoorKm)) topOutdoor = c;
+    if (byCountry[c].indoorKm  > 0 && (!topIndoor  || byCountry[c].indoorKm  > byCountry[topIndoor].indoorKm))  topIndoor  = c;
   });
 
   // Vacation Runner — earliest run whose date falls inside a `vacation` event (by type, not label).
@@ -1638,6 +1658,8 @@ function computeAtlas(sessions, events, opts = {}) {
       abroadRuns: foreignRuns, abroadKm: foreignKm, longestAbroad: longestAbroadKm, firstIntlDate: firstForeignDate,
       latestNewCountry: latestNew ? { code: latestNew, date: byCountry[latestNew].firstDate } : null,
       topAbroad: topAbroad ? { code: topAbroad, km: byCountry[topAbroad].km } : null,
+      topOutdoor: topOutdoor ? { code: topOutdoor, km: byCountry[topOutdoor].outdoorKm } : null,
+      topIndoor:  topIndoor  ? { code: topIndoor,  km: byCountry[topIndoor].indoorKm  } : null,
     },
   };
   // New Country Year — one permanent stamp per calendar year you first ran in a brand-new
@@ -1730,10 +1752,26 @@ function renderAtlas(sessions, events) {
   const a = computeAtlas(sessions, events, { homeCountry: ATLAS_HOME, currentYear: new Date().getFullYear() });
   const su = a.summary;
 
-  // Summary line (matches "N land · N/6 verdensdeler · N utenlandsøkter · X km i utlandet")
-  document.getElementById('atlasSummary').innerHTML = `
-    <div class="atlas-summary">${su.countryCount} land · ${su.continentCount}/6 verdensdeler · ${su.abroadRuns} utenlandsøkter · ${su.abroadKm.toFixed(1)} km i utlandet</div>
-    ${su.foreignCount ? `<div class="atlas-sub">Lengste utenlands ${su.longestAbroad.toFixed(1)} km${su.firstIntlDate ? ` · Første ute ${fmtDate(su.firstIntlDate)}` : ''}${su.topAbroad ? ` · Mest ute ${escapeHtml(landName(su.topAbroad.code))}` : ''}</div>` : ''}`;
+  // Reisestatistikk — stat tiles + venue meta line under a hairline.
+  const flagImg = c => { const f = landFlagUrl(c); return f ? `<img src="${f}" alt="" loading="lazy">` : ''; };
+  const tiles = [
+    `<div class="atlas-stat accent"><div class="asv">${su.countryCount}</div><div class="asl">land</div></div>`,
+    `<div class="atlas-stat"><div class="asv">${su.continentCount}<small>/6</small></div><div class="asl">verdensdeler</div></div>`,
+    `<div class="atlas-stat"><div class="asv">${su.abroadRuns}</div><div class="asl">utenlandsøkter</div></div>`,
+    `<div class="atlas-stat"><div class="asv">${su.abroadKm.toFixed(1)}<small>km</small></div><div class="asl">utenlands totalt</div></div>`,
+  ];
+  if (su.longestAbroad > 0)
+    tiles.push(`<div class="atlas-stat"><div class="asv">${su.longestAbroad.toFixed(1)}<small>km</small></div><div class="asl">lengste utenlands</div></div>`);
+  if (su.latestNewCountry)
+    tiles.push(`<div class="atlas-stat"><div class="asv" style="font-size:18px;display:flex;align-items:center">${flagImg(su.latestNewCountry.code)}${escapeHtml(landName(su.latestNewCountry.code))}</div><div class="asl">nyeste land</div></div>`);
+  const flagName = c => `${flagImg(c)}<b>${escapeHtml(landName(c))}</b>`;
+  const metaParts = [];
+  if (su.firstIntlDate) metaParts.push(`Første utenlands <b>${fmtDate(su.firstIntlDate)}</b>`);
+  if (su.topOutdoor) metaParts.push(`🏃 Mest ute ${flagName(su.topOutdoor.code)}`);
+  if (su.topIndoor)  metaParts.push(`⚙️ Mest inne ${flagName(su.topIndoor.code)}`);
+  document.getElementById('atlasStats').innerHTML =
+    `<div class="atlas-stat-grid">${tiles.join('')}</div>` +
+    (metaParts.length ? `<div class="atlas-meta">${metaParts.map(m => `<span>${m}</span>`).join('')}</div>` : '');
 
   // Flag chips (all countries incl. home, home first then by run count) — reuses existing chip UI.
   const home = a.home;
@@ -1759,20 +1797,20 @@ function renderAtlas(sessions, events) {
   document.querySelectorAll('#landStrip [data-land]').forEach(chip =>
     chip.addEventListener('click', () => DetailPanel.openLand(chip.dataset.land)));
 
-  // Continent collection line
+  // Continent collection — pills (green = visited, muted = locked).
   document.getElementById('atlasContinents').innerHTML = `
-    <div class="atlas-continents">${CONTINENT_ORDER.map(cont => {
+    <div class="atlas-sub-label">Verdensdeler · ${a.continents.length} av 6</div>
+    <div class="atlas-cont-pills">${CONTINENT_ORDER.map(cont => {
       const on = a.continents.includes(cont);
-      return `<span class="atlas-cont ${on ? 'on' : 'off'}">${escapeHtml(CONTINENT_NAMES[cont])} ${on ? '✓' : '🔒'}</span>`;
+      return `<span class="atlas-cont-pill ${on ? 'on' : ''}">${escapeHtml(CONTINENT_NAMES[cont])} ${on ? '✓' : '🔒'}</span>`;
     }).join('')}</div>`;
 
   // Travel achievements — always expanded (own tab); filter bar + grouped grids.
   const badges = a.badges;
   const unlocked = badges.filter(b => b.unlocked).length;
   const last = badges.filter(b => b.unlocked && b.date).sort((x, y) => y.date.localeCompare(x.date))[0];
-  const head = `<div class="atlas-badge-head">
-      <span>Reiseutmerkelser: <b style="color:var(--text)">${unlocked} / ${badges.length}</b>${last ? ` · Sist låst opp: ${escapeHtml(last.name)}` : ''}</span>
-    </div>`;
+  document.getElementById('atlasBadgeTitle').innerHTML =
+    `Reiseutmerkelser <span class="ct-sub"><b style="color:var(--text)">${unlocked} / ${badges.length}</b>${last ? ` · sist: ${escapeHtml(last.name)}` : ''}</span>`;
   // Within each ladder show unlocked tiers + only the next locked one (badges are in
   // ascending-threshold order, so the first locked tier encountered is the "next" one).
   const ladderShown = {};
@@ -1792,7 +1830,7 @@ function renderAtlas(sessions, events) {
       <div class="atlas-badges-grid">${items.map(atlasBadgeCard).join('')}</div>` : '';
   }).join('');
   const body = filterBar + (groups || `<div class="atlas-empty">Ingen utmerkelser å vise her.</div>`);
-  document.getElementById('atlasBadges').innerHTML = head + body;
+  document.getElementById('atlasBadges').innerHTML = body;
   document.querySelectorAll('#atlasBadges .af-btn').forEach(el => el.addEventListener('click', e => {
     e.preventDefault(); atlasFilter = el.dataset.filter; renderAtlas(Store.data.sessions, Store.data.events);
   }));
