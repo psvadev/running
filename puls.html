@@ -3917,9 +3917,7 @@ function renderEfficiencyChart(sessions) {
   let easySessions = sessions
     .filter(s => {
       if (!typeMatch(s) || s.gjsnittspuls <= 0) return false;
-      const isIndoor = (s.løpetype || 'utendors') === 'treadmill';
-      if (vf === 'outdoor' && isIndoor) return false;
-      if (vf === 'indoor' && !isIndoor) return false;
+      if (vf !== 'all' && (s.løpetype || 'utendors') !== vf) return false;
       return true;
     })
     .map(s => ({ ...s, snittkmh: s.snittkmh || (s.distanse && s.varighet > 0 ? +(s.distanse / (s.varighet / 3600)).toFixed(2) : null) }))
@@ -3927,7 +3925,7 @@ function renderEfficiencyChart(sessions) {
     .sort((a, b) => a.dato.localeCompare(b.dato));
 
   destroyChart('efficiency');
-  const venueLabel = vf === 'outdoor' ? ' utendørs' : vf === 'indoor' ? ' på tredemølle' : '';
+  const venueLabel = vf === 'utendors' ? ' utendørs' : vf === 'treadmill' ? ' på tredemølle' : '';
 
   if (aeZ2Filter === 'z2') {
     const z2 = (Store.data.settings?.zones || [])[1];
@@ -6879,7 +6877,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Aerobic efficiency venue toggle
-  [['aeToggleAlle','all'],['aeToggleUte','outdoor'],['aeToggleInn','indoor']].forEach(([id, val]) => {
+  [['aeToggleAlle','all'],['aeToggleUte','utendors'],['aeToggleInn','treadmill']].forEach(([id, val]) => {
     document.getElementById(id).addEventListener('click', () => {
       aeVenueFilter = val;
       document.querySelectorAll('#aeToggleAlle,#aeToggleUte,#aeToggleInn').forEach(el => el.classList.remove('active'));
