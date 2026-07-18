@@ -3249,8 +3249,12 @@ const Form = {
     this.togglePulsdata();
     document.getElementById('fTreningsplan').value = 'Runna';
     document.getElementById('beskrevelseGroup').style.display = document.getElementById('fTreningsplan').value !== 'Egentrening' ? '' : 'none';
-    document.getElementById('stigningGroup').style.display = lastLopetype === 'treadmill' ? '' : 'none';
-    document.getElementById('hoydeMeterGroup').style.display = lastLopetype === 'outdoor' ? '' : 'none';
+    // Mirror the select's own onchange: treadmill → Stigning, anything else → Høydemeter.
+    // (Reads the effective select value, not the raw stored string, so an unexpected
+    //  løpetype can't hide both — the outdoor option's value is 'utendors', not 'outdoor'.)
+    const isTM = document.getElementById('fLopetype').value === 'treadmill';
+    document.getElementById('stigningGroup').style.display = isTM ? '' : 'none';
+    document.getElementById('hoydeMeterGroup').style.display = isTM ? 'none' : '';
     this.lastAutoOktnavn = '';
     this.maybeAutoName();
     updateStravaFetchVisibility();
