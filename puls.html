@@ -363,6 +363,7 @@
 <div class="tabs">
   <div class="tab active" data-tab="form">➕ Legg til økt</div>
   <div class="tab" data-tab="dash">📊 Oversikt</div>
+  <div class="tab" data-tab="atlas">🗺️ Løpeatlas</div>
   <div class="tab" data-tab="log">📋 Treningslogg</div>
   <div class="tab" data-tab="plan">📅 Planlegging</div>
   <div class="tab" data-tab="settings">⚙️ Innstillinger</div>
@@ -717,13 +718,6 @@
       <div id="venueSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 20 uker. 🏃 Utendørs · ⚙️ Tredemølle</div>
       <div class="chart-wrap"><canvas id="chartVenue"></canvas></div>
     </div>
-    <div class="card span2" id="landCard" style="display:none">
-      <div class="card-title">Løpeatlas</div>
-      <div id="atlasSummary"></div>
-      <div id="landStrip" style="margin:10px 0"></div>
-      <div id="atlasContinents"></div>
-      <div id="atlasBadges"></div>
-    </div>
     <div class="card span2" id="yearCompCard">
       <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
       <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
@@ -782,6 +776,18 @@
       </div>
     </div>
   </div>
+</div>
+
+<!-- ══════════════ TAB: LØPEATLAS ══════════════ -->
+<div class="panel" id="panel-atlas" style="max-width:1200px;margin:0 auto">
+  <div class="card" id="landCard" style="display:none">
+    <div class="card-title">Løpeatlas</div>
+    <div id="atlasSummary"></div>
+    <div id="landStrip" style="margin:10px 0"></div>
+    <div id="atlasContinents"></div>
+    <div id="atlasBadges"></div>
+  </div>
+  <div id="atlasEmpty" style="display:none;color:var(--muted);text-align:center;padding:48px 20px;font-size:14px">Logg noen økter, så bygger løpeatlaset seg opp automatisk. 🗺️</div>
 </div>
 
 <!-- ══════════════ TAB 3: LOG ══════════════ -->
@@ -1694,7 +1700,6 @@ function atlasBadgeContext(a, badge) {
   return { countries, continents };
 }
 
-let atlasExpanded = false; // "Vis alle" toggle state for the badge list (survives re-renders)
 let atlasFilter = 'all';   // badge filter: 'all' | 'done' | 'todo' (survives re-renders)
 function atlasBar(cur, target, unit) {
   const pct = Math.max(0, Math.min(100, (cur / target) * 100));
@@ -1718,7 +1723,9 @@ function atlasBadgeCard(b) {
 function renderAtlas(sessions, events) {
   const card = document.getElementById('landCard');
   if (!card) return;
+  const emptyEl = document.getElementById('atlasEmpty');
   card.style.display = sessions.length ? '' : 'none';
+  if (emptyEl) emptyEl.style.display = sessions.length ? 'none' : '';
   if (!sessions.length) return;
   const a = computeAtlas(sessions, events, { homeCountry: ATLAS_HOME, currentYear: new Date().getFullYear() });
   const su = a.summary;
@@ -1759,40 +1766,33 @@ function renderAtlas(sessions, events) {
       return `<span class="atlas-cont ${on ? 'on' : 'off'}">${escapeHtml(CONTINENT_NAMES[cont])} ${on ? '✓' : '🔒'}</span>`;
     }).join('')}</div>`;
 
-  // Travel achievements — collapsed summary + [Vis alle] toggle
+  // Travel achievements — always expanded (own tab); filter bar + grouped grids.
   const badges = a.badges;
   const unlocked = badges.filter(b => b.unlocked).length;
   const last = badges.filter(b => b.unlocked && b.date).sort((x, y) => y.date.localeCompare(x.date))[0];
   const head = `<div class="atlas-badge-head">
       <span>Reiseutmerkelser: <b style="color:var(--text)">${unlocked} / ${badges.length}</b>${last ? ` · Sist låst opp: ${escapeHtml(last.name)}` : ''}</span>
-      <a href="#" id="atlasToggle" style="color:var(--accent);font-size:12px;text-decoration:none">${atlasExpanded ? 'Skjul' : 'Vis alle'}</a>
     </div>`;
-  let body = '';
-  if (atlasExpanded) {
-    // Within each ladder show unlocked tiers + only the next locked one (badges are in
-    // ascending-threshold order, so the first locked tier encountered is the "next" one).
-    const ladderShown = {};
-    let visible = badges.filter(b => {
-      const lad = ATLAS_LADDERS[b.id];
-      if (!lad || b.unlocked) return true;
-      if (ladderShown[lad]) return false;
-      ladderShown[lad] = true; return true;
-    });
-    if (atlasFilter === 'done') visible = visible.filter(b => b.unlocked);
-    else if (atlasFilter === 'todo') visible = visible.filter(b => !b.unlocked);
-    const filterBar = `<div class="atlas-filter">${[['all', 'Alle'], ['done', 'Fullførte'], ['todo', 'Gjenstår']]
-      .map(([k, l]) => `<a href="#" class="af-btn ${atlasFilter === k ? 'on' : ''}" data-filter="${k}">${l}</a>`).join('')}</div>`;
-    const groups = ['Milepæler', 'Land', 'Verdensdeler', 'Distanse', 'Omgivelser', 'Sesong'].map(g => {
-      const items = visible.filter(b => b.group === g);
-      return items.length ? `<div class="dp-section-label" style="margin-top:12px">${g}</div>
-        <div class="atlas-badges-grid">${items.map(atlasBadgeCard).join('')}</div>` : '';
-    }).join('');
-    body = filterBar + (groups || `<div class="atlas-empty">Ingen utmerkelser å vise her.</div>`);
-  }
-  document.getElementById('atlasBadges').innerHTML = head + body;
-  document.getElementById('atlasToggle')?.addEventListener('click', e => {
-    e.preventDefault(); atlasExpanded = !atlasExpanded; renderAtlas(Store.data.sessions, Store.data.events);
+  // Within each ladder show unlocked tiers + only the next locked one (badges are in
+  // ascending-threshold order, so the first locked tier encountered is the "next" one).
+  const ladderShown = {};
+  let visible = badges.filter(b => {
+    const lad = ATLAS_LADDERS[b.id];
+    if (!lad || b.unlocked) return true;
+    if (ladderShown[lad]) return false;
+    ladderShown[lad] = true; return true;
   });
+  if (atlasFilter === 'done') visible = visible.filter(b => b.unlocked);
+  else if (atlasFilter === 'todo') visible = visible.filter(b => !b.unlocked);
+  const filterBar = `<div class="atlas-filter">${[['all', 'Alle'], ['done', 'Fullførte'], ['todo', 'Gjenstår']]
+    .map(([k, l]) => `<a href="#" class="af-btn ${atlasFilter === k ? 'on' : ''}" data-filter="${k}">${l}</a>`).join('')}</div>`;
+  const groups = ['Milepæler', 'Land', 'Verdensdeler', 'Distanse', 'Omgivelser', 'Sesong'].map(g => {
+    const items = visible.filter(b => b.group === g);
+    return items.length ? `<div class="dp-section-label" style="margin-top:12px">${g}</div>
+      <div class="atlas-badges-grid">${items.map(atlasBadgeCard).join('')}</div>` : '';
+  }).join('');
+  const body = filterBar + (groups || `<div class="atlas-empty">Ingen utmerkelser å vise her.</div>`);
+  document.getElementById('atlasBadges').innerHTML = head + body;
   document.querySelectorAll('#atlasBadges .af-btn').forEach(el => el.addEventListener('click', e => {
     e.preventDefault(); atlasFilter = el.dataset.filter; renderAtlas(Store.data.sessions, Store.data.events);
   }));
@@ -4723,7 +4723,7 @@ const DetailPanel = {
     FileIO.save();
     const msg = document.getElementById('landNoteMsg');
     if (msg) { msg.textContent = 'Lagret ✓'; setTimeout(() => { if (msg) msg.textContent = ''; }, 1800); }
-    if (document.getElementById('panel-dash')?.classList.contains('active')) renderAtlas(Store.data.sessions, Store.data.events);
+    if (document.getElementById('panel-atlas')?.classList.contains('active')) renderAtlas(Store.data.sessions, Store.data.events);
   },
 
   // Badge drill-down (from the Løpeatlas grid): status, the full ladder progression for
@@ -5157,10 +5157,6 @@ function renderDashboard() {
             </span>`).join('')}
         </div>`).join('')}
     </div>`;
-
-  // Løpeatlas — travel stats, continent collection, and derived travel badges (all-time,
-  // unfiltered — ignores the year pills and utenforAnalyse, like the Ytelseskurve).
-  renderAtlas(Store.data.sessions, Store.data.events);
 
   // Training load per week (zone minutes × zone weight, summed per week)
   const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
@@ -6638,6 +6634,7 @@ function switchTab(name, skipHistory = false) {
   document.body.classList.toggle('is-dash', name === 'dash');
   if (!skipHistory) history.pushState({ tab: name }, '', '#' + name);
   if (name === 'dash') renderDashboard();
+  if (name === 'atlas') renderAtlas(Store.data.sessions, Store.data.events);
   if (name === 'log') Log.render();
   if (name === 'plan') Settings.render();
   if (name === 'settings') Settings.render();
@@ -6650,6 +6647,7 @@ function refreshAll() {
   CustomLists.refreshDropdowns();
   document.getElementById('welcomeBanner').classList.toggle('hidden', Store.data.sessions.length > 0);
   if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
+  if (document.getElementById('panel-atlas').classList.contains('active')) renderAtlas(Store.data.sessions, Store.data.events);
   if (document.getElementById('panel-plan').classList.contains('active') ||
       document.getElementById('panel-settings').classList.contains('active')) Settings.render();
   else Settings.renderShoeList();
@@ -6672,7 +6670,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>`;
 
   // Tab switching
-  const VALID_TABS = ['form','dash','log','plan','settings'];
+  const VALID_TABS = ['form','dash','atlas','log','plan','settings'];
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => switchTab(tab.dataset.tab));
   });
