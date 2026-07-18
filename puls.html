@@ -4649,13 +4649,7 @@ const DetailPanel = {
     const sessions = Store.data.sessions.filter(s => (s.land || 'NO') === code);
     const totalKm  = sessions.reduce((s,x)=>s+(x.distanse||0),0);
     const sorted   = sessions.slice().sort((a,b)=>b.dato.localeCompare(a.dato));
-    const stats = [
-      { v: sessions.length,        l: 'løp' },
-      { v: totalKm.toFixed(1)+' km', l: 'distanse' },
-      ...(sorted.length ? [{ v: fmtDate(sorted[sorted.length-1].dato), l: 'første løp' },
-                           { v: fmtDate(sorted[0].dato),               l: 'siste løp'  }] : []),
-    ];
-    // Per-country records + venue split (ute/inne). Pace skips flagged outliers (quality record).
+    // Aggregate + per-country records folded into one grid (Alt. 2). Pace skips flagged outliers.
     const isIndoor  = s => (s.løpetype || 'utendors') === 'treadmill';
     const outdoorKm = sessions.filter(s => !isIndoor(s)).reduce((a,s)=>a+(s.distanse||0),0);
     const indoorKm  = sessions.filter(s =>  isIndoor(s)).reduce((a,s)=>a+(s.distanse||0),0);
@@ -4664,13 +4658,25 @@ const DetailPanel = {
     const fastest   = paceCands.length ? paceCands.reduce((m,s)=> s.tempo < m.tempo ? s : m) : null;
     const elevCands = sessions.filter(s => (s.hoydeMeter||0) > 0);
     const hilliest  = elevCands.length ? elevCands.reduce((m,s)=> (s.hoydeMeter||0) > (m.hoydeMeter||0) ? s : m) : null;
-    const recStats = [
-      ...(longest && longest.distanse ? [{ v: longest.distanse.toFixed(1)+' km', l: 'lengste løp' }] : []),
-      ...(fastest  ? [{ v: secsToMmSs(fastest.tempo)+' /km', l: 'raskeste tempo' }] : []),
-      ...(hilliest ? [{ v: hilliest.hoydeMeter+' m',         l: 'mest høyde'     }] : []),
+    const tiles = [
+      { v: sessions.length,          l: 'løp' },
+      { v: totalKm.toFixed(1)+' km', l: 'distanse' },
+      ...(longest && longest.distanse ? [{ v: longest.distanse.toFixed(1)+' km', l: 'lengste' }] : []),
+      ...(fastest  ? [{ v: secsToMmSs(fastest.tempo)+' /km', l: 'raskeste' }] : []),
+      ...(hilliest ? [{ v: hilliest.hoydeMeter+' m',         l: 'mest høyde' }] : []),
     ];
-    const venueSplit = (indoorKm > 0 && outdoorKm > 0)
-      ? `<div style="font-size:12px;color:var(--muted);margin:-2px 0 10px">🏃 Ute ${outdoorKm.toFixed(1)} km · ⚙️ Inne ${indoorKm.toFixed(1)} km</div>`
+    // Meta lines under the grid: period (date range) + venue (always shown, adaptive).
+    const firstD = sorted.length ? fmtDate(sorted[sorted.length-1].dato) : '';
+    const lastD  = sorted.length ? fmtDate(sorted[0].dato) : '';
+    const periodText = firstD ? (firstD === lastD ? firstD : `${firstD} – ${lastD}`) : '';
+    const venue = (outdoorKm > 0 && indoorKm > 0)
+      ? { ic:'🏃', txt:`${outdoorKm.toFixed(1)} km ute <span style="opacity:.4;margin:0 2px">·</span> ⚙️ ${indoorKm.toFixed(1)} km inne` }
+      : indoorKm > 0 ? { ic:'⚙️', txt:'Alt på tredemølle' }
+      : { ic:'🏃', txt:'Alt utendørs' };
+    const metaRow = (ic, txt, mt, color) =>
+      `<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:${color};margin-top:${mt}px;font-variant-numeric:tabular-nums"><span style="width:16px;text-align:center;flex:none">${ic}</span><span>${txt}</span></div>`;
+    const metaBlock = periodText
+      ? `<div style="height:1px;background:rgba(46,50,72,.65);margin-top:14px"></div>${metaRow('📅', periodText, 12, '#c2c6d2')}${metaRow(venue.ic, venue.txt, 6, 'var(--muted)')}`
       : '';
     const rows = sorted.map(s=>
       `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
@@ -4694,10 +4700,9 @@ const DetailPanel = {
       ? `<div class="dp-badge-legend"><span class="dbr-here">✓</span> låst opp i ${escapeHtml(landName(code))} · <span class="dbr-done">✓</span> låst opp</div>` : '';
     this.open(`Løpt i ${landName(code)}`, `
       ${flag ? `<img src="${flag}" alt="" style="height:16px;border-radius:2px;margin-bottom:10px">` : ''}
-      <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
-      ${venueSplit}
-      ${recStats.length ? `<div class="dp-section-label">Rekorder her</div><div class="dp-stat-row">${recStats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>` : ''}
-      ${badgeRows ? `<div class="dp-section-label">Teller mot</div>${badgeLegend}${badgeRows}` : ''}
+      <div class="dp-stat-row" style="margin-bottom:0">${tiles.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      ${metaBlock}
+      ${badgeRows ? `<div class="dp-section-label" style="margin-top:16px">Teller mot</div>${badgeLegend}${badgeRows}` : ''}
       <div class="dp-section-label">Notat</div>
       <textarea id="landNoteInput" rows="3" placeholder="Et minne eller notat for dette landet…" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
       <div style="margin:6px 0 2px"><button class="btn-secondary btn-sm" id="landNoteSave">Lagre notat</button><span id="landNoteMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span></div>
