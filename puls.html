@@ -4765,7 +4765,7 @@ const DetailPanel = {
       { v: totalKm.toFixed(1)+' km', l: 'distanse' },
       ...(longest && longest.distanse ? [{ v: longest.distanse.toFixed(1)+' km', l: 'lengste' }] : []),
       ...(fastest  ? [{ v: secsToMmSs(fastest.tempo)+' /km', l: 'raskeste' }] : []),
-      ...(hilliest ? [{ v: hilliest.hoydeMeter+' m',         l: 'mest høyde' }] : []),
+      ...(hilliest ? [{ v: hilliest.hoydeMeter+' m',         l: 'mest høydemeter' }] : []),
     ];
     // Meta lines under the grid: period (date range) + venue (always shown, adaptive).
     const firstD = sorted.length ? fmtDate(sorted[sorted.length-1].dato) : '';
