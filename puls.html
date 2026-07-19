@@ -4808,7 +4808,7 @@ const DetailPanel = {
       ${metaBlock}
       ${badgeRows ? `<div class="dp-section-label" style="margin-top:16px">Teller mot</div>${badgeLegend}${badgeRows}` : ''}
       <div class="dp-section-label">Notat</div>
-      <textarea id="landNoteInput" rows="3" placeholder="Et minne eller notat for dette landet…" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
+      <textarea id="landNoteInput" rows="3" placeholder="Et minne, en rutetips eller en quirk — f.eks. «tredemølla viste mph, ikke km/t»" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
       <div style="margin:6px 0 2px"><button class="btn-secondary btn-sm" id="landNoteSave">Lagre notat</button><span id="landNoteMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span></div>
       <div class="dp-section-label">Øktene</div>${rows || '<div style="color:var(--muted);font-size:12px">Ingen løp logget</div>'}`
     );
