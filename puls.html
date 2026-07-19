@@ -161,7 +161,7 @@
   .atlas-sub-label { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:2px 0 10px; }
   .ct-sub { color:var(--muted); font-weight:400; font-size:12px; margin-left:8px; }
   /* Verdenskart (SVG choropleth) */
-  .map-wrap { position:relative; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:radial-gradient(120% 120% at 50% 30%, #121728, #0c0e16); }
+  .map-wrap { position:relative; max-width:1400px; margin:0 auto; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:radial-gradient(120% 120% at 50% 30%, #121728, #0c0e16); }
   .map-wrap svg { width:100%; height:auto; display:block; }
   .map-wrap path { fill:#2a2f45; stroke:#12141d; stroke-width:.4; vector-effect:non-scaling-stroke; transition:fill .12s; }
   .map-wrap path.on { fill:var(--green); }
@@ -801,7 +801,7 @@
 </div>
 
 <!-- ══════════════ TAB: LØPEATLAS ══════════════ -->
-<div class="panel" id="panel-atlas" style="max-width:1200px;margin:0 auto">
+<div class="panel" id="panel-atlas">
   <div id="landCard" style="display:none">
     <div class="card">
       <div class="card-title">Verdenskart <span class="ct-sub" id="atlasMapTag"></span></div>
