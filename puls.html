@@ -1493,6 +1493,16 @@ function _atlasMultiYear(a, target) {
       ? `Lengste rekke i utlandet: ${n} år på rad (${ys[0]}–${ys[ys.length - 1]})`
       : `Løp i utlandet ${target} år på rad` };
 }
+// Most foreign runs in a single calendar year — a tiered ladder, banked to your best year ever.
+// Distinct axis from Globe-km (how far) and Multi-Year (consistency): run frequency while travelling.
+const RUN_TIERS = [3, 6, 10];
+function _atlasYearRuns(a, target) {
+  const n = a.bestForeignYearRuns;
+  return { unlocked: n >= target, progress: n >= target ? null : { cur:n, target },
+    date: a.runTierDate[target] || null,
+    desc: n >= target ? `Beste reiseår: ${n} løp (${a.bestForeignYearRunsYear})`
+                      : `${target} løp i utlandet i ett kalenderår` };
+}
 // Distinct foreign countries run OUTDOORS — a breadth ladder (3→5→10), carries the Nth country.
 function _atlasOutdoorLand(a, target) { const cur = a.outdoorForeignCount; const c = a.outdoorForeignAt(target); return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: c ? c.date : null, country: c ? c.code : null }; }
 // Elevation gain in a single foreign outdoor run — a ladder (100→250→500 m); carries that run's country.
@@ -1558,6 +1568,9 @@ const ATLAS_BADGES = [
   { id:'multi-year-2',     group:'Sesong',       icon:'🗓️', name:'Multi-Year Traveler',  desc:'Løp i utlandet 2 år på rad',               test:a => _atlasMultiYear(a, 2) },
   { id:'multi-year-3',     group:'Sesong',       icon:'📅', name:'Seasoned Traveler',    desc:'Løp i utlandet 3 år på rad',               test:a => _atlasMultiYear(a, 3) },
   { id:'multi-year-5',     group:'Sesong',       icon:'🎖️', name:'Veteran Traveler',     desc:'Løp i utlandet 5 år på rad',               test:a => _atlasMultiYear(a, 5) },
+  { id:'year-runs-3',      group:'Sesong',       icon:'🛄', name:'Travel Season',        desc:'3 løp i utlandet i ett kalenderår',        test:a => _atlasYearRuns(a, 3) },
+  { id:'year-runs-6',      group:'Sesong',       icon:'🗺️', name:'Globetrotting Year',   desc:'6 løp i utlandet i ett kalenderår',        test:a => _atlasYearRuns(a, 6) },
+  { id:'year-runs-10',     group:'Sesong',       icon:'🎒', name:'Nomad Year',           desc:'10 løp i utlandet i ett kalenderår',       test:a => _atlasYearRuns(a, 10) },
 ];
 // Tiered ladders (escalating thresholds on the same metric). In the expanded list we show
 // unlocked tiers + only the NEXT locked one, so you never see 3/5, 3/10, 3/15 stacked at once.
@@ -1571,6 +1584,7 @@ const ATLAS_LADDERS = {
   'outdoor-explorer':'outdoorland', 'outdoor-trail':'outdoorland', 'outdoor-wild':'outdoorland',
   'foreign-hills':'hills', 'foreign-climber':'hills', 'foreign-summit':'hills',
   'multi-year-2':'multiyear', 'multi-year-3':'multiyear', 'multi-year-5':'multiyear',
+  'year-runs-3':'yearruns', 'year-runs-6':'yearruns', 'year-runs-10':'yearruns',
 };
 
 // Løpeatlas world map geometry — equirectangular (viewBox 0 0 1000 500), 0.1° simplified,
@@ -1625,6 +1639,7 @@ function computeAtlas(sessions, events, opts = {}) {
       southernC=null, northernC=null, jetSetC=null, crossContC=null;
   let cumForeignKm = 0, maxForeignHill = 0; const globeTierDate = {}, hillTierDate = {}, hillTierC = {};
   const yearForeignCountries = {}, yearContinents = {}, foreignYearsSeen = new Set(), firstOutdoorDate = {}, yearFirstForeignDate = {};
+  const yearForeignRuns = {}, runTierDate = {};   // most foreign runs in a single year (best-year ladder)
   sortedSessions.forEach(s => {
     const code = s.land || home, d = s.dato, km = s.distanse || 0, cont = continentOf(code);
     const isForeign = code !== home, outdoor = s.løpetype !== 'treadmill', yr = d.slice(0, 4);
@@ -1640,6 +1655,8 @@ function computeAtlas(sessions, events, opts = {}) {
     if (!yearForeignCountries[yr].has(code)) { yearForeignCountries[yr].add(code); if (yearForeignCountries[yr].size === 3 && !jetSetDate) { jetSetDate = d; jetSetC = code; } }
     foreignYearsSeen.add(yr);
     if (!yearFirstForeignDate[yr]) yearFirstForeignDate[yr] = d;   // Multi-Year streak (sorted → earliest)
+    yearForeignRuns[yr] = (yearForeignRuns[yr] || 0) + 1;         // best-year run ladder
+    RUN_TIERS.forEach(t => { if (yearForeignRuns[yr] >= t && !runTierDate[t]) runTierDate[t] = d; });
     if (outdoor && !scenicDate) { scenicDate = d; scenicC = code; }
     if (km >= 5 && !intl5kDate) { intl5kDate = d; intl5kC = code; }
     if (km >= 10 && !intl10kDate) { intl10kDate = d; intl10kC = code; }
@@ -1686,6 +1703,10 @@ function computeAtlas(sessions, events, opts = {}) {
     if (run.length > bestStreak) { bestStreak = run.length; bestStreakYears = run.slice(); }
   }
 
+  // Best travel year — most foreign runs in any single calendar year (ties keep the earliest year).
+  let bestForeignYearRuns = 0, bestForeignYearRunsYear = null;
+  for (const [y, n] of Object.entries(yearForeignRuns)) if (n > bestForeignYearRuns) { bestForeignYearRuns = n; bestForeignYearRunsYear = y; }
+
   const a = {
     home, year, byCountry, countries, foreignCountries: foreign, continents, byContinent,
     nordicCount: nordicPresent.length, longestAbroadKm,
@@ -1693,6 +1714,7 @@ function computeAtlas(sessions, events, opts = {}) {
     intlHalfDate, intlMaraDate, hotelDate, winterDate, foreignRacerDate, maxForeignHill,
     hillTierAt: t => hillTierDate[t] ? { code: hillTierC[t], date: hillTierDate[t] } : null,
     southernDate, northernDate, globeTierDate, jetSetDate, jetSetBest, jetSetCountries, crossContDate, crossContBest, multiYearTierDate,
+    bestForeignYearRuns, bestForeignYearRunsYear, runTierDate,
     // Countries where single-run/threshold badges were earned (for the "Låst opp" flag).
     firstForeignCountry: foreignByFirst[0] || null, vacationRunCountry: vacationRunC,
     scenicCountry: scenicC, intl5kCountry: intl5kC, intl10kCountry: intl10kC, intlHalfCountry: intlHalfC, intlMaraCountry: intlMaraC,
