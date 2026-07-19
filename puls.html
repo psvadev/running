@@ -1532,7 +1532,7 @@ const ATLAS_BADGES = [
   { id:'americas-explorer',group:'Verdensdeler', icon:'🗽', name:'Americas Explorer',    desc:'Løp i 3 land i Nord- eller Sør-Amerika',   test:a => _atlasRegion(a, ['NA', 'SA'], 3) },
   { id:'africa-explorer',  group:'Verdensdeler', icon:'🦁', name:'Africa Explorer',      desc:'Løp i 3 afrikanske land',                  test:a => _atlasRegion(a, ['AF'], 3) },
   { id:'cross-continental',group:'Verdensdeler', icon:'🔀', name:'Cross-Continental',    desc:'Løp på 2 verdensdeler i samme kalenderår', test:a => ({ unlocked: !!a.crossContDate, progress: a.crossContDate ? null : { cur:a.crossContBest, target:2 }, date:a.crossContDate, country:a.crossContCountry }) },
-  { id:'both-hemispheres', group:'Verdensdeler', icon:'🌗', name:'Both Hemispheres',     desc:'Løp på både nordlige og sørlige halvkule', test:a => ({ unlocked: !!a.southernDate, progress: a.southernDate ? null : { cur:1, target:2 }, date:a.southernDate, country:a.southernCountry }) },
+  { id:'both-hemispheres', group:'Verdensdeler', icon:'🌗', name:'Both Hemispheres',     desc:'Løp på både nordlige og sørlige halvkule', test:a => { const both = a.northernDate && a.southernDate; return { unlocked: !!both, progress: both ? null : { cur: (a.northernDate?1:0) + (a.southernDate?1:0), target:2 }, date: a.southernDate, country: a.southernCountry }; } },
   // Distanse — abroad
   { id:'intl-5k',          group:'Distanse',     icon:'🏅', name:'International 5K',      desc:'Minst 5 km i ett løp utenlands',           test:a => _atlasDist(a, 5, a.intl5kDate, null, a.intl5kCountry) },
   { id:'intl-10k',         group:'Distanse',     icon:'🥇', name:'International 10K',     desc:'Minst 10 km i ett løp utenlands',          test:a => _atlasDist(a, 10, a.intl10kDate, null, a.intl10kCountry) },
@@ -1618,11 +1618,11 @@ function computeAtlas(sessions, events, opts = {}) {
   const sortedSessions = sessions.filter(s => s.dato).slice().sort((x, y) => x.dato.localeCompare(y.dato));
   let scenicDate=null, intl5kDate=null, intl10kDate=null, intlHalfDate=null, intlMaraDate=null,
       hotelDate=null, winterDate=null, foreignRacerDate=null,
-      southernDate=null, jetSetDate=null, crossContDate=null;
+      southernDate=null, northernDate=null, jetSetDate=null, crossContDate=null;
   // Country where each single-run/threshold badge was earned (for the "Låst opp" flag).
   let scenicC=null, intl5kC=null, intl10kC=null, intlHalfC=null, intlMaraC=null,
       hotelC=null, winterC=null, foreignRacerC=null,
-      southernC=null, jetSetC=null, crossContC=null;
+      southernC=null, northernC=null, jetSetC=null, crossContC=null;
   let cumForeignKm = 0, maxForeignHill = 0; const globeTierDate = {}, hillTierDate = {}, hillTierC = {};
   const yearForeignCountries = {}, yearContinents = {}, foreignYearsSeen = new Set(), firstOutdoorDate = {}, yearFirstForeignDate = {};
   sortedSessions.forEach(s => {
@@ -1631,7 +1631,9 @@ function computeAtlas(sessions, events, opts = {}) {
     (yearContinents[yr] || (yearContinents[yr] = new Set()));                 // Cross-Continental (all runs, incl. home)
     if (cont && !yearContinents[yr].has(cont)) { yearContinents[yr].add(cont); if (yearContinents[yr].size === 2 && !crossContDate) { crossContDate = d; crossContC = code; } }
     if (outdoor && !firstOutdoorDate[code]) firstOutdoorDate[code] = d;
-    if (SOUTHERN.has(code) && !southernDate) { southernDate = d; southernC = code; }   // Both Hemispheres (home is northern)
+    // Both Hemispheres — track each half explicitly (SOUTHERN set is the south list; everything else counts as north).
+    if (SOUTHERN.has(code)) { if (!southernDate) { southernDate = d; southernC = code; } }
+    else if (!northernDate) { northernDate = d; northernC = code; }
     if (!isForeign) return;
     cumForeignKm += km; GLOBE_KM_TIERS.forEach(t => { if (cumForeignKm >= t && !globeTierDate[t]) globeTierDate[t] = d; });
     (yearForeignCountries[yr] || (yearForeignCountries[yr] = new Set()));
@@ -1690,11 +1692,11 @@ function computeAtlas(sessions, events, opts = {}) {
     firstForeignDate, scenicDate, intl5kDate, intl10kDate, vacationRunDate,
     intlHalfDate, intlMaraDate, hotelDate, winterDate, foreignRacerDate, maxForeignHill,
     hillTierAt: t => hillTierDate[t] ? { code: hillTierC[t], date: hillTierDate[t] } : null,
-    southernDate, globeTierDate, jetSetDate, jetSetBest, jetSetCountries, crossContDate, crossContBest, multiYearTierDate,
+    southernDate, northernDate, globeTierDate, jetSetDate, jetSetBest, jetSetCountries, crossContDate, crossContBest, multiYearTierDate,
     // Countries where single-run/threshold badges were earned (for the "Låst opp" flag).
     firstForeignCountry: foreignByFirst[0] || null, vacationRunCountry: vacationRunC,
     scenicCountry: scenicC, intl5kCountry: intl5kC, intl10kCountry: intl10kC, intlHalfCountry: intlHalfC, intlMaraCountry: intlMaraC,
-    hotelCountry: hotelC, winterCountry: winterC, foreignRacerCountry: foreignRacerC,
+    hotelCountry: hotelC, winterCountry: winterC, foreignRacerCountry: foreignRacerC, northernCountry: northernC,
     southernCountry: southernC, jetSetCountry: jetSetC, crossContCountry: crossContC,
     foreignYearStreak: bestStreak, foreignStreakYears: bestStreakYears,
     outdoorForeignCount: foreignOutdoor.length,
@@ -4871,6 +4873,10 @@ const DetailPanel = {
       const st = t.unlocked ? '<span class="dbr-done">✓</span>' : (t.progress ? `<span class="dbr-prog">${t.progress.cur}/${t.progress.target}</span>` : '');
       return `<div class="dp-badge-row ${t.unlocked ? '' : 'locked'}${t.id === id ? ' current' : ''}"><span class="dbr-icon">${t.icon}</span><span class="dbr-name">${escapeHtml(t.name)}</span>${st}</div>`;
     }).join('');
+    // Both Hemispheres: name which half is covered rather than an abstract 1/2.
+    const hemiRow = (label, date, code) => `<div class="dp-badge-row ${date ? '' : 'locked'}"><span class="dbr-name">${label} halvkule</span>${date ? `<span class="dbr-done">✓${code ? ' ' + escapeHtml(landName(code)) : ''}</span>` : '<span class="dbr-prog">gjenstår</span>'}</div>`;
+    const hemiHtml = id === 'both-hemispheres'
+      ? `<div class="dp-section-label">Halvkuler</div>${hemiRow('Nordlige', a.northernDate, a.northernCountry)}${hemiRow('Sørlige', a.southernDate, a.southernCountry)}` : '';
     const chip = c => `<span class="land-chip" data-land="${escapeHtml(c)}">${landFlagUrl(c) ? `<img src="${landFlagUrl(c)}" alt="" loading="lazy">` : ''}<span>${escapeHtml(landName(c))}</span><span class="lc-count">${a.byCountry[c] ? a.byCountry[c].runs : 0}</span></span>`;
     const countryHtml = countries && countries.length
       ? `<div class="dp-section-label">Land som teller (${countries.length})</div><div style="display:flex;flex-wrap:wrap;gap:8px">${countries.map(chip).join('')}</div>` : '';
@@ -4879,6 +4885,7 @@ const DetailPanel = {
     this.open(`${b.icon}  ${b.name}`, `
       <div style="font-size:13px;color:var(--muted);margin-bottom:10px">${escapeHtml(b.desc)}</div>
       ${status}
+      ${hemiHtml}
       ${tiersHtml ? `<div class="dp-section-label">Nivåer</div>${tiersHtml}` : ''}
       ${countryHtml}${contHtml}`);
     document.querySelectorAll('#detailBody [data-land]').forEach(chipEl =>
