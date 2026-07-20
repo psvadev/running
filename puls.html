@@ -4275,14 +4275,18 @@ function renderInsights(sessions) {
     const planKm = sessions.filter(s => s.dato && s.dato >= activePlan.date)
       .reduce((sum, s) => sum + (s.distanse || 0), 0);
     const donePct = Math.round(planKm / activePlan.targetTotalKm * 100);
-    let timePart = '';
+    // Show the plan's week position ("uke 3 av 14") — how a training block is actually
+    // structured — instead of an abstract % of elapsed calendar time.
+    let weekPart = '';
     if (activePlan.endDate) {
-      const span = new Date(activePlan.endDate) - new Date(activePlan.date);
-      const timePct = Math.round(Math.min(100, Math.max(0, (new Date(today) - new Date(activePlan.date)) / Math.max(1, span) * 100)));
-      timePart = `, ${timePct}% av tiden`;
+      const dayMs = 86400000;
+      const totalWeeks = Math.max(1, Math.ceil((Math.round((new Date(activePlan.endDate) - new Date(activePlan.date)) / dayMs) + 1) / 7));
+      const elapsedDays = Math.max(0, Math.round((new Date(today) - new Date(activePlan.date)) / dayMs));
+      const curWeek = Math.min(totalWeeks, Math.floor(elapsedDays / 7) + 1);
+      weekPart = ` · uke ${curWeek} av ${totalWeeks}`;
     }
     candidates.push({ icon: donePct >= 100 ? '✅' : '📊', val: `${+planKm.toFixed(1)} av ${activePlan.targetTotalKm} km`,
-      sub: `${donePct}% av planmålet${timePart} · ${activePlan.title}`, priority: 3 });
+      sub: `${donePct}% fullført${weekPart} · ${activePlan.title}`, priority: 3 });
   } else if (activePlan) {
     const wkKm = sessions.filter(s => s.dato && absWeekNum(s.dato) === nowAbsWk)
       .reduce((sum, s) => sum + (s.distanse || 0), 0);
