@@ -26,7 +26,7 @@ A trailing **`?`** on a type marks an **optional** field — the key may be abse
 | `hoydeMeter` | m | **Outdoor elevation gain only** (mutually exclusive with `stigning`). Per-run totals are too coarse for grade-adjusted pace — do not attempt GAP from this. |
 | `sko` | string | Shoe name; km per shoe aggregated for lifecycle tracking. |
 | `løpetype` | `utendors` \| `treadmill` | Venue. Default `utendors`. |
-| `sovn` | hours (decimal) | **Sleep the single night before the run — NOT a weekly average.** Can only measure acute effects, which are physiologically expected to be weak; chronic sleep debt is invisible in this data. 6.87 = 6 h 52 m. |
+| `sovn` | hours (decimal)? | **Retired 2026-07-20** — no longer collected, surfaced, or exported. Present only in historical sessions logged before that date. Was "sleep the single night before the run" (6.87 = 6 h 52 m); dropped because a single night can only capture acute effects (physiologically weak) while chronic sleep debt was never in the data — sparse and uncharted, so not worth the logging friction. Old values stay in the JSON, harmless. |
 | `rpe` | 1–10 | Apple Fitness scale. **The field was added 2026-06-01; values before that (back to late April 2026) were backfilled from Apple Fitness** — contemporaneous recordings, not reconstructed memory. Sparse before late April 2026. |
 | `beskrivelse` | string | Workout structure; auto-filled from Strava (Runna pushes its program text into Strava's description). |
 | `notater` | string | Free-text session notes; carries the "why" for flagged sessions. |

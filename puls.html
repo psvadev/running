@@ -190,17 +190,16 @@
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .dash-grid .span2 { grid-column: span 2; }
   @media (max-width: 768px) { .dash-grid { grid-template-columns: 1fr; } .dash-grid .span2 { grid-column: span 1; } }
-  /* ≤1600px — hide least useful columns only; keeps Varighet, Mål km, ♥ Topp, Søvn, RPE, Høyde */
+  /* ≤1600px — hide least useful columns only; keeps Varighet, Mål km, ♥ Topp, RPE, Høyde */
   @media (max-width: 1600px) {
     #logTable th:nth-child(3),  #logTable td:nth-child(3),
     #logTable th:nth-child(13), #logTable td:nth-child(13) { display: none; }
   }
 
-  /* ≤900px — also hide Varighet, ♥ Topp, Søvn */
+  /* ≤900px — also hide Varighet, ♥ Topp */
   @media (max-width: 900px) {
     #logTable th:nth-child(9),  #logTable td:nth-child(9),
-    #logTable th:nth-child(12), #logTable td:nth-child(12),
-    #logTable th:nth-child(14), #logTable td:nth-child(14) { display: none; }
+    #logTable th:nth-child(12), #logTable td:nth-child(12) { display: none; }
   }
 
   @media (max-width: 600px) {
@@ -541,10 +540,6 @@
           <select id="fSko" style="flex:1"></select>
           <button class="btn-secondary btn-sm" id="btnAddShoe" title="Legg til sko">+</button>
         </div>
-      </div>
-      <div class="form-group">
-        <label>Søvn (timer)</label>
-        <input type="text" id="fSovn" placeholder="7:30">
       </div>
       <div class="form-group">
         <label>RPE (1–10)</label>
@@ -911,7 +906,6 @@
           <th data-col="gjsnittspuls">♥ Snitt <span class="sort-indicator">↕</span></th>
           <th data-col="toppuls">♥ Topp <span class="sort-indicator">↕</span></th>
           <th data-col="sko">Sko</th>
-          <th data-col="sovn">Søvn <span class="sort-indicator">↕</span></th>
           <th data-col="hoydeMeter">Høyde</th>
           <th data-col="rpe">RPE</th>
           <th></th>
@@ -1284,13 +1278,6 @@ function showChartEmpty(canvasId, show, msg = 'Ingen data å vise') {
   }
 }
 
-function hoursToHHMM(h) {
-  if (!h && h !== 0) return '';
-  const hrs = Math.floor(h);
-  const mins = Math.round((h - hrs) * 60);
-  return `${hrs}:${String(mins).padStart(2, '0')}`;
-}
-
 function tsvIsoWeek(dateStr) {
   const d = new Date(dateStr);
   const thu = new Date(d); thu.setDate(d.getDate() - (d.getDay() + 6) % 7 + 3);
@@ -1303,7 +1290,7 @@ function formatSessionTsv(sessions) {
   const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Løpetype','Varighet',
     'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
     'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
-    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','Søvn','RPE','Land'].join('\t');
+    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','RPE','Land'].join('\t');
   const blocks = sessions.map(s => {
     const soner = s.soner || [0,0,0,0,0];
     const [y,m,d] = s.dato.split('-');
@@ -1326,7 +1313,6 @@ function formatSessionTsv(sessions) {
       s.stigning != null ? s.stigning : '',
       s.hoydeMeter != null ? s.hoydeMeter : '',
       s.sko || '',
-      s.sovn != null ? hoursToHHMM(s.sovn) : '',
       s.rpe || '',
       s.land || '',
     ].join('\t');
@@ -1995,13 +1981,6 @@ async function copyToClipboard(text) {
   }
 }
 
-function hhmmToHours(str) {
-  if (!str) return null;
-  const parts = str.trim().split(':').map(Number);
-  if (parts.some(isNaN)) return null; // a non-numeric segment (typo) must not store NaN
-  if (parts.length === 2) return parts[0] + parts[1] / 60;
-  return parseFloat(str) || null;
-}
 
 // ═══════════════════════════════════════════════════════
 // DATA STORE
@@ -2036,9 +2015,7 @@ const Store = {
     if (this.data.shoes.length && typeof this.data.shoes[0] === 'string') {
       this.data.shoes = this.data.shoes.map(s => ({ name: s }));
     }
-    // Convert søvn stored as Excel day-fraction (< 1) to decimal hours
     this.data.sessions.forEach(s => {
-      if (s.sovn != null && s.sovn > 0 && s.sovn < 1) s.sovn = s.sovn * 24;
       if (s.snittkmh != null && s.snittkmh !== +s.snittkmh.toFixed(2)) s.snittkmh = +s.snittkmh.toFixed(2);
       // Heal sessions whose varighet was zeroed by the edit-form populate-order bug
       // (fixed 2026-07-11): zone times survived, so restore the same auto-fra-soner sum.
@@ -3212,7 +3189,6 @@ const Form = {
       hoydeMeter: parseInt(document.getElementById('fHoydeMeter').value) || null,
       sko: document.getElementById('fSko').value,
       løpetype: document.getElementById('fLopetype').value || 'utendors',
-      sovn: hhmmToHours(document.getElementById('fSovn').value),
       rpe: parseInt(document.getElementById('fRpe').value) || null,
       beskrivelse: document.getElementById('fBeskrivelse').value.trim() || null,
       notater: document.getElementById('fNotater').value.trim() || null,
@@ -3253,7 +3229,6 @@ const Form = {
     document.getElementById('fStigning').value = isTM ? (s.stigning ?? '') : '';
     document.getElementById('hoydeMeterGroup').style.display = !isTM ? '' : 'none';
     document.getElementById('fHoydeMeter').value = !isTM ? (s.hoydeMeter ?? '') : '';
-    document.getElementById('fSovn').value = s.sovn ? hoursToHHMM(s.sovn) : '';
     document.getElementById('fRpe').value = s.rpe || '';
     document.getElementById('beskrevelseGroup').style.display = s.treningsplan !== 'Egentrening' ? '' : 'none';
     document.getElementById('fBeskrivelse').value = s.beskrivelse || '';
@@ -3320,7 +3295,7 @@ const Form = {
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
-     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fSovn','fRpe','fBeskrivelse','fNotater','fLand','fStravaId'].forEach(id => {
+     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fRpe','fBeskrivelse','fNotater','fLand','fStravaId'].forEach(id => {
       document.getElementById(id).value = '';
     });
     const lastSession = Store.data.sessions[Store.data.sessions.length - 1];
@@ -3445,7 +3420,6 @@ const Log = {
         <td>${s.gjsnittspuls||''}</td>
         <td>${s.toppuls||''}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.sko||'')}</td>
-        <td style="${s.sovn ? (s.sovn < 6 ? 'color:#e05555;font-weight:600' : s.sovn < 7 ? 'color:#f0c050;font-weight:600' : 'color:#4bbe78;font-weight:600') : ''}">${s.sovn ? hoursToHHMM(s.sovn) : ''}</td>
         <td>${s.hoydeMeter ? s.hoydeMeter+'m' : s.stigning ? s.stigning+'%' : ''}</td>
         <td>${s.rpe ? `<span style="font-weight:600;color:${s.rpe<=3?'var(--green)':s.rpe<=6?'#f0c050':s.rpe<=8?'#e08040':'#e05555'}">${s.rpe}</span>` : ''}</td>
         <td>
@@ -4853,7 +4827,6 @@ const DetailPanel = {
       ['Stigning',       s.stigning ? s.stigning+'%' : null],
       ['Høydemeter',     s.hoydeMeter ? s.hoydeMeter+' m' : null],
       ['Sko',            s.sko  || null],
-      ['Søvn',           s.sovn ? hoursToHHMM(s.sovn) : null],
       ['RPE',            s.rpe  ? `${s.rpe}/10` : null],
       ['Land',           s.land ? landName(s.land) : null],
       ['Avvik',          s.utenforAnalyse ? 'Holdt utenfor analyse (trender/kvalitetsgrafer)' : null],
