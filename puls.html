@@ -947,7 +947,17 @@
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
       <input type="text" id="newShoeName" placeholder="Navn på sko (f.eks. Nike Pegasus 41)" style="flex:1;min-width:200px;max-width:340px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newShoeRetirementKm" placeholder="Utløpsgrense km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input type="month" id="newShoeObtained" title="Kjøpt (måned/år, valgfritt)" style="width:170px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <button class="btn-primary btn-sm" id="btnAddShoeMain">+ Legg til</button>
+    </div>
+    <div style="display:flex;gap:10px 18px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border)">
+      <span style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Standard sko</span>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">Utendørs
+        <select id="defaultShoeOutdoor" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:13px;min-width:150px"></select>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">Tredemølle
+        <select id="defaultShoeTreadmill" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:13px;min-width:150px"></select>
+      </label>
     </div>
     <div id="shoeList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -1995,7 +2005,7 @@ function hhmmToHours(str) {
 // DATA STORE
 // ═══════════════════════════════════════════════════════
 const Store = {
-  data: { sessions: [], shoes: [], goals: {}, events: [], consistencySettings: { kmThreshold: 15, runThreshold: 2 }, customSessionTypes: [], customPlans: [], lastUpdated: null },
+  data: { sessions: [], shoes: [], shoeDefaults: {}, goals: {}, events: [], consistencySettings: { kmThreshold: 15, runThreshold: 2 }, customSessionTypes: [], customPlans: [], lastUpdated: null },
   // True once this session has successfully loaded persisted data (cache, file, Drive or
   // backup). While false, memory is the baseline-empty default — FileIO.save() uses this
   // to avoid overwriting a real file with an empty dataset after e.g. a corrupt cache.
@@ -2061,10 +2071,11 @@ const Store = {
     FileIO.save();
   },
 
-  addShoe(name, retirementKm) {
+  addShoe(name, retirementKm, obtained) {
     if (!this.data.shoes.find(s => s.name === name)) {
       const shoe = { name };
       if (retirementKm) shoe.retirementKm = retirementKm;
+      if (obtained) shoe.obtained = obtained;
       this.data.shoes.push(shoe);
       FileIO.save();
     }
@@ -2310,7 +2321,7 @@ const FileIO = {
   },
 
   openNew() {
-    Store.data = { sessions: [], shoes: [], goals: {}, events: [], customSessionTypes: [], customPlans: [], lastUpdated: null };
+    Store.data = { sessions: [], shoes: [], shoeDefaults: {}, goals: {}, events: [], customSessionTypes: [], customPlans: [], lastUpdated: null };
     this.handle = null;
     localStorage.removeItem('lpl_cache');
     localStorage.removeItem('lpl_handle_name');
@@ -3075,6 +3086,13 @@ const Form = {
     });
     document.getElementById('fOkttype').addEventListener('change', () => this.maybeAutoName());
 
+    // Løpetype change: swap the pre-selected shoe to that venue's default. New sessions only —
+    // editing an existing session must keep its saved shoe (Form.clear sets løpetype without a
+    // change event, so this fires on genuine user toggles + new-session Strava populate).
+    document.getElementById('fLopetype').addEventListener('change', () => {
+      if (!this.editId) this.applyShoeDefault();
+    });
+
     // Auto-format time inputs on blur, then recalc
     document.querySelectorAll('.time-input').forEach(el => {
       el.addEventListener('blur', () => {
@@ -3151,6 +3169,16 @@ const Form = {
       const filterPrev = logFilter.value;
       logFilter.innerHTML = '<option value="">Alle</option>' +
         Store.data.shoes.map(s => `<option${s.name===filterPrev?' selected':''}>${escapeHtml(s.name)}</option>`).join('');
+    }
+  },
+
+  // Pre-select #fSko from the current venue's default shoe (Innstillinger → Standard sko).
+  // Only when the default names an existing, non-retired shoe — otherwise leave the current pick.
+  applyShoeDefault() {
+    const venue = document.getElementById('fLopetype').value === 'treadmill' ? 'treadmill' : 'outdoor';
+    const defName = (Store.data.shoeDefaults || {})[venue];
+    if (defName && Store.data.shoes.some(s => s.name === defName && !s.retired)) {
+      this.refreshShoeDropdown(defName);
     }
   },
 
@@ -3296,6 +3324,7 @@ const Form = {
     const lastSession = Store.data.sessions[Store.data.sessions.length - 1];
     const lastLopetype = lastSession?.løpetype || 'treadmill';
     document.getElementById('fLopetype').value = lastLopetype;
+    this.applyShoeDefault();   // pre-select the shoe for this venue (overridable per session)
     const todayDow = new Date().getDay();
     const sameDaySessions = Store.data.sessions.filter(s => new Date(s.dato).getDay() === todayDow && s.okttype);
     if (sameDaySessions.length >= 3) {
@@ -6437,21 +6466,43 @@ const Settings = {
   addShoe() {
     const nameInput = document.getElementById('newShoeName');
     const retInput = document.getElementById('newShoeRetirementKm');
+    const obtInput = document.getElementById('newShoeObtained');
     const name = nameInput.value.trim();
     if (!name) return;
     const retirementKm = parseFloat(retInput.value) || null;
+    const obtained = obtInput.value || null;   // 'YYYY-MM' from the month picker
     if (!Store.data.shoes.find(s => s.name === name)) {
-      Store.addShoe(name, retirementKm);
+      Store.addShoe(name, retirementKm, obtained);
       Form.refreshShoeDropdown(name);
     }
     nameInput.value = '';
     retInput.value = '';
+    obtInput.value = '';
     this.renderShoeList();
+  },
+
+  // Populate the two "Standard sko" dropdowns from active shoes; persist on change.
+  renderShoeDefaults() {
+    const defs = Store.data.shoeDefaults || (Store.data.shoeDefaults = {});
+    const active = Store.data.shoes.filter(s => !s.retired);
+    [['defaultShoeOutdoor', 'outdoor'], ['defaultShoeTreadmill', 'treadmill']].forEach(([id, venue]) => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const cur = defs[venue] || '';
+      sel.innerHTML = `<option value="">(ingen)</option>` +
+        active.map(s => `<option value="${escapeHtml(s.name)}"${s.name === cur ? ' selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+      sel.onchange = () => {
+        Store.data.shoeDefaults = Store.data.shoeDefaults || {};
+        Store.data.shoeDefaults[venue] = sel.value;
+        FileIO.save();
+      };
+    });
   },
 
   renderShoeList() {
     const list = document.getElementById('shoeList');
     if (!list) return;
+    this.renderShoeDefaults();   // keep the Standard sko dropdowns in sync with the shoe list
     const kmMap = {};
     Store.data.sessions.forEach(s => { if (s.sko) kmMap[s.sko] = (kmMap[s.sko] || 0) + (s.distanse || 0); });
     if (Store.data.shoes.length === 0) {
@@ -6468,6 +6519,17 @@ const Settings = {
       const retKm = shoe.retirementKm;
       const safeId = name.replace(/[^a-zA-Z0-9]/g, '_');
       const nameAttr = escapeHtml(name); // shoe name in a data-attribute; dataset decodes it back
+
+      // Obtained (YYYY-MM) → "Kjøpt <mnd> <år> · <alder>" (age omitted under 1 month).
+      let obtainedHtml = '';
+      if (shoe.obtained && /^\d{4}-\d{2}$/.test(shoe.obtained)) {
+        const NO_MTHS = ['jan','feb','mar','apr','mai','jun','jul','aug','sep','okt','nov','des'];
+        const [oy, om] = shoe.obtained.split('-').map(Number);
+        const months = (now.getFullYear() - oy) * 12 + (now.getMonth() + 1 - om);
+        const yrs = Math.floor(months / 12), mos = months % 12;
+        const age = months >= 1 ? (yrs && mos ? `${yrs} år ${mos} mnd` : yrs ? `${yrs} år` : `${mos} mnd`) : '';
+        obtainedHtml = `<div style="font-size:11px;color:var(--muted);margin-top:4px">Kjøpt ${NO_MTHS[om-1]} ${oy}${age ? ' · ' + age : ''}</div>`;
+      }
 
       let retireHtml = '';
       if (retKm && !isRetired) {
@@ -6521,10 +6583,13 @@ const Settings = {
           <span class="sr-km">${usedKm.toFixed(0)} km</span>
           <span class="shoe-actions">${actionButtons}</span>
         </div>
+        ${obtainedHtml}
         ${retireHtml}
         ${isRetired ? '' : `<div id="shoe-edit-${safeId}" style="display:none;margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
           <input type="number" id="shoe-ret-${safeId}" placeholder="Utløpsgrense km" value="${retKm || ''}" min="1"
             style="width:160px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px">
+          <input type="month" id="shoe-obt-${safeId}" title="Kjøpt (måned/år)" value="${shoe.obtained || ''}"
+            style="width:150px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px">
           <button class="btn-primary btn-sm" data-shoe-action="save" data-shoe-name="${nameAttr}" data-safe-id="${safeId}">Lagre</button>
           <button class="btn-secondary btn-sm" data-shoe-action="edit" data-safe-id="${safeId}">Avbryt</button>
         </div>`}
@@ -6561,7 +6626,9 @@ const Settings = {
   saveShoeRetirement(name, safeId) {
     const input = document.getElementById(`shoe-ret-${safeId}`);
     const km = parseFloat(input.value) || null;
-    Store.updateShoe(name, { retirementKm: km });
+    const obtEl = document.getElementById(`shoe-obt-${safeId}`);
+    const obtained = obtEl && obtEl.value ? obtEl.value : null;
+    Store.updateShoe(name, { retirementKm: km, obtained });
     this.renderShoeList();
   },
 
