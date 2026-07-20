@@ -932,6 +932,7 @@
       <input type="number" id="newGoalYear" placeholder="År" min="2020" max="2040" style="width:90px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newGoalKm" placeholder="Mål (km)" min="1" style="width:140px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <button class="btn-primary btn-sm" id="btnAddGoal">+ Legg til</button>
+      <button class="btn-secondary btn-sm" id="btnCancelGoalEdit" style="display:none">Avbryt</button>
     </div>
   </div>
 
@@ -6315,6 +6316,7 @@ const Settings = {
   init() {
     // Goals
     document.getElementById('btnAddGoal').addEventListener('click', () => this.addGoal());
+    document.getElementById('btnCancelGoalEdit').addEventListener('click', () => this.cancelGoalEdit());
     document.getElementById('newGoalKm').addEventListener('keydown', e => { if (e.key === 'Enter') this.addGoal(); });
 
     // Shoe management
@@ -6430,11 +6432,16 @@ const Settings = {
         <button class="btn-secondary btn-sm" data-edit-goal="${yr}" style="padding:4px 8px" title="Rediger">✏️</button>
         <button class="btn-secondary btn-sm" data-del-goal="${yr}" style="padding:4px 8px" title="Slett">🗑️</button>
       </div>`).join('');
-    // Edit = prefill the inputs; adding the same year overwrites the goal in place
+    // Edit = prefill the inputs + enter edit mode; the year is locked so "Oppdater" updates that year in place
     container.querySelectorAll('[data-edit-goal]').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.getElementById('newGoalYear').value = btn.dataset.editGoal;
-        document.getElementById('newGoalKm').value = Store.data.goals[btn.dataset.editGoal];
+        const yr = btn.dataset.editGoal;
+        document.getElementById('newGoalYear').value = yr;
+        document.getElementById('newGoalYear').readOnly = true;
+        document.getElementById('newGoalKm').value = Store.data.goals[yr];
+        this.editingGoalYear = yr;
+        document.getElementById('btnAddGoal').textContent = 'Oppdater';
+        document.getElementById('btnCancelGoalEdit').style.display = '';
         document.getElementById('newGoalKm').focus();
       });
     });
@@ -6442,6 +6449,7 @@ const Settings = {
       btn.addEventListener('click', () => {
         if (!confirm(`Slette mål for ${btn.dataset.delGoal}?`)) return;
         delete Store.data.goals[btn.dataset.delGoal];
+        if (this.editingGoalYear === btn.dataset.delGoal) this._clearGoalForm();
         FileIO.save(); this.renderGoalList(); renderDashboard();
       });
     });
@@ -6453,8 +6461,21 @@ const Settings = {
     if (!yr || !km || km <= 0) return;
     if (!Store.data.goals) Store.data.goals = {};
     Store.data.goals[yr] = km;
-    document.getElementById('newGoalKm').value = '';
+    this._clearGoalForm();
     FileIO.save(); this.renderGoalList(); renderDashboard();
+  },
+
+  cancelGoalEdit() {
+    this._clearGoalForm();
+  },
+
+  _clearGoalForm() {
+    this.editingGoalYear = null;
+    document.getElementById('newGoalYear').value = '';
+    document.getElementById('newGoalYear').readOnly = false;
+    document.getElementById('newGoalKm').value = '';
+    document.getElementById('btnAddGoal').textContent = '+ Legg til';
+    document.getElementById('btnCancelGoalEdit').style.display = 'none';
   },
 
   // ── Shoes ──
