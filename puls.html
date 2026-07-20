@@ -947,7 +947,9 @@
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
       <input type="text" id="newShoeName" placeholder="Navn på sko (f.eks. Nike Pegasus 41)" style="flex:1;min-width:200px;max-width:340px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newShoeRetirementKm" placeholder="Utløpsgrense km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <input type="month" id="newShoeObtained" title="Kjøpt (måned/år, valgfritt)" style="width:170px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">Kjøpt
+        <span id="newShoeObtainedPicker" style="display:flex;gap:6px"></span>
+      </label>
       <button class="btn-primary btn-sm" id="btnAddShoeMain">+ Legg til</button>
     </div>
     <div style="display:flex;gap:10px 18px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border)">
@@ -3500,6 +3502,26 @@ const LogExport = {
 // ═══════════════════════════════════════════════════════
 const Charts = {};
 const ZONE_COLORS = ['#5bc8f5','#6ccf7a','#f0c060','#f09060','#e05555'];
+// Month+year picker as two <select>s — cross-browser (unlike <input type=month>, which is a bare
+// text box in Firefox). Stores/returns 'YYYY-MM'. `big` = larger add-form style vs compact edit style.
+const PICKER_MONTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+function monthYearPickerHTML(idBase, value, big) {
+  const [cy, cm] = (value && /^\d{4}-\d{2}$/.test(value)) ? value.split('-').map(Number) : [null, null];
+  const nowY = new Date().getFullYear();
+  const style = big
+    ? 'background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 8px;font-size:13px'
+    : 'background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px';
+  let m = `<option value="">mnd</option>`;
+  PICKER_MONTHS.forEach((mo, i) => { m += `<option value="${String(i+1).padStart(2,'0')}"${cm === i+1 ? ' selected' : ''}>${mo}</option>`; });
+  let y = `<option value="">år</option>`;
+  for (let yr = nowY; yr >= nowY - 20; yr--) y += `<option value="${yr}"${cy === yr ? ' selected' : ''}>${yr}</option>`;
+  return `<select id="${idBase}-m" style="${style}">${m}</select> <select id="${idBase}-y" style="${style}">${y}</select>`;
+}
+function readMonthYear(idBase) {
+  const m = document.getElementById(idBase + '-m'), y = document.getElementById(idBase + '-y');
+  return (m && y && m.value && y.value) ? `${y.value}-${m.value}` : null;
+}
+
 const TYPE_COLORS = {
   Easy:'#4caf87', Steady:'#7aa8f0', Long:'#c07af0',
   Tempo:'#f0c060', Intervaller:'#e05555', Test:'#5bc8f5', Race:'#f5a623'
@@ -6466,18 +6488,18 @@ const Settings = {
   addShoe() {
     const nameInput = document.getElementById('newShoeName');
     const retInput = document.getElementById('newShoeRetirementKm');
-    const obtInput = document.getElementById('newShoeObtained');
     const name = nameInput.value.trim();
     if (!name) return;
     const retirementKm = parseFloat(retInput.value) || null;
-    const obtained = obtInput.value || null;   // 'YYYY-MM' from the month picker
+    const obtained = readMonthYear('newShoeObtained');   // 'YYYY-MM' from the two dropdowns, or null
     if (!Store.data.shoes.find(s => s.name === name)) {
       Store.addShoe(name, retirementKm, obtained);
       Form.refreshShoeDropdown(name);
     }
     nameInput.value = '';
     retInput.value = '';
-    obtInput.value = '';
+    const pm = document.getElementById('newShoeObtained-m'), py = document.getElementById('newShoeObtained-y');
+    if (pm) pm.value = ''; if (py) py.value = '';
     this.renderShoeList();
   },
 
@@ -6503,6 +6525,8 @@ const Settings = {
     const list = document.getElementById('shoeList');
     if (!list) return;
     this.renderShoeDefaults();   // keep the Standard sko dropdowns in sync with the shoe list
+    const picker = document.getElementById('newShoeObtainedPicker');   // build the add-form month/year picker once
+    if (picker && !document.getElementById('newShoeObtained-m')) picker.innerHTML = monthYearPickerHTML('newShoeObtained', '', true);
     const kmMap = {};
     Store.data.sessions.forEach(s => { if (s.sko) kmMap[s.sko] = (kmMap[s.sko] || 0) + (s.distanse || 0); });
     if (Store.data.shoes.length === 0) {
@@ -6585,11 +6609,15 @@ const Settings = {
         </div>
         ${obtainedHtml}
         ${retireHtml}
-        ${isRetired ? '' : `<div id="shoe-edit-${safeId}" style="display:none;margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
-          <input type="number" id="shoe-ret-${safeId}" placeholder="Utløpsgrense km" value="${retKm || ''}" min="1"
-            style="width:160px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px">
-          <input type="month" id="shoe-obt-${safeId}" title="Kjøpt (måned/år)" value="${shoe.obtained || ''}"
-            style="width:150px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px">
+        ${isRetired ? '' : `<div id="shoe-edit-${safeId}" style="display:none;margin-top:10px;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted)">Utløpsgrense (km)
+            <input type="number" id="shoe-ret-${safeId}" placeholder="valgfritt" value="${retKm || ''}" min="1"
+              style="width:150px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px">
+          </label>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <span style="font-size:11px;color:var(--muted)">Kjøpt (måned/år)</span>
+            <div style="display:flex;gap:6px">${monthYearPickerHTML(`shoe-obt-${safeId}`, shoe.obtained, false)}</div>
+          </div>
           <button class="btn-primary btn-sm" data-shoe-action="save" data-shoe-name="${nameAttr}" data-safe-id="${safeId}">Lagre</button>
           <button class="btn-secondary btn-sm" data-shoe-action="edit" data-safe-id="${safeId}">Avbryt</button>
         </div>`}
@@ -6626,8 +6654,7 @@ const Settings = {
   saveShoeRetirement(name, safeId) {
     const input = document.getElementById(`shoe-ret-${safeId}`);
     const km = parseFloat(input.value) || null;
-    const obtEl = document.getElementById(`shoe-obt-${safeId}`);
-    const obtained = obtEl && obtEl.value ? obtEl.value : null;
+    const obtained = readMonthYear(`shoe-obt-${safeId}`);
     Store.updateShoe(name, { retirementKm: km, obtained });
     this.renderShoeList();
   },
