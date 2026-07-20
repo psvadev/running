@@ -4,6 +4,8 @@ Field dictionary and caveats for the session data. Purpose: let any future sessi
 
 ## Session fields
 
+A trailing **`?`** on a type marks an **optional** field — the key may be absent from a session's JSON (each row notes what "absent" means, e.g. `land` absent = home country). Types without `?` are present on every session.
+
 | Field | Type | Semantics & caveats |
 |---|---|---|
 | `id` | string | Stable unique id; edits reuse it. |
