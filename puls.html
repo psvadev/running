@@ -1352,11 +1352,14 @@ function escapeHtml(s) {
 
 // ── Runna .ics import (planned training-block sessions) ───────────────────
 // Parses a Runna iCalendar export into planned RUN sessions for planned-vs-
-// actual tracking. Plan workouts carry a `_plan_week_N_` marker in their UID
-// (present on both upcoming and already-completed plan days); ad-hoc completed
-// runs (COMPLETED_NON_PLAN_WORKOUT, no marker) and strength sessions (no km)
-// are skipped. Type comes from the DESCRIPTION's leading label ("Easy Run •
-// 7.5km • …"), with the UID token (…_EASY_RUN_0) as backup.
+// actual tracking. Keeps events whose UID has a `*_PLAN_WORKOUT-` prefix —
+// UPCOMING_PLAN_WORKOUT- (future days, UID also carries `_plan_week_N_TYPE_`)
+// and COMPLETED_PLAN_WORKOUT- (done days, UID is just prefix + activityId, no
+// marker) — so a mid-block import captures both. Requires a km distance in the
+// SUMMARY (runs have it; strength doesn't). Ad-hoc runs (COMPLETED_NON_PLAN_
+// WORKOUT-) are skipped. Type: upcoming events expose it in the DESCRIPTION's
+// leading label / UID token; completed events carry neither, so a fuzzy pass
+// reads the SUMMARY + "📋 Description" prose ("… easy run at a conversational …").
 const RUNNA_TYPE_MAP = {
   'easy run': 'Easy', 'recovery run': 'Easy', 'long run': 'Long',
   'intervals': 'Intervaller', 'interval session': 'Intervaller', 'speed': 'Intervaller',
@@ -1378,22 +1381,33 @@ function parseRunnaIcs(text) {
       return m ? m[1].trim() : '';
     };
     const uid = field('UID');
-    if (!/_plan_week_\d+_/.test(uid)) return;            // plan sessions only (ad-hoc runs lack the marker)
+    if (!/_PLAN_WORKOUT-/.test(uid) || /NON_PLAN/.test(uid)) return; // plan sessions (upcoming OR completed); skip ad-hoc non-plan runs
     const summary = field('SUMMARY');
     const distM = summary.match(/([\d]+(?:\.\d+)?)\s*km/i);
-    if (!distM) return;                                  // runs carry a km distance; strength does not
+    if (!distM) return;                                  // runs carry a km distance in the SUMMARY; strength does not
     const dtM = field('DTSTART').match(/(\d{4})(\d{2})(\d{2})/);
     if (!dtM) return;
     const date = `${dtM[1]}-${dtM[2]}-${dtM[3]}`;
     const desc = field('DESCRIPTION')
       .replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
-    const label = (desc.split('\n')[0].split('•')[0] || '').trim();
-    const token = (uid.match(/_plan_week_\d+_([A-Z_]+?)_\d+$/) || [])[1] || '';
-    const okttype = RUNNA_TYPE_MAP[label.toLowerCase()] || RUNNA_TOKEN_MAP[token] || 'Easy';
+    const label = (desc.split('\n')[0].split('•')[0] || '').trim();  // upcoming first line = "Easy Run"; completed = "📊 Summary:"
+    const token = (uid.match(/_plan_week_\d+_([A-Z_]+?)_\d+/) || [])[1] || '';
+    // Type: exact upcoming label → UID token → fuzzy phrase. Completed events carry no label/token, so the fuzzy pass
+    // reads the SUMMARY + "📋 Description" prose (e.g. "5km easy run at a conversational pace").
+    let okttype = RUNNA_TYPE_MAP[label.toLowerCase()] || RUNNA_TOKEN_MAP[token];
+    if (!okttype) {
+      const hay = (summary + ' ' + desc).toLowerCase();
+      okttype = /\brace\b/.test(hay) ? 'Race'
+        : /time trial|\btest run\b/.test(hay) ? 'Test'
+        : /\binterval|\brepeat|\bfartlek|\bstrides?\b/.test(hay) ? 'Intervaller'
+        : /\btempo\b|\bthreshold\b/.test(hay) ? 'Tempo'
+        : /\blong run\b/.test(hay) ? 'Long'
+        : 'Easy';
+    }
     const planWeek = parseInt((uid.match(/_plan_week_(\d+)_/) || [])[1] || '', 10) || null;
     const urlM = desc.match(/https:\/\/club\.runna\.com\/\S+/);
-    const title = summary.replace(/^[^\p{L}\p{N}]+/u, '').replace(/\s*•\s*[\d.]+\s*km\s*$/i, '').trim();
-    const id = uid.slice(uid.indexOf('-') + 1);          // prefix-independent id → dedups upcoming/completed of one slot
+    const title = summary.replace(/^[^\p{L}\p{N}]+/u, '').replace(/^[\d.]+\s*km\s+/i, '').replace(/\s*•\s*[\d.]+\s*km\s*$/i, '').trim();
+    const id = uid.slice(uid.indexOf('-') + 1);          // prefix-independent id (dayId or activityId) → natural dedup
     byId[id] = { id, date, planWeek, okttype, distance: parseFloat(distM[1]), title, sourceUrl: urlM ? urlM[0] : '' };
   });
   return Object.values(byId).sort((a, b) => a.date.localeCompare(b.date));
