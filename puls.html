@@ -6678,6 +6678,8 @@ const Settings = {
   },
 
   // ── Events ──
+  eventsExpanded: false,
+
   renderEventList() {
     const list = document.getElementById('eventList');
     if (!list) return;
@@ -6687,7 +6689,11 @@ const Settings = {
       return;
     }
     const typeLabel = { plan: 'Plan', race: 'Løp/Race', illness: 'Sykdom', vacation: 'Ferie', deload: 'Deload', taper: 'Taper', personal: 'Annet' };
-    list.innerHTML = events.map(evt => {
+    // Collapse a long list to the most recent few so it doesn't push the page down; toggle reveals the rest.
+    const COLLAPSE_N = 6;
+    const overflow = events.length - COLLAPSE_N;
+    const shown = this.eventsExpanded ? events : events.slice(0, COLLAPSE_N);
+    let html = shown.map(evt => {
       const color = EVENT_COLORS[evt.type] || EVENT_COLORS.personal;
       const dateStr = evt.endDate ? `${fmtDate(evt.date)} – ${fmtDate(evt.endDate)}` : fmtDate(evt.date);
       return `<div class="event-row">
@@ -6699,6 +6705,12 @@ const Settings = {
         <button class="btn-secondary btn-sm" data-del-event="${evt.id}" title="Slett">✕</button>
       </div>`;
     }).join('');
+    if (overflow > 0) {
+      html += `<button class="btn-secondary btn-sm" id="btnToggleEvents" style="align-self:flex-start;margin-top:2px">${this.eventsExpanded ? '▴ Vis færre' : `▾ Vis alle (${events.length})`}</button>`;
+    }
+    list.innerHTML = html;
+    const tbtn = document.getElementById('btnToggleEvents');
+    if (tbtn) tbtn.addEventListener('click', () => { this.eventsExpanded = !this.eventsExpanded; this.renderEventList(); });
     list.querySelectorAll('[data-edit-event]').forEach(btn =>
       btn.addEventListener('click', () => this.editEvent(btn.dataset.editEvent)));
     list.querySelectorAll('[data-del-event]').forEach(btn =>
