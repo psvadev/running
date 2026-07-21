@@ -630,6 +630,8 @@
     </label>
   </div>
 
+  <div id="dashEmpty" style="display:none;color:var(--muted);text-align:center;padding:56px 20px;font-size:14px">Logg din første økt under ➕, så bygger dashbordet seg opp med grafer, nøkkeltall og innsikt. 📊</div>
+
   <div class="dash-grid">
     <div class="card span2" id="goalCard" style="display:none">
       <div class="card-title" id="goalCardTitle">Årsmål</div>
@@ -5451,6 +5453,19 @@ function renderPaceWeekChart(sessions) {
 
 function renderDashboard() {
   const allSessions = Store.data.sessions;
+  // Empty state — greet a fresh install like the other tabs do, instead of a bare filter bar over hidden cards.
+  const dashEmpty = document.getElementById('dashEmpty');
+  const dashFilterBar = document.getElementById('dashFilterBar');
+  const dashGrid = document.querySelector('#panel-dash .dash-grid');
+  if (!allSessions.length) {
+    if (dashEmpty) dashEmpty.style.display = '';
+    if (dashFilterBar) dashFilterBar.style.display = 'none';
+    if (dashGrid) dashGrid.style.display = 'none';
+    return;
+  }
+  if (dashEmpty) dashEmpty.style.display = 'none';
+  if (dashFilterBar) dashFilterBar.style.display = '';
+  if (dashGrid) dashGrid.style.display = '';
   buildYearPills(allSessions);
   const sessions = DashFilter.get(allSessions);
 
