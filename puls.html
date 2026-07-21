@@ -1413,6 +1413,38 @@ function parseRunnaIcs(text) {
   return Object.values(byId).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// Planned sessions falling within a training block (date on/after its start).
+function plannedForBlock(startDate) {
+  return (Store.data.plannedSessions || [])
+    .filter(p => p.date >= startDate)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Match each planned session to a logged run in the same ISO week (nearest date, then closest
+// distance), so a Friday session done Saturday still matches. A run only completes a planned
+// session if done on/after the planned day (1-day grace) and the same type is strongly preferred.
+// Returns { plannedId: actualId } without mutating stored objects.
+function matchPlannedSessions(planned) {
+  const actuals = (Store.data.sessions || []).filter(s => s.dato);
+  const matchOf = {};
+  const used = new Set();
+  planned.forEach(p => {
+    const wk = absWeekNum(p.date);
+    const pd = new Date(p.date);
+    let best = null, bestScore = Infinity;
+    actuals.forEach(a => {
+      if (used.has(a.id) || absWeekNum(a.dato) !== wk) return;
+      const dayDiff = (new Date(a.dato) - pd) / 86400000;
+      if (dayDiff < -1.5) return;
+      const typePenalty = a.okttype === p.okttype ? 0 : 100;
+      const score = typePenalty + Math.abs(dayDiff) * 10 + Math.abs((a.distanse || 0) - p.distance);
+      if (score < bestScore) { bestScore = score; best = a; }
+    });
+    if (best) { matchOf[p.id] = best.id; used.add(best.id); }
+  });
+  return matchOf;
+}
+
 // ── Land (countries run in) ──────────────────────────────────────────────
 // An empty `land` means Norway (home default); abroad runs store an ISO
 // 3166-1 alpha-2 code. Norwegian names come from Intl.DisplayNames at
@@ -4723,6 +4755,25 @@ function renderBlocks() {
             <div style="width:${consPct}%;height:100%;background:${cm.color};border-radius:4px;transition:width .3s"></div>
           </div>
         </div>
+        ${(() => {
+          const planned = plannedForBlock(current.startDate);
+          if (!planned.length) return '';
+          const matchOf = matchPlannedSessions(planned);
+          const pastDue = planned.filter(p => p.date <= today);
+          const done = pastDue.filter(p => matchOf[p.id]).length;
+          const adhPct = pastDue.length ? Math.round(done / pastDue.length * 100) : 0;
+          const next = planned.filter(p => p.date > today).slice(0, 3);
+          const nextHtml = next.length ? `<div style="font-size:11px;color:var(--muted);margin-top:8px">Neste: ${next.map(p => `${fmtDate(p.date)} ${escapeHtml(p.okttype)} ${p.distance}km`).join(' · ')}</div>` : '';
+          const bar = pastDue.length ? `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:12px">
+            <span style="color:var(--muted)">Planlagte økter</span>
+            <span style="font-weight:600;color:var(--green)">${done} av ${pastDue.length} fullført · ${adhPct}%</span>
+          </div>
+          <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+            <div style="width:${adhPct}%;height:100%;background:var(--green);border-radius:4px;transition:width .3s"></div>
+          </div>` : `<div style="font-size:12px;color:var(--muted)">Planlagte økter · ${planned.length} i blokken</div>`;
+          return `<div style="margin-bottom:12px">${bar}${nextHtml}</div>`;
+        })()}
         ${blockSparkline(current.weeklyKm)}
         <div style="font-size:10px;color:var(--muted);margin-top:4px">Ukentlig distanse</div>
       </div>`;
@@ -6925,13 +6976,22 @@ const Settings = {
       try { parsed = parseRunnaIcs(reader.result); }
       catch (err) { msg.style.color = 'var(--danger)'; msg.textContent = 'Kunne ikke lese .ics-filen.'; return; }
       if (!parsed.length) { msg.style.color = 'var(--danger)'; msg.textContent = 'Fant ingen planlagte løpeøkter i filen. Er det riktig Runna-.ics?'; return; }
-      Store.data.plannedSessions = parsed;
+      // Scope to the active training block (Plan event): keep only sessions on/after the block's
+      // start, so completed sessions from older finished blocks don't flood in.
+      const today = localISODate();
+      const active = (Store.data.events || [])
+        .filter(e => e.type === 'plan' && e.date <= today && (!e.endDate || e.endDate >= today))
+        .sort((a, b) => b.date.localeCompare(a.date))[0];
+      const scoped = active ? parsed.filter(p => p.date >= active.date) : parsed;
+      if (!scoped.length) { msg.style.color = 'var(--danger)'; msg.textContent = `Fant ${parsed.length} økter, men ingen innenfor den aktive blokken (fra ${fmtDate(active.date)}).`; return; }
+      Store.data.plannedSessions = scoped;
       FileIO.save();
       this.plannedExpanded = false;
       this.renderPlannedList();
-      const first = parsed[0].date, last = parsed[parsed.length - 1].date;
+      const first = scoped[0].date, last = scoped[scoped.length - 1].date;
+      const skipped = parsed.length - scoped.length;
       msg.style.color = 'var(--green)';
-      msg.textContent = `Importerte ${parsed.length} planlagte løpeøkter (${fmtDate(first)} – ${fmtDate(last)}). Strength og ad-hoc-løp ble hoppet over.`;
+      msg.textContent = `Importerte ${scoped.length} planlagte løpeøkter (${fmtDate(first)} – ${fmtDate(last)})${skipped ? `, hoppet over ${skipped} fra tidligere blokker` : ''}. Strength og ad-hoc-løp ble hoppet over.`;
     };
     reader.onerror = () => { msg.style.color = 'var(--danger)'; msg.textContent = 'Kunne ikke lese filen.'; };
     reader.readAsText(file);
@@ -6955,26 +7015,8 @@ const Settings = {
     const planned = (Store.data.plannedSessions || []).slice().sort((a, b) => a.date.localeCompare(b.date));
     if (clearBtn) clearBtn.style.display = planned.length ? '' : 'none';
     if (!planned.length) { adhEl.innerHTML = ''; listEl.innerHTML = '<p style="color:var(--muted);font-size:13px">Ingen plan importert ennå.</p>'; return; }
-    // Match each planned session to a logged run in the same ISO week (nearest date, then closest distance);
-    // week-bucketing means a Friday session done Saturday still matches. No mutation of stored objects.
     const today = localISODate();
-    const actuals = (Store.data.sessions || []).filter(s => s.dato);
-    const matchOf = {};
-    const used = new Set();
-    planned.forEach(p => {
-      const wk = absWeekNum(p.date);
-      const pd = new Date(p.date);
-      let best = null, bestScore = Infinity;
-      actuals.forEach(a => {
-        if (used.has(a.id) || absWeekNum(a.dato) !== wk) return;
-        const dayDiff = (new Date(a.dato) - pd) / 86400000;   // >0 = run done after the planned day
-        if (dayDiff < -1.5) return;                            // a run done >1 day before the planned day isn't this session
-        const typePenalty = a.okttype === p.okttype ? 0 : 100; // strongly prefer a same-type run
-        const score = typePenalty + Math.abs(dayDiff) * 10 + Math.abs((a.distanse || 0) - p.distance);
-        if (score < bestScore) { bestScore = score; best = a; }
-      });
-      if (best) { matchOf[p.id] = best.id; used.add(best.id); }
-    });
+    const matchOf = matchPlannedSessions(planned);
     const pastDue = planned.filter(p => p.date <= today);
     const done = pastDue.filter(p => matchOf[p.id]).length;
     if (!pastDue.length) {
