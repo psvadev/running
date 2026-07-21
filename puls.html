@@ -307,6 +307,11 @@
   /* ── Misc ── */
   .empty-state { text-align: center; padding: 48px 24px; color: var(--muted); }
   .empty-state p { margin-top: 8px; font-size: 13px; }
+  .welcome-banner { padding: 40px 24px; margin-bottom: 20px; }
+  .welcome-banner.hidden { display: none; }
+  .welcome-banner h3 { margin: 12px 0 0; font-size: 16px; color: var(--text); }
+  .welcome-banner a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .welcome-banner a:hover { text-decoration: underline; }
   .mt-16 { margin-top: 16px; }
   .mt-8 { margin-top: 8px; }
   .flex { display: flex; }
@@ -399,7 +404,7 @@
   </div>
   <input type="hidden" id="fStravaId">
 
-  <div class="edit-banner" id="welcomeBanner"></div>
+  <div class="empty-state welcome-banner hidden" id="welcomeBanner"></div>
 
   <div class="form-section" id="stravaFetchSection" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between">
@@ -7255,15 +7260,16 @@ function refreshAll() {
 document.addEventListener('DOMContentLoaded', () => {
   // Welcome banner copy depends on browser capability (File System Access API vs Firefox's
   // download/re-open fallback) — set once here since it never changes during a session.
+  const settingsLink = `<a onclick="switchTab('settings');return false;">⚙️ Innstillinger</a>`;
   document.getElementById('welcomeBanner').innerHTML = FileIO.supportsApi
-    ? `<div>
-        <div>👋 Velkommen! Fyll ut en økt under og trykk Lagre — du velger da hvor <code>puls.json</code>-filen din skal lagres, og det er all data du trenger.</div>
-        <div style="margin-top:8px">Google Drive-synk og Strava-integrasjon er valgfritt og kan settes opp senere i ⚙️ Innstillinger.</div>
-      </div>`
-    : `<div>
-        <div>👋 Velkommen! Fyll ut en økt under og trykk Lagre. Nettleseren din støtter ikke automatisk fillagring — gå til ⚙️ Innstillinger → ⬇️ Last ned etter hver økt for å laste ned <code>puls.json</code>, og åpne den igjen neste gang med 📂 Åpne fil.</div>
-        <div style="margin-top:8px">Chrome eller Edge gir automatisk fillagring uten disse stegene. Google Drive-synk (fungerer i alle nettlesere) og Strava-integrasjon er valgfritt og kan settes opp i ⚙️ Innstillinger.</div>
-      </div>`;
+    ? `<div style="font-size:48px">👋</div>
+       <h3>Velkommen til Puls!</h3>
+       <p>Fyll ut en økt under og trykk <strong>Lagre</strong> — du velger selv hvor <code>puls.json</code>-filen skal lagres, og det er all data du trenger.</p>
+       <p>Google Drive-synk og Strava-integrasjon er valgfritt og kan settes opp senere i ${settingsLink}.</p>`
+    : `<div style="font-size:48px">👋</div>
+       <h3>Velkommen til Puls!</h3>
+       <p>Fyll ut en økt under og trykk <strong>Lagre</strong>. Nettleseren din støtter ikke automatisk fillagring — bruk ⬇️ Last ned etter hver økt for å laste ned <code>puls.json</code>, og åpne den igjen neste gang med 📂 Åpne fil (begge i ${settingsLink}).</p>
+       <p>Chrome eller Edge gir automatisk fillagring uten disse stegene. Google Drive-synk (alle nettlesere) og Strava er valgfritt og kan settes opp i ${settingsLink}.</p>`;
 
   // Tab switching
   const VALID_TABS = ['form','dash','atlas','log','plan','settings'];
