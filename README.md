@@ -73,7 +73,9 @@ A motivational travel section (grew out of "Land løpt i") that lives in its own
 
 Open `puls.html` in your browser — no install needed. Or use the hosted version at **[psvadev.github.io/running/puls.html](https://psvadev.github.io/running/puls.html)** (navigating to the root redirects automatically). A small footer at the bottom of the page shows the currently deployed commit (fetched live from GitHub, with the last known version cached locally so it survives API hiccups), so you can confirm you're on the latest version.
 
-First-time users see a short in-app welcome message on the logging form explaining the save flow — it disappears automatically after your first session is logged.
+First-time users see a short in-app welcome message on the logging form (a centered greeting matching the other tabs' empty states, with a link straight to ⚙️ Innstillinger) explaining the save flow — it disappears automatically after your first session is logged.
+
+A quiet **"Om Puls — dokumentasjon på GitHub"** link sits at the bottom of the ⚙️ Innstillinger tab (below the Datafil card), opening this repository in a new tab.
 
 ### First time (no existing data)
 
