@@ -6963,8 +6963,12 @@ const Settings = {
     });
     const pastDue = planned.filter(p => p.date <= today);
     const done = pastDue.filter(p => matchOf[p.id]).length;
-    const pct = pastDue.length ? Math.round(done / pastDue.length * 100) : 0;
-    adhEl.innerHTML = `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført${pastDue.length ? ` · ${pct}%` : ''} <span style="color:var(--muted)">· ${planned.length} totalt i planen</span></div>`;
+    if (!pastDue.length) {
+      adhEl.innerHTML = `<div style="font-size:13px;color:var(--muted)">Ingen forfalte økter ennå · ${planned.length} økter i planen</div>`;
+    } else {
+      const pct = Math.round(done / pastDue.length * 100);
+      adhEl.innerHTML = `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">· ${planned.length} totalt i planen</span></div>`;
+    }
     const COLLAPSE_N = 10;
     const overflow = planned.length - COLLAPSE_N;
     const shown = this.plannedExpanded ? planned : planned.slice(0, COLLAPSE_N);
