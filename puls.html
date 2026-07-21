@@ -6949,10 +6949,14 @@ const Settings = {
     const used = new Set();
     planned.forEach(p => {
       const wk = absWeekNum(p.date);
+      const pd = new Date(p.date);
       let best = null, bestScore = Infinity;
       actuals.forEach(a => {
         if (used.has(a.id) || absWeekNum(a.dato) !== wk) return;
-        const score = Math.abs(new Date(a.dato) - new Date(p.date)) / 86400000 * 10 + Math.abs((a.distanse || 0) - p.distance);
+        const dayDiff = (new Date(a.dato) - pd) / 86400000;   // >0 = run done after the planned day
+        if (dayDiff < -1.5) return;                            // a run done >1 day before the planned day isn't this session
+        const typePenalty = a.okttype === p.okttype ? 0 : 100; // strongly prefer a same-type run
+        const score = typePenalty + Math.abs(dayDiff) * 10 + Math.abs((a.distanse || 0) - p.distance);
         if (score < bestScore) { bestScore = score; best = a; }
       });
       if (best) { matchOf[p.id] = best.id; used.add(best.id); }
