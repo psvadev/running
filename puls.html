@@ -6790,6 +6790,8 @@ const Settings = {
     if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
   },
 
+  racesExpanded: false,
+
   renderRaceHistory() {
     const el = document.getElementById('raceHistoryList');
     if (!el) return;
@@ -6800,7 +6802,11 @@ const Settings = {
       el.innerHTML = '<p style="color:var(--muted);font-size:13px">Ingen races registrert. Legg til hendelse av typen Løp/Race.</p>';
       return;
     }
-    el.innerHTML = races.map(evt => {
+    // Collapse a long list to the most recent few; toggle reveals the rest.
+    const COLLAPSE_N = 6;
+    const overflow = races.length - COLLAPSE_N;
+    const shown = this.racesExpanded ? races : races.slice(0, COLLAPSE_N);
+    el.innerHTML = shown.map(evt => {
       const isFuture = evt.date > today;
       const nearby = Store.data.sessions.filter(s =>
         Math.abs(new Date(s.dato) - new Date(evt.date)) <= 86400000);
@@ -6821,6 +6827,10 @@ const Settings = {
         ${stats ? `<div style="font-size:12px;color:var(--muted);margin-top:3px">${stats}</div>` : ''}
       </div>`;
     }).join('');
+    if (overflow > 0) {
+      el.innerHTML += `<button class="btn-secondary btn-sm" id="btnToggleRaces" style="margin-top:10px">${this.racesExpanded ? '▴ Vis færre' : `▾ Vis alle (${races.length})`}</button>`;
+      document.getElementById('btnToggleRaces').addEventListener('click', () => { this.racesExpanded = !this.racesExpanded; this.renderRaceHistory(); });
+    }
   },
 
   renderBestEfforts() {
