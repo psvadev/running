@@ -6690,7 +6690,7 @@ const Settings = {
     }
     const typeLabel = { plan: 'Plan', race: 'Løp/Race', illness: 'Sykdom', vacation: 'Ferie', deload: 'Deload', taper: 'Taper', personal: 'Annet' };
     // Collapse a long list to the most recent few so it doesn't push the page down; toggle reveals the rest.
-    const COLLAPSE_N = 6;
+    const COLLAPSE_N = 8;
     const overflow = events.length - COLLAPSE_N;
     const shown = this.eventsExpanded ? events : events.slice(0, COLLAPSE_N);
     let html = shown.map(evt => {
@@ -6803,7 +6803,7 @@ const Settings = {
       return;
     }
     // Collapse a long list to the most recent few; toggle reveals the rest.
-    const COLLAPSE_N = 6;
+    const COLLAPSE_N = 8;
     const overflow = races.length - COLLAPSE_N;
     const shown = this.racesExpanded ? races : races.slice(0, COLLAPSE_N);
     el.innerHTML = shown.map(evt => {
