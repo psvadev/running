@@ -1445,6 +1445,15 @@ function matchPlannedSessions(planned) {
   return matchOf;
 }
 
+// A planned session's display title, minus the redundant "<Type> Run" phrasing that just restates the
+// okttype column (keeps flavored names like "Rolling 300s" / "Progressive Long Run" / "400m Repeats").
+function plannedTitle(p) {
+  const t = (p.title || '').trim();
+  const generic = ['easy run', 'long run', 'recovery run', 'tempo run', 'tempo', 'threshold run',
+    'intervals', 'interval session', 'race', 'test', 'time trial'];
+  return generic.includes(t.toLowerCase()) ? '' : t;
+}
+
 // ── Land (countries run in) ──────────────────────────────────────────────
 // An empty `land` means Norway (home default); abroad runs store an ISO
 // 3166-1 alpha-2 code. Norwegian names come from Intl.DisplayNames at
@@ -5287,6 +5296,30 @@ const DetailPanel = {
       </div>`
     ).join('');
 
+    // Planned-vs-actual for this block (from an imported Runna plan overlapping the block window).
+    const planned = plannedForBlock(startDate);
+    let plannedHtml = '';
+    if (planned.length) {
+      const pMatch = matchPlannedSessions(planned);
+      const pToday = localISODate();
+      const pPastDue = planned.filter(p => p.date <= pToday);
+      const pDone = pPastDue.filter(p => pMatch[p.id]).length;
+      const pAdh = pPastDue.length ? `${pDone} av ${pPastDue.length} fullført · ${Math.round(pDone / pPastDue.length * 100)}%` : `${planned.length} økter`;
+      const pRows = planned.map(p => {
+        const past = p.date <= pToday;
+        const icon = pMatch[p.id] ? '<span style="color:var(--green)">✓</span>' : past ? '<span style="color:#e05555">✗</span>' : '<span style="color:var(--muted)">○</span>';
+        const tc = (typeof TYPE_COLORS !== 'undefined' && TYPE_COLORS[p.okttype]) || 'var(--text)';
+        return `<div style="display:flex;align-items:center;gap:10px;font-size:12px;padding:5px 4px;border-bottom:1px solid var(--border)">
+          <span style="width:13px;text-align:center;flex-shrink:0">${icon}</span>
+          <span style="color:var(--muted);min-width:76px;flex-shrink:0">${fmtDate(p.date)}</span>
+          <span style="color:${tc};min-width:70px;flex-shrink:0">${escapeHtml(p.okttype)}</span>
+          <span style="flex:1;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(plannedTitle(p))}</span>
+          <span style="font-weight:600;flex-shrink:0">${p.distance} km</span>
+        </div>`;
+      }).join('');
+      plannedHtml = `<div class="dp-section-label">Planlagte økter <span style="font-weight:400;color:var(--muted);font-size:11px">· ${pAdh}</span></div>${pRows}`;
+    }
+
     this.open(title, `
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
         ${fmtDate(startDate)} – ${isCurrent?'nå':fmtDate(endDate)} · ${weeks} uker
@@ -5309,6 +5342,7 @@ const DetailPanel = {
       ${compHtml}
       ${zoneHtml}
       ${detailParts.length ? `<div class="dp-section-label">Detaljer</div><div style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px;margin-bottom:12px">${detailParts.map(p=>`<div>${p}</div>`).join('')}</div>` : ''}
+      ${plannedHtml}
       ${runsHtml ? `<div class="dp-section-label">Løp i blokken</div>${runsHtml}` : ''}
     `);
   },
@@ -7038,7 +7072,7 @@ const Settings = {
         <span title="${iTitle}" style="width:14px;text-align:center;flex-shrink:0">${icon}</span>
         <span style="color:var(--muted);min-width:92px;flex-shrink:0">${fmtDate(p.date)}</span>
         <span style="color:${tc};min-width:76px;flex-shrink:0;font-weight:500">${escapeHtml(p.okttype)}</span>
-        <span style="flex:1;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.title || '')}</span>
+        <span style="flex:1;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(plannedTitle(p))}</span>
         <span style="font-weight:600;flex-shrink:0">${p.distance} km</span>
       </div>`;
     }).join('');
