@@ -994,6 +994,19 @@
     <div id="raceHistoryList"></div>
   </div>
 
+  <!-- Planlagte økter (Runna .ics-import) -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Planlagte økter <span class="ct-sub">· importert fra Runna</span></div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Importer Runna-planens <strong>.ics</strong>-fil for å se planlagte økter og hvor godt de matcher det du faktisk løper. Én import per treningsblokk holder — hele blokken følger med. Strength og ad-hoc-løp hoppes over. <em>Slik:</em> kopier iCalendar-lenken i Runna → åpne den i nettleseren (bytt <code>webcal://</code> til <code>https://</code>) → last ned <code>.ics</code>-filen → velg den her.</p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <input type="file" id="runnaIcsFile" accept=".ics,text/calendar" style="font-size:12px;color:var(--muted);max-width:100%">
+      <button class="btn-secondary btn-sm" id="btnClearPlanned" style="display:none">Fjern importerte</button>
+    </div>
+    <div id="plannedImportMsg" style="font-size:12px;margin-bottom:10px"></div>
+    <div id="plannedAdherence" style="margin-bottom:10px"></div>
+    <div id="plannedList" style="display:flex;flex-direction:column;gap:0"></div>
+  </div>
+
 </div>
 
 <!-- ══════════════ TAB 5: SETTINGS ══════════════ -->
@@ -1335,6 +1348,55 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
+}
+
+// ── Runna .ics import (planned training-block sessions) ───────────────────
+// Parses a Runna iCalendar export into planned RUN sessions for planned-vs-
+// actual tracking. Plan workouts carry a `_plan_week_N_` marker in their UID
+// (present on both upcoming and already-completed plan days); ad-hoc completed
+// runs (COMPLETED_NON_PLAN_WORKOUT, no marker) and strength sessions (no km)
+// are skipped. Type comes from the DESCRIPTION's leading label ("Easy Run •
+// 7.5km • …"), with the UID token (…_EASY_RUN_0) as backup.
+const RUNNA_TYPE_MAP = {
+  'easy run': 'Easy', 'recovery run': 'Easy', 'long run': 'Long',
+  'intervals': 'Intervaller', 'interval session': 'Intervaller', 'speed': 'Intervaller',
+  'tempo': 'Tempo', 'tempo run': 'Tempo', 'threshold': 'Tempo',
+  'test': 'Test', 'time trial': 'Test', 'race': 'Race',
+};
+const RUNNA_TOKEN_MAP = {
+  EASY_RUN: 'Easy', RECOVERY_RUN: 'Easy', LONG_RUN: 'Long',
+  INTERVALS: 'Intervaller', SPEED: 'Intervaller', TEMPO: 'Tempo', THRESHOLD: 'Tempo',
+  TEST: 'Test', TIME_TRIAL: 'Test', RACE: 'Race',
+};
+function parseRunnaIcs(text) {
+  const unfolded = String(text).replace(/\r\n/g, '\n').replace(/\n[ \t]/g, ''); // RFC5545 line unfolding
+  const byId = {};
+  unfolded.split('BEGIN:VEVENT').slice(1).forEach(chunk => {
+    const body = chunk.split('END:VEVENT')[0];
+    const field = key => {
+      const m = body.match(new RegExp('^' + key + '[^:\\n]*:(.*)$', 'm'));
+      return m ? m[1].trim() : '';
+    };
+    const uid = field('UID');
+    if (!/_plan_week_\d+_/.test(uid)) return;            // plan sessions only (ad-hoc runs lack the marker)
+    const summary = field('SUMMARY');
+    const distM = summary.match(/([\d]+(?:\.\d+)?)\s*km/i);
+    if (!distM) return;                                  // runs carry a km distance; strength does not
+    const dtM = field('DTSTART').match(/(\d{4})(\d{2})(\d{2})/);
+    if (!dtM) return;
+    const date = `${dtM[1]}-${dtM[2]}-${dtM[3]}`;
+    const desc = field('DESCRIPTION')
+      .replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+    const label = (desc.split('\n')[0].split('•')[0] || '').trim();
+    const token = (uid.match(/_plan_week_\d+_([A-Z_]+?)_\d+$/) || [])[1] || '';
+    const okttype = RUNNA_TYPE_MAP[label.toLowerCase()] || RUNNA_TOKEN_MAP[token] || 'Easy';
+    const planWeek = parseInt((uid.match(/_plan_week_(\d+)_/) || [])[1] || '', 10) || null;
+    const urlM = desc.match(/https:\/\/club\.runna\.com\/\S+/);
+    const title = summary.replace(/^[^\p{L}\p{N}]+/u, '').replace(/\s*•\s*[\d.]+\s*km\s*$/i, '').trim();
+    const id = uid.slice(uid.indexOf('-') + 1);          // prefix-independent id → dedups upcoming/completed of one slot
+    byId[id] = { id, date, planWeek, okttype, distance: parseFloat(distM[1]), title, sourceUrl: urlM ? urlM[0] : '' };
+  });
+  return Object.values(byId).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // ── Land (countries run in) ──────────────────────────────────────────────
@@ -1987,7 +2049,7 @@ async function copyToClipboard(text) {
 // DATA STORE
 // ═══════════════════════════════════════════════════════
 const Store = {
-  data: { sessions: [], shoes: [], shoeDefaults: {}, goals: {}, events: [], consistencySettings: { kmThreshold: 15, runThreshold: 2 }, customSessionTypes: [], customPlans: [], lastUpdated: null },
+  data: { sessions: [], shoes: [], shoeDefaults: {}, goals: {}, events: [], plannedSessions: [], consistencySettings: { kmThreshold: 15, runThreshold: 2 }, customSessionTypes: [], customPlans: [], lastUpdated: null },
   // True once this session has successfully loaded persisted data (cache, file, Drive or
   // backup). While false, memory is the baseline-empty default — FileIO.save() uses this
   // to avoid overwriting a real file with an empty dataset after e.g. a corrupt cache.
@@ -2301,7 +2363,7 @@ const FileIO = {
   },
 
   openNew() {
-    Store.data = { sessions: [], shoes: [], shoeDefaults: {}, goals: {}, events: [], customSessionTypes: [], customPlans: [], lastUpdated: null };
+    Store.data = { sessions: [], shoes: [], shoeDefaults: {}, goals: {}, events: [], plannedSessions: [], customSessionTypes: [], customPlans: [], lastUpdated: null };
     this.handle = null;
     localStorage.removeItem('lpl_cache');
     localStorage.removeItem('lpl_handle_name');
@@ -6322,6 +6384,9 @@ const Settings = {
     document.getElementById('btnAddGoal').addEventListener('click', () => this.addGoal());
     document.getElementById('btnCancelGoalEdit').addEventListener('click', () => this.cancelGoalEdit());
     document.getElementById('newGoalKm').addEventListener('keydown', e => { if (e.key === 'Enter') this.addGoal(); });
+    // Planned sessions (Runna .ics import)
+    document.getElementById('runnaIcsFile').addEventListener('change', e => this.importRunnaIcs(e));
+    document.getElementById('btnClearPlanned').addEventListener('click', () => this.clearPlanned());
 
     // Shoe management
     document.getElementById('btnAddShoeMain').addEventListener('click', () => this.addShoe());
@@ -6382,6 +6447,7 @@ const Settings = {
     this.loadConsistencyFields();
     this.renderEventList();
     this.renderRaceHistory();
+    this.renderPlannedList();
     this.renderBestEfforts();
     StravaBestEfforts.showReview();
     this.renderBackupList();
@@ -6831,6 +6897,91 @@ const Settings = {
       el.innerHTML += `<button class="btn-secondary btn-sm" id="btnToggleRaces" style="margin-top:10px">${this.racesExpanded ? '▴ Vis færre' : `▾ Vis alle (${races.length})`}</button>`;
       document.getElementById('btnToggleRaces').addEventListener('click', () => { this.racesExpanded = !this.racesExpanded; this.renderRaceHistory(); });
     }
+  },
+
+  plannedExpanded: false,
+
+  importRunnaIcs(e) {
+    const file = e.target.files && e.target.files[0];
+    const msg = document.getElementById('plannedImportMsg');
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let parsed;
+      try { parsed = parseRunnaIcs(reader.result); }
+      catch (err) { msg.style.color = 'var(--danger)'; msg.textContent = 'Kunne ikke lese .ics-filen.'; return; }
+      if (!parsed.length) { msg.style.color = 'var(--danger)'; msg.textContent = 'Fant ingen planlagte løpeøkter i filen. Er det riktig Runna-.ics?'; return; }
+      Store.data.plannedSessions = parsed;
+      FileIO.save();
+      this.plannedExpanded = false;
+      this.renderPlannedList();
+      const first = parsed[0].date, last = parsed[parsed.length - 1].date;
+      msg.style.color = 'var(--green)';
+      msg.textContent = `Importerte ${parsed.length} planlagte løpeøkter (${fmtDate(first)} – ${fmtDate(last)}). Strength og ad-hoc-løp ble hoppet over.`;
+    };
+    reader.onerror = () => { msg.style.color = 'var(--danger)'; msg.textContent = 'Kunne ikke lese filen.'; };
+    reader.readAsText(file);
+    e.target.value = ''; // allow re-selecting the same file next time
+  },
+
+  clearPlanned() {
+    if (!confirm('Fjerne alle importerte planlagte økter?')) return;
+    Store.data.plannedSessions = [];
+    FileIO.save();
+    const msg = document.getElementById('plannedImportMsg');
+    if (msg) msg.textContent = '';
+    this.renderPlannedList();
+  },
+
+  renderPlannedList() {
+    const listEl = document.getElementById('plannedList');
+    const adhEl = document.getElementById('plannedAdherence');
+    const clearBtn = document.getElementById('btnClearPlanned');
+    if (!listEl) return;
+    const planned = (Store.data.plannedSessions || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+    if (clearBtn) clearBtn.style.display = planned.length ? '' : 'none';
+    if (!planned.length) { adhEl.innerHTML = ''; listEl.innerHTML = '<p style="color:var(--muted);font-size:13px">Ingen plan importert ennå.</p>'; return; }
+    // Match each planned session to a logged run in the same ISO week (nearest date, then closest distance);
+    // week-bucketing means a Friday session done Saturday still matches. No mutation of stored objects.
+    const today = localISODate();
+    const actuals = (Store.data.sessions || []).filter(s => s.dato);
+    const matchOf = {};
+    const used = new Set();
+    planned.forEach(p => {
+      const wk = absWeekNum(p.date);
+      let best = null, bestScore = Infinity;
+      actuals.forEach(a => {
+        if (used.has(a.id) || absWeekNum(a.dato) !== wk) return;
+        const score = Math.abs(new Date(a.dato) - new Date(p.date)) / 86400000 * 10 + Math.abs((a.distanse || 0) - p.distance);
+        if (score < bestScore) { bestScore = score; best = a; }
+      });
+      if (best) { matchOf[p.id] = best.id; used.add(best.id); }
+    });
+    const pastDue = planned.filter(p => p.date <= today);
+    const done = pastDue.filter(p => matchOf[p.id]).length;
+    const pct = pastDue.length ? Math.round(done / pastDue.length * 100) : 0;
+    adhEl.innerHTML = `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført${pastDue.length ? ` · ${pct}%` : ''} <span style="color:var(--muted)">· ${planned.length} totalt i planen</span></div>`;
+    const COLLAPSE_N = 10;
+    const overflow = planned.length - COLLAPSE_N;
+    const shown = this.plannedExpanded ? planned : planned.slice(0, COLLAPSE_N);
+    let html = shown.map(p => {
+      const past = p.date <= today;
+      const matched = !!matchOf[p.id];
+      const icon = matched ? '<span style="color:var(--green)">✓</span>' : past ? '<span style="color:#e05555">✗</span>' : '<span style="color:var(--muted)">○</span>';
+      const iTitle = matched ? 'Matchet med logget økt' : past ? 'Ingen logget økt denne uken' : 'Kommende';
+      const tc = (typeof TYPE_COLORS !== 'undefined' && TYPE_COLORS[p.okttype]) || 'var(--text)';
+      return `<div style="display:flex;align-items:center;gap:10px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--border)">
+        <span title="${iTitle}" style="width:14px;text-align:center;flex-shrink:0">${icon}</span>
+        <span style="color:var(--muted);min-width:92px;flex-shrink:0">${fmtDate(p.date)}</span>
+        <span style="color:${tc};min-width:76px;flex-shrink:0;font-weight:500">${escapeHtml(p.okttype)}</span>
+        <span style="flex:1;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.title || '')}</span>
+        <span style="font-weight:600;flex-shrink:0">${p.distance} km</span>
+      </div>`;
+    }).join('');
+    if (overflow > 0) html += `<button class="btn-secondary btn-sm" id="btnTogglePlanned" style="align-self:flex-start;margin-top:8px">${this.plannedExpanded ? '▴ Vis færre' : `▾ Vis alle (${planned.length})`}</button>`;
+    listEl.innerHTML = html;
+    const tb = document.getElementById('btnTogglePlanned');
+    if (tb) tb.addEventListener('click', () => { this.plannedExpanded = !this.plannedExpanded; this.renderPlannedList(); });
   },
 
   renderBestEfforts() {
