@@ -1,6 +1,8 @@
 # Puls
 
-A self-contained single-file running tracker — log a run in seconds with Strava-import, sync across devices via Google Drive, and follow your progress through records, insights, and trend charts. No install, no build step, no backend. Norwegian UI throughout.
+A self-contained single-file running tracker — log a run in seconds and follow your progress through records, insights, and trend charts. No install, no build step, no backend. Norwegian UI throughout.
+
+**Works fully standalone** on a local JSON file — Strava-import, Google Drive sync, and Runna plan-import are each *optional* enhancements you can turn on if you want them, never required setup. Everything works with none of them configured.
 
 ## Features
 
