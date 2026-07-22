@@ -416,6 +416,7 @@
 
   <div class="form-section">
     <div class="form-section-title">Øktinfo</div>
+    <div id="planPrefillHint" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:420px">
       <div class="form-group">
         <label>Dato</label>
@@ -3205,7 +3206,10 @@ const Form = {
     this.updateWeek();
     this.refreshShoeDropdown();
 
-    document.getElementById('fDato').addEventListener('change', () => this.updateWeek());
+    document.getElementById('fDato').addEventListener('change', () => {
+      this.updateWeek();
+      if (!this.editId) { this.applyPlannedDefault(); this.applyVenueForType(); this.maybeAutoName(); }
+    });
     document.getElementById('btnSaveSession').addEventListener('click', () => this.save());
     document.getElementById('btnClearForm').addEventListener('click', () => this.clear());
     document.getElementById('btnCancelEdit').addEventListener('click', () => this.cancelEdit());
@@ -3217,7 +3221,10 @@ const Form = {
       document.getElementById('beskrevelseGroup').style.display = plan !== 'Egentrening' ? '' : 'none';
       this.maybeAutoName();
     });
-    document.getElementById('fOkttype').addEventListener('change', () => this.maybeAutoName());
+    document.getElementById('fOkttype').addEventListener('change', () => {
+      if (!this.editId) this.applyVenueForType();   // Tempo/Intervaller → Tredemølle on manual pick
+      this.maybeAutoName();
+    });
 
     // Løpetype change: swap the pre-selected shoe to that venue's default. New sessions only —
     // editing an existing session must keep its saved shoe (Form.clear sets løpetype without a
@@ -3315,6 +3322,40 @@ const Form = {
     }
   },
 
+  // Prefill Økt-type + Mål distanse from an imported Runna planned session matching the form's date.
+  // New sessions only (never during an edit); exact-date match; Mål-distanse fills only when empty so
+  // a date change never clobbers a typed value. Øktbeskrivelse is deliberately left to Strava; Øktnavn
+  // updates for free via maybeAutoName() (caller runs it after). Shows/clears the #planPrefillHint line.
+  applyPlannedDefault() {
+    const hint = document.getElementById('planPrefillHint');
+    if (this.editId) { if (hint) hint.textContent = ''; return; }
+    const date = document.getElementById('fDato').value;
+    const p = (Store.data.plannedSessions || []).find(x => x.date === date);
+    if (!p) { if (hint) hint.textContent = ''; return; }
+    if (p.okttype) document.getElementById('fOkttype').value = p.okttype;
+    const mal = document.getElementById('fMalDistanse');
+    if (p.distance && !mal.value) mal.value = p.distance;
+    if (hint) hint.textContent = `📋 Fra planen (Runna): ${p.okttype}${p.distance ? ` · ${p.distance} km` : ''}`;
+  },
+
+  // Venue autofill — only the deterministic case: Tempo & Intervaller are always run indoors, so
+  // pre-select Tredemølle for them. Easy/Long stay on the last-used venue (season makes them a guess
+  // we deliberately don't make). New sessions only; overridable. Mirrors the #fLopetype onchange
+  // (show Stigning, hide/clear Høydemeter) and re-applies the venue's shoe default, since setting
+  // .value programmatically doesn't fire the select's change event.
+  applyVenueForType() {
+    if (this.editId) return;
+    const okt = document.getElementById('fOkttype').value;
+    if (okt !== 'Tempo' && okt !== 'Intervaller') return;
+    const el = document.getElementById('fLopetype');
+    if (el.value === 'treadmill') return;
+    el.value = 'treadmill';
+    document.getElementById('stigningGroup').style.display = '';
+    document.getElementById('hoydeMeterGroup').style.display = 'none';
+    document.getElementById('fHoydeMeter').value = '';
+    this.applyShoeDefault();
+  },
+
 
   read() {
     return {
@@ -3400,6 +3441,8 @@ const Form = {
     updateStravaFetchVisibility();
     this.returnTab = document.querySelector('.panel.active')?.id?.replace('panel-', '') || null;
     this.populate(s);
+    const prefillHint = document.getElementById('planPrefillHint');
+    if (prefillHint) prefillHint.textContent = '';   // no plan-prefill hint while editing a saved session
     document.getElementById('editBanner').classList.remove('hidden');
     document.getElementById('editLabel').textContent = s.oktnavn || fmtDate(s.dato);
     // Offer a Strava re-pull only for sessions that were filled from Strava and while connected.
@@ -3456,13 +3499,6 @@ const Form = {
     const lastLopetype = lastSession?.løpetype || 'treadmill';
     document.getElementById('fLopetype').value = lastLopetype;
     this.applyShoeDefault();   // pre-select the shoe for this venue (overridable per session)
-    const todayDow = new Date().getDay();
-    const sameDaySessions = Store.data.sessions.filter(s => new Date(s.dato).getDay() === todayDow && s.okttype);
-    if (sameDaySessions.length >= 3) {
-      const freq = {};
-      sameDaySessions.forEach(s => { freq[s.okttype] = (freq[s.okttype] || 0) + 1; });
-      document.getElementById('fOkttype').value = Object.entries(freq).sort((a,b) => b[1]-a[1])[0][0];
-    }
     document.getElementById('fStigning').value = '1';
     document.getElementById('fUtenPuls').checked = false;
     document.getElementById('fUtenforAnalyse').checked = false;
@@ -3476,6 +3512,8 @@ const Form = {
     document.getElementById('stigningGroup').style.display = isTM ? '' : 'none';
     document.getElementById('hoydeMeterGroup').style.display = isTM ? 'none' : '';
     this.lastAutoOktnavn = '';
+    this.applyPlannedDefault();   // Økt-type + Mål distanse from that day's imported Runna plan (if any)
+    this.applyVenueForType();     // Tempo/Intervaller → Tredemølle (after the type is known)
     this.maybeAutoName();
     updateStravaFetchVisibility();
     const stravaMsg = document.getElementById('stravaFetchMsg');
@@ -4408,10 +4446,14 @@ function renderInsights(sessions) {
 
   // Streak at risk: streak ≥3 weeks alive, but no run yet this week and the week is almost over.
   // currentStreak in computeRecords reads 0 for a runless current week, so count from LAST week here.
+  // Suppressed during a registered Syk/Ferie week: Treningsrytme bridges that week (the streak isn't
+  // actually at risk), and nudging someone to run while unavailable is exactly the wrong signal.
   const nowAbsWk = absWeekNum(today);
+  const offThisWeek = (Store.data.events || []).some(e => (e.type === 'illness' || e.type === 'vacation') &&
+    absWeekNum(e.date) <= nowAbsWk && nowAbsWk <= absWeekNum(e.endDate || e.date));
   const ranThisWeek = sessions.some(s => s.dato && absWeekNum(s.dato) === nowAbsWk);
   const dow = new Date(today).getDay(); // UTC-parse/local-read is fine for Norway (see P4.13 note)
-  if (!ranThisWeek && (dow >= 5 || dow === 0)) {
+  if (!ranThisWeek && !offThisWeek && (dow >= 5 || dow === 0)) {
     const wkSet = new Set(sessions.filter(s => s.dato).map(s => absWeekNum(s.dato)));
     let streakWks = 0;
     for (let w = nowAbsWk - 1; w >= nowAbsWk - 52; w--) { if (wkSet.has(w)) streakWks++; else break; }
