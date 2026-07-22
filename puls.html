@@ -1465,6 +1465,19 @@ function plannedTitle(p) {
   return generic.includes(t.toLowerCase()) ? '' : t;
 }
 
+// Adherence status for a planned session. A session dated *today* is still 'pending' (○), NOT a
+// miss — it only becomes 'overdue' (✗) once the day has fully passed. Matched runs are always 'done'
+// (even if logged on their own day). Used by the Planlegging card, the block hero, and block detail
+// so the three surfaces stay identical.
+function plannedStatus(p, matchOf, today) {
+  if (matchOf[p.id]) return 'done';
+  return p.date < today ? 'overdue' : 'pending';
+}
+// Sessions that count toward adherence: done, or genuinely past their day (today's undone run waits).
+function plannedDueList(planned, matchOf, today) {
+  return planned.filter(p => plannedStatus(p, matchOf, today) !== 'pending');
+}
+
 // ── Land (countries run in) ──────────────────────────────────────────────
 // An empty `land` means Norway (home default); abroad runs store an ISO
 // 3166-1 alpha-2 code. Norwegian names come from Intl.DisplayNames at
@@ -4779,10 +4792,10 @@ function renderBlocks() {
           const planned = plannedForBlock(current.startDate);
           if (!planned.length) return '';
           const matchOf = matchPlannedSessions(planned);
-          const pastDue = planned.filter(p => p.date <= today);
+          const pastDue = plannedDueList(planned, matchOf, today);
           const done = pastDue.filter(p => matchOf[p.id]).length;
           const adhPct = pastDue.length ? Math.round(done / pastDue.length * 100) : 0;
-          const next = planned.filter(p => p.date > today).slice(0, 3);
+          const next = planned.filter(p => plannedStatus(p, matchOf, today) === 'pending').slice(0, 3);
           const nextHtml = next.length ? `<div style="font-size:11px;color:var(--muted);margin-top:8px">Neste: ${next.map(p => `${fmtDate(p.date)} ${escapeHtml(p.okttype)} ${p.distance}km`).join(' · ')}</div>` : '';
           const bar = pastDue.length ? `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:12px">
@@ -5313,12 +5326,12 @@ const DetailPanel = {
     if (planned.length) {
       const pMatch = matchPlannedSessions(planned);
       const pToday = localISODate();
-      const pPastDue = planned.filter(p => p.date <= pToday);
+      const pPastDue = plannedDueList(planned, pMatch, pToday);
       const pDone = pPastDue.filter(p => pMatch[p.id]).length;
       const pAdh = pPastDue.length ? `${pDone} av ${pPastDue.length} fullført · ${Math.round(pDone / pPastDue.length * 100)}%` : `${planned.length} økter`;
       const pRows = planned.map(p => {
-        const past = p.date <= pToday;
-        const icon = pMatch[p.id] ? '<span style="color:var(--green)">✓</span>' : past ? '<span style="color:#e05555">✗</span>' : '<span style="color:var(--muted)">○</span>';
+        const pst = plannedStatus(p, pMatch, pToday);
+        const icon = pst === 'done' ? '<span style="color:var(--green)">✓</span>' : pst === 'overdue' ? '<span style="color:#e05555">✗</span>' : '<span style="color:var(--muted)">○</span>';
         const tc = (typeof TYPE_COLORS !== 'undefined' && TYPE_COLORS[p.okttype]) || 'var(--text)';
         return `<div style="display:flex;align-items:center;gap:10px;font-size:12px;padding:5px 4px;border-bottom:1px solid var(--border)">
           <span style="width:13px;text-align:center;flex-shrink:0">${icon}</span>
@@ -7075,7 +7088,7 @@ const Settings = {
     if (!planned.length) { adhEl.innerHTML = ''; listEl.innerHTML = '<p style="color:var(--muted);font-size:13px">Ingen plan importert ennå.</p>'; return; }
     const today = localISODate();
     const matchOf = matchPlannedSessions(planned);
-    const pastDue = planned.filter(p => p.date <= today);
+    const pastDue = plannedDueList(planned, matchOf, today);
     const done = pastDue.filter(p => matchOf[p.id]).length;
     if (!pastDue.length) {
       adhEl.innerHTML = `<div style="font-size:13px;color:var(--muted)">Ingen forfalte økter ennå · ${planned.length} økter i planen</div>`;
@@ -7087,10 +7100,9 @@ const Settings = {
     const overflow = planned.length - COLLAPSE_N;
     const shown = this.plannedExpanded ? planned : planned.slice(0, COLLAPSE_N);
     let html = shown.map(p => {
-      const past = p.date <= today;
-      const matched = !!matchOf[p.id];
-      const icon = matched ? '<span style="color:var(--green)">✓</span>' : past ? '<span style="color:#e05555">✗</span>' : '<span style="color:var(--muted)">○</span>';
-      const iTitle = matched ? 'Matchet med logget økt' : past ? 'Ingen logget økt denne uken' : 'Kommende';
+      const st = plannedStatus(p, matchOf, today);
+      const icon = st === 'done' ? '<span style="color:var(--green)">✓</span>' : st === 'overdue' ? '<span style="color:#e05555">✗</span>' : '<span style="color:var(--muted)">○</span>';
+      const iTitle = st === 'done' ? 'Matchet med logget økt' : st === 'overdue' ? 'Ingen logget økt denne uken' : (p.date === today ? 'I dag – ikke logget ennå' : 'Kommende');
       const tc = (typeof TYPE_COLORS !== 'undefined' && TYPE_COLORS[p.okttype]) || 'var(--text)';
       return `<div style="display:flex;align-items:center;gap:10px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--border)">
         <span title="${iTitle}" style="width:14px;text-align:center;flex-shrink:0">${icon}</span>
