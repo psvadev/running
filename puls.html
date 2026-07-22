@@ -1465,17 +1465,29 @@ function plannedTitle(p) {
   return generic.includes(t.toLowerCase()) ? '' : t;
 }
 
+// True if a date (YYYY-MM-DD string) falls inside a registered Sykdom/Ferie event window; returns
+// the event type ('illness'|'vacation') or null. Lets plan adherence excuse sessions you couldn't do
+// while sick/away — same "unavailable, not failed" principle Treningsrytme already applies per week.
+function offPeriodKind(dateStr) {
+  for (const e of (Store.data.events || [])) {
+    if ((e.type === 'illness' || e.type === 'vacation') && e.date <= dateStr && dateStr <= (e.endDate || e.date)) return e.type;
+  }
+  return null;
+}
 // Adherence status for a planned session. A session dated *today* is still 'pending' (○), NOT a
-// miss — it only becomes 'overdue' (✗) once the day has fully passed. Matched runs are always 'done'
-// (even if logged on their own day). Used by the Planlegging card, the block hero, and block detail
-// so the three surfaces stay identical.
+// miss — it only becomes 'overdue' (✗) once the day has fully passed. A session inside a Syk/Ferie
+// window is 'excused' (–) and left out of the adherence count. Matched runs are always 'done' (even
+// if logged on their own day, and even during a Ferie — active beats excused). Used by the
+// Planlegging card, the block hero, and block detail so the three surfaces stay identical.
 function plannedStatus(p, matchOf, today) {
   if (matchOf[p.id]) return 'done';
+  if (offPeriodKind(p.date)) return 'excused';
   return p.date < today ? 'overdue' : 'pending';
 }
-// Sessions that count toward adherence: done, or genuinely past their day (today's undone run waits).
+// Sessions that count toward adherence: done or genuinely overdue. 'pending' (today/future) and
+// 'excused' (Syk/Ferie) both leave the denominator.
 function plannedDueList(planned, matchOf, today) {
-  return planned.filter(p => plannedStatus(p, matchOf, today) !== 'pending');
+  return planned.filter(p => { const s = plannedStatus(p, matchOf, today); return s === 'done' || s === 'overdue'; });
 }
 
 // ── Land (countries run in) ──────────────────────────────────────────────
@@ -4795,12 +4807,13 @@ function renderBlocks() {
           const pastDue = plannedDueList(planned, matchOf, today);
           const done = pastDue.filter(p => matchOf[p.id]).length;
           const adhPct = pastDue.length ? Math.round(done / pastDue.length * 100) : 0;
+          const excused = planned.filter(p => plannedStatus(p, matchOf, today) === 'excused').length;
           const next = planned.filter(p => plannedStatus(p, matchOf, today) === 'pending').slice(0, 3);
           const nextHtml = next.length ? `<div style="font-size:11px;color:var(--muted);margin-top:8px">Neste: ${next.map(p => `${fmtDate(p.date)} ${escapeHtml(p.okttype)} ${p.distance}km`).join(' · ')}</div>` : '';
           const bar = pastDue.length ? `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:12px">
             <span style="color:var(--muted)">Planlagte økter</span>
-            <span style="font-weight:600;color:var(--green)">${done} av ${pastDue.length} fullført · ${adhPct}%</span>
+            <span style="font-weight:600;color:var(--green)">${done} av ${pastDue.length} fullført · ${adhPct}%${excused ? `<span style="color:var(--muted);font-weight:400"> · ${excused} unntatt</span>` : ''}</span>
           </div>
           <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
             <div style="width:${adhPct}%;height:100%;background:var(--green);border-radius:4px;transition:width .3s"></div>
@@ -5328,13 +5341,15 @@ const DetailPanel = {
       const pToday = localISODate();
       const pPastDue = plannedDueList(planned, pMatch, pToday);
       const pDone = pPastDue.filter(p => pMatch[p.id]).length;
-      const pAdh = pPastDue.length ? `${pDone} av ${pPastDue.length} fullført · ${Math.round(pDone / pPastDue.length * 100)}%` : `${planned.length} økter`;
+      const pExcused = planned.filter(p => plannedStatus(p, pMatch, pToday) === 'excused').length;
+      const pAdh = pPastDue.length ? `${pDone} av ${pPastDue.length} fullført · ${Math.round(pDone / pPastDue.length * 100)}%${pExcused ? ` · ${pExcused} unntatt` : ''}` : `${planned.length} økter`;
       const pRows = planned.map(p => {
         const pst = plannedStatus(p, pMatch, pToday);
-        const icon = pst === 'done' ? '<span style="color:var(--green)">✓</span>' : pst === 'overdue' ? '<span style="color:#e05555">✗</span>' : '<span style="color:var(--muted)">○</span>';
+        const icon = pst === 'done' ? '<span style="color:var(--green)">✓</span>' : pst === 'overdue' ? '<span style="color:#e05555">✗</span>' : pst === 'excused' ? '<span style="color:var(--muted)">–</span>' : '<span style="color:var(--muted)">○</span>';
+        const iTitle = pst === 'excused' ? (offPeriodKind(p.date) === 'illness' ? 'Sykdom – unntatt' : 'Ferie – unntatt') : '';
         const tc = (typeof TYPE_COLORS !== 'undefined' && TYPE_COLORS[p.okttype]) || 'var(--text)';
         return `<div style="display:flex;align-items:center;gap:10px;font-size:12px;padding:5px 4px;border-bottom:1px solid var(--border)">
-          <span style="width:13px;text-align:center;flex-shrink:0">${icon}</span>
+          <span title="${iTitle}" style="width:13px;text-align:center;flex-shrink:0">${icon}</span>
           <span style="color:var(--muted);min-width:76px;flex-shrink:0">${fmtDate(p.date)}</span>
           <span style="color:${tc};min-width:70px;flex-shrink:0">${escapeHtml(p.okttype)}</span>
           <span style="flex:1;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(plannedTitle(p))}</span>
@@ -7090,19 +7105,21 @@ const Settings = {
     const matchOf = matchPlannedSessions(planned);
     const pastDue = plannedDueList(planned, matchOf, today);
     const done = pastDue.filter(p => matchOf[p.id]).length;
+    const excused = planned.filter(p => plannedStatus(p, matchOf, today) === 'excused').length;
+    const excusedTxt = excused ? ` · ${excused} unntatt (Syk/Ferie)` : '';
     if (!pastDue.length) {
-      adhEl.innerHTML = `<div style="font-size:13px;color:var(--muted)">Ingen forfalte økter ennå · ${planned.length} økter i planen</div>`;
+      adhEl.innerHTML = `<div style="font-size:13px;color:var(--muted)">Ingen forfalte økter ennå · ${planned.length} økter i planen${excusedTxt}</div>`;
     } else {
       const pct = Math.round(done / pastDue.length * 100);
-      adhEl.innerHTML = `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">· ${planned.length} totalt i planen</span></div>`;
+      adhEl.innerHTML = `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">· ${planned.length} totalt i planen${excusedTxt}</span></div>`;
     }
     const COLLAPSE_N = 10;
     const overflow = planned.length - COLLAPSE_N;
     const shown = this.plannedExpanded ? planned : planned.slice(0, COLLAPSE_N);
     let html = shown.map(p => {
       const st = plannedStatus(p, matchOf, today);
-      const icon = st === 'done' ? '<span style="color:var(--green)">✓</span>' : st === 'overdue' ? '<span style="color:#e05555">✗</span>' : '<span style="color:var(--muted)">○</span>';
-      const iTitle = st === 'done' ? 'Matchet med logget økt' : st === 'overdue' ? 'Ingen logget økt denne uken' : (p.date === today ? 'I dag – ikke logget ennå' : 'Kommende');
+      const icon = st === 'done' ? '<span style="color:var(--green)">✓</span>' : st === 'overdue' ? '<span style="color:#e05555">✗</span>' : st === 'excused' ? '<span style="color:var(--muted)">–</span>' : '<span style="color:var(--muted)">○</span>';
+      const iTitle = st === 'done' ? 'Matchet med logget økt' : st === 'overdue' ? 'Ingen logget økt denne uken' : st === 'excused' ? (offPeriodKind(p.date) === 'illness' ? 'Sykdom – unntatt fra måltall' : 'Ferie – unntatt fra måltall') : (p.date === today ? 'I dag – ikke logget ennå' : 'Kommende');
       const tc = (typeof TYPE_COLORS !== 'undefined' && TYPE_COLORS[p.okttype]) || 'var(--text)';
       return `<div style="display:flex;align-items:center;gap:10px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--border)">
         <span title="${iTitle}" style="width:14px;text-align:center;flex-shrink:0">${icon}</span>
