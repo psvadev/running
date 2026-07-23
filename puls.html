@@ -4705,8 +4705,13 @@ function computeBlocks(allSessions) {
   return planEvents.map((evt, i) => {
     const startDate     = evt.date;
     const endDate       = evt.endDate || planEvents[i+1]?.date || today;
+    // For an in-progress block, per-week rates + consistency are measured only up to *now* — the
+    // weeks that haven't happened yet aren't "missed". `weeks` stays the full planned span (used for
+    // the "N uker" label + target-week counts); `elapsedWeeks` drives km/uke, runs/uke, consistency.
+    const metricEnd     = today < endDate ? today : endDate;   // min(today, endDate)
     const blockSessions = allSessions.filter(s => s.dato >= startDate && s.dato <= endDate);
     const weeks         = Math.max(1, Math.round((new Date(endDate) - new Date(startDate)) / (7*86400000)));
+    const elapsedWeeks  = Math.max(1, Math.round((new Date(metricEnd) - new Date(startDate)) / (7*86400000)));
 
     const totalKm   = blockSessions.reduce((s,x) => s+(x.distanse||0), 0);
     const totalSecs = blockSessions.reduce((s,x) => s+(x.varighet||0), 0);
@@ -4723,7 +4728,7 @@ function computeBlocks(allSessions) {
     const longestRun = blockSessions.reduce((m,s)=>s.distanse>m?s.distanse:m, 0) || null;
 
     const startAbs        = absWeekNum(startDate);
-    const endAbs          = absWeekNum(endDate);
+    const endAbs          = absWeekNum(metricEnd);   // to now for an active block — future weeks aren't missed
     const activeAbsWeeks  = new Set(blockSessions.filter(s=>s.dato).map(s=>absWeekNum(s.dato)));
     const blockSpanWeeks  = Math.max(endAbs - startAbs + 1, 1);
     const consistencyScore = Math.round((activeAbsWeeks.size / blockSpanWeeks) * 100);
@@ -4738,7 +4743,7 @@ function computeBlocks(allSessions) {
     const runsAboveTarget = targetRunsWeek ? Object.values(weekRuns).filter(c=>c>=targetRunsWeek).length : null;
 
     return { id:evt.id, title:evt.title, startDate, endDate, weeks, totalKm, totalSecs, runs,
-             avgKmWeek: totalKm/weeks, avgRunsWeek: runs/weeks, avgPace, avgHR,
+             avgKmWeek: totalKm/elapsedWeeks, avgRunsWeek: runs/elapsedWeeks, avgPace, avgHR,
              bestWeekKm, longestRun, consistencyScore, indoorKm, outdoorKm,
              shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget,
              targetTotalKm: evt.targetTotalKm || null,
@@ -5308,7 +5313,10 @@ const DetailPanel = {
 
     const cm        = consistencyMeta(consistencyScore);
     const consPct   = Math.min(100, consistencyScore);
-    const spanWeeks = Math.max(Math.round((new Date(endDate)-new Date(startDate))/(7*86400000)), 1);
+    // Elapsed span for an active block (matches the elapsed-based consistencyScore) — future weeks
+    // aren't counted as missed; a completed block uses its full span (endDate == metricEnd).
+    const spanEnd   = isCurrent ? localISODate() : endDate;
+    const spanWeeks = Math.max(Math.round((new Date(spanEnd)-new Date(startDate))/(7*86400000)), 1);
     const consLines = [
       `${activeAbsArr.length}/${spanWeeks} uker med løping`,
       maxStreak > 1 ? `Lengste streak: ${maxStreak} uker på rad` : null,
@@ -5316,8 +5324,10 @@ const DetailPanel = {
       targetRunsWeek ? `${runsAboveTarget}/${weeks} uker med ${targetRunsWeek}+ løp` : null,
     ].filter(Boolean);
 
+    // Only compare completed blocks: a still-running block has partial volume/consistency and would
+    // read as a huge deficit vs a finished one (and blocks can differ in goal/length — 5K vs 10K).
     let compHtml = '';
-    if (prevBlock) {
+    if (prevBlock && !isCurrent) {
       const kmDiff   = totalKm - prevBlock.totalKm;
       const kmPct    = prevBlock.totalKm > 0 ? kmDiff/prevBlock.totalKm*100 : 0;
       const kmColor  = kmDiff >= 0 ? '#22c55e' : '#ef4444';
