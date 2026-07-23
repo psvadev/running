@@ -4621,11 +4621,13 @@ function renderConsistency(sessions) {
   const scoreC = Math.min(currentStreak / 4, 1) * 20;
   const score  = Math.round(scoreA + scoreB + scoreC);
 
-  const label = score >= 85 ? 'Svært jevn rytme'
-              : score >= 70 ? 'God rytme'
-              : score >= 55 ? 'Jevn'
-              : score >= 40 ? 'Litt ujevn'
-              : 'Ujevn trening';
+  // Same plain-quality vocabulary as the block Konsistens scale (consistencyMeta) for one consistent
+  // language; the "Treningsrytme" card title carries the rhythm context, so bare words read clearly.
+  const label = score >= 85 ? 'Veldig bra'
+              : score >= 70 ? 'Bra'
+              : score >= 55 ? 'Middels'
+              : score >= 40 ? 'Svak'
+              : 'Dårlig';
 
   const stats = [
     { val: `${activeWeeks} / ${availableWeeks}`, sub: unavailable.size ? 'aktive av tilgjengelige uker' : 'aktive uker' },
@@ -4769,10 +4771,10 @@ function blockSparkline(weeklyKm) {
 }
 
 function consistencyMeta(score) {
-  if (score >= 85) return { label: 'Fremragende', color: '#22c55e' };
-  if (score >= 70) return { label: 'God konsistens', color: '#84cc16' };
-  if (score >= 50) return { label: 'Moderat', color: '#f59e0b' };
-  return { label: 'Ujevn', color: '#ef4444' };
+  if (score >= 85) return { label: 'Veldig bra', color: '#22c55e' };  // green
+  if (score >= 70) return { label: 'Bra',        color: '#facc15' };  // yellow
+  if (score >= 50) return { label: 'Middels',    color: '#f97316' };  // orange
+  return { label: 'Dårlig', color: '#ef4444' };                       // red
 }
 
 function renderBlocks() {
