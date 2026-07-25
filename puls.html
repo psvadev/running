@@ -928,6 +928,54 @@
 <!-- ══════════════ TAB 4: PLANLEGGING ══════════════ -->
 <div class="panel" id="panel-plan" style="max-width:1200px;margin:0 auto">
 
+  <!-- Hendelser -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Hendelser</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Markeres som vertikale linjer i belastnings- og distansegrafene.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <input type="date" id="newEvtDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <span style="color:var(--muted);align-self:center;font-size:13px">–</span>
+      <input type="date" id="newEvtEndDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;" title="Sluttdato (valgfritt — for perioder som sykdom)">
+      <select id="newEvtType" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+        <option value="plan">Plan</option>
+        <option value="race">Løp / Race</option>
+        <option value="illness">Sykdom</option>
+        <option value="vacation">Ferie</option>
+        <option value="deload">Deload</option>
+        <option value="taper">Taper</option>
+        <option value="personal">Annet</option>
+      </select>
+      <input type="text" id="newEvtTitle" placeholder="Tittel (f.eks. Start Runna 10K)" style="flex:1;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <button class="btn-primary btn-sm" id="btnAddEvent">+ Legg til</button>
+      <button class="btn-secondary btn-sm" id="btnCancelEvtEdit" style="display:none">Avbryt</button>
+    </div>
+    <div id="evtPlanTargets" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input type="number" id="newEvtRunTarget" placeholder="Mål løp/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+    </div>
+    <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
+  <!-- Planlagte økter (Runna .ics-import) -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Planlagte økter <span class="ct-sub">· importert fra Runna</span></div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Importer Runna-planens <strong>.ics</strong>-fil for å se planlagte økter og hvor godt de matcher det du faktisk løper. Én import per treningsblokk holder — hele blokken følger med. Strength og ad-hoc-løp hoppes over.<br><em>Slik:</em> i Runna: <strong>Profile → Connected Apps &amp; Devices → Connected Calendar → Other calendar → Copy URL</strong>. Åpne URL-en i nettleseren → last ned <code>.ics</code>-filen → velg den her.</p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <input type="file" id="runnaIcsFile" accept=".ics,text/calendar" style="font-size:12px;color:var(--muted);max-width:100%">
+      <button class="btn-secondary btn-sm" id="btnClearPlanned" style="display:none">Fjern importerte</button>
+    </div>
+    <div id="plannedImportMsg" style="font-size:12px;margin-bottom:10px"></div>
+    <div id="plannedAdherence" style="margin-bottom:10px"></div>
+    <div id="plannedList" style="display:flex;flex-direction:column;gap:0"></div>
+  </div>
+
+  <!-- Løp & Races -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Løp &amp; Races</div>
+    <div id="raceHistoryList"></div>
+  </div>
+
   <!-- Mål -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Mål</div>
@@ -961,54 +1009,6 @@
       </label>
     </div>
     <div id="shoeList" style="display:flex;flex-direction:column;gap:8px"></div>
-  </div>
-
-  <!-- Hendelser -->
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-title">Hendelser</div>
-    <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Markeres som vertikale linjer i belastnings- og distansegrafene.</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-      <input type="date" id="newEvtDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <span style="color:var(--muted);align-self:center;font-size:13px">–</span>
-      <input type="date" id="newEvtEndDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;" title="Sluttdato (valgfritt — for perioder som sykdom)">
-      <select id="newEvtType" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-        <option value="plan">Plan</option>
-        <option value="race">Løp / Race</option>
-        <option value="illness">Sykdom</option>
-        <option value="vacation">Ferie</option>
-        <option value="deload">Deload</option>
-        <option value="taper">Taper</option>
-        <option value="personal">Annet</option>
-      </select>
-      <input type="text" id="newEvtTitle" placeholder="Tittel (f.eks. Start Runna 10K)" style="flex:1;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <button class="btn-primary btn-sm" id="btnAddEvent">+ Legg til</button>
-      <button class="btn-secondary btn-sm" id="btnCancelEvtEdit" style="display:none">Avbryt</button>
-    </div>
-    <div id="evtPlanTargets" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <input type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <input type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <input type="number" id="newEvtRunTarget" placeholder="Mål løp/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-    </div>
-    <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
-  </div>
-
-  <!-- Løp & Races -->
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-title">Løp &amp; Races</div>
-    <div id="raceHistoryList"></div>
-  </div>
-
-  <!-- Planlagte økter (Runna .ics-import) -->
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-title">Planlagte økter <span class="ct-sub">· importert fra Runna</span></div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Importer Runna-planens <strong>.ics</strong>-fil for å se planlagte økter og hvor godt de matcher det du faktisk løper. Én import per treningsblokk holder — hele blokken følger med. Strength og ad-hoc-løp hoppes over.<br><em>Slik:</em> i Runna: <strong>Profile → Connected Apps &amp; Devices → Connected Calendar → Other calendar → Copy URL</strong>. Åpne URL-en i nettleseren → last ned <code>.ics</code>-filen → velg den her.</p>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      <input type="file" id="runnaIcsFile" accept=".ics,text/calendar" style="font-size:12px;color:var(--muted);max-width:100%">
-      <button class="btn-secondary btn-sm" id="btnClearPlanned" style="display:none">Fjern importerte</button>
-    </div>
-    <div id="plannedImportMsg" style="font-size:12px;margin-bottom:10px"></div>
-    <div id="plannedAdherence" style="margin-bottom:10px"></div>
-    <div id="plannedList" style="display:flex;flex-direction:column;gap:0"></div>
   </div>
 
 </div>
