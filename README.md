@@ -50,9 +50,10 @@ A motivational travel section (grew out of "Land løpt i") that lives in its own
 - **Høyde column** shows elevation in metres for outdoor runs and incline % for treadmill runs
 - **RPE column** shows effort rating 1–10 in colour (green ≤3 · amber ≤6 · orange ≤8 · red 10); hidden on mobile
 - **📋 icon** shown in the session name column when a workout description exists — hover to preview; **📝 icon** shown when a note exists — hover to preview
-- **Responsive columns:** > 1600px shows everything; ≤ 1600px hides only Uke and Sko (keeps Mål km, Varighet, ♥ Topp, Høyde, RPE — tested on 14" HiDPI laptop at 150% scaling = 1536px CSS viewport); ≤ 900px also hides Varighet, ♥ Topp; ≤ 600px additionally hides Navn and Plan — all fields accessible via edit form
+- **Responsive columns:** > 1600px shows everything; ≤ 1600px hides only Uke and Sko (keeps Mål km, Varighet, ♥ Topp, Høyde, RPE — tested on 14" HiDPI laptop at 150% scaling = 1536px CSS viewport); ≤ 900px also hides Varighet, ♥ Topp; ≤ 600px additionally hides Navn and Plan — all hidden fields stay reachable via the row detail view below
 - Filter by date range, session type, run type (outdoor/treadmill), and shoe
-- Edit or delete any row
+- **Click any row** to open a full read-only detail view — every field, including the ones the table doesn't show (calories, avg km/t, country, pulse zones) and the complete workout description + notes — without entering edit mode. Especially handy on mobile, where most columns are hidden
+- ✏️ to edit or 🗑️ to delete any row
 - **Export for AI chat** — checkbox column to select one or more sessions; **Kopier valgte** copies selected rows, **Kopier alle filtrerte** copies the full filtered view, **Last ned TSV** downloads as a file; single header row at the top, then one block per session: `=== YYYY-MM-DD | Øktnavn | dist km ===` header, optional `[Øktbeskrivelse]` block (workout plan/structure), note text (if any), then the data row; blocks separated by blank lines
 
 ### Planning (Planlegging)
