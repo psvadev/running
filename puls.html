@@ -254,6 +254,7 @@
   th.sorted .sort-indicator { opacity: 1; color: var(--accent); }
   td { padding: 9px 12px; border-top: 1px solid var(--border); white-space: nowrap; }
   tr:hover td { background: var(--surface2); }
+  #logTable tbody tr { cursor: pointer; }  /* click a row → read-only detail panel */
   .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
   .badge-easy { background: #1a3a2a; color: var(--green); }
   .badge-steady { background: #1e2e4a; color: #7aa8f0; }
@@ -3594,7 +3595,7 @@ const Log = {
       const venueBadge = (s.løpetype || 'utendors') === 'treadmill'
         ? `<span class="badge badge-indoor" title="Tredemølle">⚙️</span>`
         : `<span class="badge badge-outdoor" title="Utendørs">🏃</span>`;
-      return `<tr${s.utenforAnalyse ? ' style="opacity:.55" title="Avvik — holdt utenfor analyse"' : ''}>
+      return `<tr onclick="Log.rowClick(event, '${s.id}')"${s.utenforAnalyse ? ' style="opacity:.55" title="Avvik — holdt utenfor analyse"' : ''}>
         <td><input type="checkbox" class="log-row-chk" data-id="${s.id}"></td>
         <td>${fmtDate(s.dato)}</td>
         <td style="color:var(--muted)">${s.uke||''}</td>
@@ -3623,6 +3624,13 @@ const Log = {
       const ind = th.querySelector('.sort-indicator');
       if (ind) ind.textContent = th.dataset.col === this.sortCol ? (this.sortAsc ? '↑' : '↓') : '↕';
     });
+  },
+
+  // Click a row (anywhere except the select checkbox or the edit/delete buttons) to open the
+  // full read-only detail panel — see every field without entering edit mode.
+  rowClick(e, id) {
+    if (e.target.closest('input, button')) return;
+    DetailPanel.openSession(id);
   },
 
   delete(id) {
@@ -5057,6 +5065,8 @@ const DetailPanel = {
       ['RPE',            s.rpe  ? `${s.rpe}/10` : null],
       ['Land',           s.land ? landName(s.land) : null],
       ['Avvik',          s.utenforAnalyse ? 'Holdt utenfor analyse (trender/kvalitetsgrafer)' : null],
+      ['Øktbeskrivelse', s.beskrivelse || null],
+      ['Notater',        s.notater || null],
     ].filter(([,v]) => v);
     const table = rows.map(([l,v]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${escapeHtml(v)}</span></div>`).join('');
     this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : ''));
