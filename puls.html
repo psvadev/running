@@ -292,7 +292,8 @@
 
   /* ── Weekly summary table ── */
   .weekly-table td, .weekly-table th { padding: 8px 14px; }
-  .weekly-table tr:last-child td { font-weight: 700; border-top: 2px solid var(--border); }
+  .weekly-table thead th { position: sticky; top: 0; z-index: 2; }
+  .weekly-table tfoot td { position: sticky; bottom: 0; background: var(--surface); font-weight: 700; border-top: 2px solid var(--border); z-index: 2; }
 
   /* ── Toast ── */
   .toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:8px; font-size:13px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:toastIn .2s ease; pointer-events:none; }
@@ -817,6 +818,7 @@
             </tr>
           </thead>
           <tbody id="weeklyBody"></tbody>
+          <tfoot id="weeklyFoot"></tfoot>
         </table>
       </div>
     </div>
@@ -6033,7 +6035,8 @@ function renderWeeklyOverviewTable(sessions) {
       <td>${secsToHms(ws.time)}</td>
       <td>${avgPace ? secsToMmSs(avgPace) : '–'}</td>
     </tr>`;
-  }).join('') + `<tr>
+  }).join('');
+  document.getElementById('weeklyFoot').innerHTML = `<tr>
     <td>Totalt</td><td>${totSessions}</td><td>${totDist.toFixed(1)} km</td><td>${secsToHms(totTime)}</td><td>–</td>
   </tr>`;
 }
