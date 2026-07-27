@@ -5981,7 +5981,7 @@ function renderDashboard() {
       return `
       <div style="cursor:pointer" onclick="DetailPanel.openShoe('${nameEsc}')">
         <div class="shoe-bar-row">
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(name)}">👟 ${escapeHtml(name)}</span>
           <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>
           <span style="text-align:right">${km.toFixed(0)} km${warn}</span>
         </div>${metaLine}
