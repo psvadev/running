@@ -349,7 +349,7 @@
   .heatmap-cell[data-zone="5"] { background:rgba(224,85,85,.85); }
   .heatmap-cell[data-date] { cursor:default; }
   .heatmap-cell[data-date][data-tip] { cursor:pointer; }
-  #hmTooltip {
+  #hmTooltip, #evtTooltip {
     position:fixed; background:var(--surface2); border:1px solid rgba(255,255,255,.1);
     border-radius:6px; padding:6px 10px; font-size:11px; color:var(--text);
     pointer-events:none; z-index:1000; display:none; max-width:240px;
@@ -634,6 +634,7 @@
     <label style="font-size:12px;color:var(--muted);display:flex;gap:5px;align-items:center;cursor:pointer;align-self:flex-end;margin-bottom:3px">
       <input type="checkbox" id="chkEvents" checked> Hendelser
     </label>
+    <div id="eventLegend" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:11px;color:var(--muted);align-self:flex-end;margin-bottom:4px"></div>
   </div>
 
   <div id="dashEmpty" style="display:none;color:var(--muted);text-align:center;padding:56px 20px;font-size:14px">Logg din første økt under ➕, så bygger dashbordet seg opp med grafer, nøkkeltall og innsikt. 📊</div>
@@ -3841,6 +3842,35 @@ const EVENT_COLORS = {
 const EVENT_FILL_COLORS = Object.fromEntries(
   Object.entries(EVENT_COLORS).map(([k, v]) => [k, v.replace(/[\d.]+\)$/, '0.12)')])
 );
+const EVENT_ICONS = {
+  plan: '📋', race: '🏁', illness: '🤒', vacation: '🏖️',
+  deload: '🪫', taper: '📉', personal: '📌'
+};
+const EVENT_TYPE_LABEL = {
+  plan: 'Plan', race: 'Løp/Race', illness: 'Sykdom', vacation: 'Ferie',
+  deload: 'Deload', taper: 'Taper', personal: 'Annet'
+};
+
+// Floating tooltip for the chart event-rail. Details live here (and in Planlegging → Hendelser),
+// so the chart stays uncluttered: icons on a top rail, no always-on text labels.
+function evtTipShow(evts, clientX, clientY) {
+  const tip = document.getElementById('evtTooltip');
+  if (!tip) return;
+  tip.innerHTML = evts.map(e => {
+    const icon = EVENT_ICONS[e.type] || EVENT_ICONS.personal;
+    const tl = EVENT_TYPE_LABEL[e.type] || 'Annet';
+    const range = e.endDate ? `${fmtDate(e.date)} – ${fmtDate(e.endDate)}` : fmtDate(e.date);
+    return `<div style="margin:3px 0"><span>${icon}</span> <b>${escapeHtml(e.title || '(uten navn)')}</b><br>` +
+           `<span style="color:var(--muted);font-size:10px">${tl} · ${range}</span></div>`;
+  }).join('');
+  tip.style.display = 'block';
+  tip.style.left = Math.min(clientX + 12, window.innerWidth - 250) + 'px';
+  tip.style.top = (clientY + 12) + 'px';
+}
+function evtTipHide() {
+  const tip = document.getElementById('evtTooltip');
+  if (tip) tip.style.display = 'none';
+}
 
 // Default off on small screens — event lines/labels crowd the shrunken charts (user, 2026-07-11)
 const eventMarkersDefault = () => !window.matchMedia('(max-width: 600px)').matches;
@@ -3867,6 +3897,7 @@ function interpX(dateStr, rawLabels, metaData) {
 const eventLinesPlugin = {
   id: 'eventLines',
   afterDraw(chart) {
+    if (chart.canvas) chart.canvas.$eventHits = [];
     if (!showEventMarkers) return;
     const events = Store.data.events || [];
     if (!events.length) return;
@@ -3883,76 +3914,127 @@ const eventLinesPlugin = {
       // ISO week, not its date — "2026-07-20" sorts before week-string "2026-28", which
       // parked future events at week 10 on the weekly charts.
       const labelsAreDates = /^\d{4}-\d{2}-\d{2}$/.test(rawLabels[0] || '');
-      ctx.save();
-      try {
-        events.forEach(evt => {
-          const evtKey = labelsAreDates ? evt.date : isoWeek(evt.date);
-          let idx = rawLabels.indexOf(evt.date);
-          if (idx < 0) idx = rawLabels.indexOf(evtKey);
-          if (idx < 0 && evtKey >= rawLabels[0] && evtKey <= rawLabels[rawLabels.length - 1])
-            idx = rawLabels.findIndex(l => l >= evtKey);
-          if (idx < 0 || idx >= meta.data.length) return;
-          const x = meta.data[idx].x;
-          if (x < chartArea.left || x > chartArea.right) return;
-          const color = EVENT_COLORS[evt.type] || EVENT_COLORS.personal;
-          const prefix = evt.type === 'race' ? '🏁 ' : '';
-          const labelText = prefix + (evt.title.length > 12 ? evt.title.slice(0, 12) + '…' : evt.title);
+      const clamp = v => Math.max(chartArea.left, Math.min(chartArea.right, v));
 
-          ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
-          ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, sans-serif';
+      // 1) Resolve each event to pixel positions (band start/end for ranges)
+      const markers = [];
+      events.forEach(evt => {
+        const evtKey = labelsAreDates ? evt.date : isoWeek(evt.date);
+        let idx = rawLabels.indexOf(evt.date);
+        if (idx < 0) idx = rawLabels.indexOf(evtKey);
+        if (idx < 0 && evtKey >= rawLabels[0] && evtKey <= rawLabels[rawLabels.length - 1])
+          idx = rawLabels.findIndex(l => l >= evtKey);
+        if (idx < 0 || idx >= meta.data.length) return;
+        const x = meta.data[idx].x;
 
-          if (evt.endDate) {
-            let xStart, xEnd, drawEndLine;
-            if (labelsAreDates) {
-              // Line/scatter charts with date labels — interpolate exact pixel positions
-              xStart = interpX(evt.date, rawLabels, meta.data);
-              xEnd   = interpX(evt.endDate, rawLabels, meta.data);
-              drawEndLine = xEnd <= chartArea.right;
-            } else {
-              // Weekly bar charts — snap to label buckets with colWidth offsets
-              const endWkIso = isoWeek(evt.endDate);
-              let idx2 = rawLabels.indexOf(evt.endDate);
-              if (idx2 < 0) idx2 = rawLabels.indexOf(endWkIso);
-              if (idx2 < 0 && endWkIso <= (rawLabels[rawLabels.length - 1] || '')) {
-                for (let i = rawLabels.length - 1; i >= 0; i--) {
-                  if (rawLabels[i] <= endWkIso) { idx2 = i; break; }
-                }
-              }
-              const endWeekVisible = idx2 >= 0;
-              if (idx2 < 0) idx2 = rawLabels.length - 1;
-              xStart = x - colWidth * 0.5;
-              xEnd = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
-              drawEndLine = endWeekVisible && xEnd <= chartArea.right + 1;
-            }
-            const xEndC = Math.min(xEnd, chartArea.right);
-            // Plans are the baseline state, not an anomaly — a multi-week fill tints the whole
-            // chart into noise. Boundary lines + label only; anomaly spans (syk/ferie/deload/
-            // taper) keep their shading.
-            if (xEndC > xStart && evt.type !== 'plan') {
-              ctx.fillStyle = EVENT_FILL_COLORS[evt.type] || EVENT_FILL_COLORS.personal;
-              ctx.fillRect(xStart, chartArea.top, xEndC - xStart, chartArea.bottom - chartArea.top);
-            }
-            ctx.beginPath(); ctx.moveTo(xStart, chartArea.top); ctx.lineTo(xStart, chartArea.bottom); ctx.stroke();
-            if (drawEndLine) {
-              ctx.beginPath(); ctx.moveTo(xEnd, chartArea.top); ctx.lineTo(xEnd, chartArea.bottom); ctx.stroke();
-            }
-            ctx.setLineDash([]);
-            ctx.fillStyle = color;
-            ctx.fillText(labelText, xStart + 3, chartArea.top + 10);
+        let bandStart = null, bandEnd = null;
+        if (evt.endDate) {
+          if (labelsAreDates) {
+            bandStart = interpX(evt.date, rawLabels, meta.data);
+            bandEnd   = interpX(evt.endDate, rawLabels, meta.data);
           } else {
-            ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.fillStyle = color;
-            ctx.fillText(labelText, x + 3, chartArea.top + 10);
+            const endWkIso = isoWeek(evt.endDate);
+            let idx2 = rawLabels.indexOf(evt.endDate);
+            if (idx2 < 0) idx2 = rawLabels.indexOf(endWkIso);
+            if (idx2 < 0 && endWkIso <= (rawLabels[rawLabels.length - 1] || '')) {
+              for (let i = rawLabels.length - 1; i >= 0; i--) { if (rawLabels[i] <= endWkIso) { idx2 = i; break; } }
+            }
+            if (idx2 < 0) idx2 = rawLabels.length - 1;
+            bandStart = x - colWidth * 0.5;
+            bandEnd = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
           }
+        }
+        const railX = bandStart != null ? bandStart : x;
+        if (railX < chartArea.left - 4 || railX > chartArea.right + 4) return;
+        markers.push({ evt, x, bandStart, bandEnd, railX });
+      });
+      if (!markers.length) return;
+
+      ctx.save();
+
+      // 2) Range bands (anomalies only — a plan is the baseline, not an anomaly, so no fill) +
+      //    a single faint locator line for point events / plan starts.
+      markers.forEach(m => {
+        const color = EVENT_COLORS[m.evt.type] || EVENT_COLORS.personal;
+        if (m.bandStart != null && m.evt.type !== 'plan') {
+          const xs = clamp(m.bandStart), xe = clamp(m.bandEnd);
+          if (xe > xs) {
+            ctx.fillStyle = EVENT_FILL_COLORS[m.evt.type] || EVENT_FILL_COLORS.personal;
+            ctx.fillRect(xs, chartArea.top, xe - xs, chartArea.bottom - chartArea.top);
+          }
+        } else {
+          ctx.save();
+          ctx.globalAlpha = 0.3; ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+          const lx = clamp(m.railX);
+          ctx.beginPath(); ctx.moveTo(lx, chartArea.top + 14); ctx.lineTo(lx, chartArea.bottom); ctx.stroke();
+          ctx.restore();
+        }
+      });
+
+      // 3) Rail icons — cluster markers within ICON_W px into one count badge (hover lists them)
+      const ICON_W = 18;
+      const rail = markers.map(m => ({ x: clamp(m.railX), evt: m.evt })).sort((a, b) => a.x - b.x);
+      const groups = [];
+      rail.forEach(rm => {
+        const last = groups[groups.length - 1];
+        if (last && rm.x - last.x <= ICON_W) { last.evts.push(rm.evt); last.sum += rm.x; last.x = last.sum / last.evts.length; }
+        else groups.push({ x: rm.x, sum: rm.x, evts: [rm.evt] });
+      });
+
+      const railY = chartArea.top + 1;
+      ctx.textAlign = 'center';
+      groups.forEach(g => {
+        if (g.evts.length === 1) {
+          const evt = g.evts[0];
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = '#e8eaf0';
+          ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
+          ctx.fillText(EVENT_ICONS[evt.type] || EVENT_ICONS.personal, g.x, railY);
+        } else {
+          ctx.fillStyle = 'rgba(108,143,255,.95)';
+          ctx.beginPath(); ctx.arc(g.x, railY + 8, 8, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.textBaseline = 'middle';
+          ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, sans-serif';
+          ctx.fillText(String(g.evts.length), g.x, railY + 9);
+        }
+        chart.canvas.$eventHits.push({ x0: g.x - 11, x1: g.x + 11, y0: chartArea.top, y1: chartArea.top + 20, evts: g.evts });
+      });
+
+      ctx.restore();
+
+      // Bind the hover once per canvas. The canvas element persists across chart re-creations,
+      // so hits live on the canvas (refreshed every afterDraw) — not on the disposable chart.
+      const canvas = chart.canvas;
+      if (canvas && !canvas.$evtHoverBound) {
+        canvas.$evtHoverBound = true;
+        canvas.addEventListener('mousemove', ev => {
+          const hits = canvas.$eventHits || [];
+          if (!hits.length) { evtTipHide(); return; }
+          const rect = canvas.getBoundingClientRect();
+          const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+          const hit = hits.find(h => mx >= h.x0 && mx <= h.x1 && my >= h.y0 && my <= h.y1);
+          if (hit) evtTipShow(hit.evts, ev.clientX, ev.clientY);
+          else evtTipHide();
         });
-      } finally {
-        ctx.restore();
+        canvas.addEventListener('mouseleave', evtTipHide);
       }
     } catch (e) { console.warn('[eventLines]', e); }
   }
 };
 Chart.register(eventLinesPlugin);
+
+// Compact icon legend by the Hendelser toggle — only when markers are on and ≥2 distinct
+// event types are present (a single kind is self-evident; the point is decoding a mix).
+function renderEventLegend() {
+  const el = document.getElementById('eventLegend');
+  if (!el) return;
+  const order = ['plan', 'race', 'illness', 'vacation', 'deload', 'taper', 'personal'];
+  const present = [...new Set((Store.data.events || []).map(e => e.type))].filter(t => EVENT_ICONS[t]);
+  present.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  if (!showEventMarkers || present.length < 2) { el.innerHTML = ''; return; }
+  el.innerHTML = present.map(t => `<span style="white-space:nowrap">${EVENT_ICONS[t]} ${EVENT_TYPE_LABEL[t]}</span>`).join('');
+}
 
 function renderHeatmap(sessions) {
   const container = document.getElementById('heatmapContainer');
@@ -5954,6 +6036,7 @@ function renderDashboard() {
   renderHeatmap(sessions);
   renderInsights(sessions);
   renderConsistency(sessions);
+  renderEventLegend();
   cachedBlocks = computeBlocks(Store.data.sessions);
   renderBlocks();
 
@@ -7774,6 +7857,7 @@ async function loadAppVersion() {
 }
 </script>
 <div id="hmTooltip"></div>
+<div id="evtTooltip"></div>
 <button id="scrollTopBtn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Til toppen">↑</button>
 <div id="appVersionFooter" style="text-align:center;font-size:11px;color:var(--muted);padding:16px 0;opacity:0.6"></div>
 </body>
