@@ -666,7 +666,8 @@
     <div class="card span2" id="rhythmCard">
       <div class="card-title">Treningsrytme — siste 12 uker</div>
       <div id="consistencyContent" style="margin-top:12px"></div>
-      <div class="chart-wrap" style="height:110px;margin-top:16px"><canvas id="chartConsistency"></canvas></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:16px">Aktive uker per måned · siste 12 måneder</div>
+      <div class="chart-wrap" style="height:110px;margin-top:4px"><canvas id="chartConsistency"></canvas></div>
     </div>
     <div class="card span2" id="blocksCard" style="display:none"></div>
     <div class="card span2">
@@ -4026,7 +4027,7 @@ function renderHeatmap(sessions) {
     if (d.getDate() <= 7) week.monthLabel = MONTH_NAMES[d.getMonth()];
     for (let i = 0; i < 7; i++) {
       const day = new Date(d); day.setDate(day.getDate() + i);
-      const key = day.toISOString().slice(0, 10);
+      const key = localISODate(day);
       const inRange = day >= rangeStart && day <= rangeEnd;
       week.cells.push({ key, inRange, data: inRange ? (dailyData[key] || null) : null });
     }
@@ -4115,7 +4116,7 @@ function renderHeatmap(sessions) {
     let curStreak = 0, maxStreak = 0, run = 0, stillCurrent = true;
     const periodEnd = rangeEnd < todayD ? rangeEnd : todayD;
     for (let d2 = new Date(periodEnd); d2 >= rangeStart; d2.setDate(d2.getDate() - 1)) {
-      const key = d2.toISOString().slice(0, 10);
+      const key = localISODate(d2);
       if (dailyData[key]) {
         run++;
         if (stillCurrent) curStreak = run;
@@ -4161,13 +4162,13 @@ function renderPMCChart(allSessions) {
   const today = new Date();
   const displayStart = new Date(today);
   displayStart.setDate(displayStart.getDate() - 365);
-  const firstDate = new Date(Object.keys(dailyLoad).sort()[0]);
+  const firstDate = new Date(Object.keys(dailyLoad).sort()[0] + 'T12:00:00');
 
   let ctl = 0, atl = 0;
   const labels = [], ctlData = [], atlData = [], tsbData = [];
   const d = new Date(firstDate);
   while (d <= today) {
-    const key = d.toISOString().slice(0, 10);
+    const key = localISODate(d);
     const tss = dailyLoad[key] || 0;
     ctl = ctl * kCTL + tss * (1 - kCTL);
     atl = atl * kATL + tss * (1 - kATL);
