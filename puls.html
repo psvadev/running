@@ -746,7 +746,7 @@
           <span class="year-pill" id="venueToggleMaaned">Måned</span>
         </div>
       </div>
-      <div id="venueSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 20 uker. 🏃 Utendørs · ⚙️ Tredemølle</div>
+      <div id="venueSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 26 uker. 🏃 Utendørs · ⚙️ Tredemølle</div>
       <div class="chart-wrap"><canvas id="chartVenue"></canvas></div>
     </div>
     <div class="card span2" id="elevCard">
@@ -3796,7 +3796,7 @@ function renderZoneChart(sessions) {
     if (!zoneMap[key]) zoneMap[key] = [0,0,0,0,0];
     s.soner.forEach((v,i) => { zoneMap[key][i] += (v||0); });
   });
-  const keys = Object.keys(zoneMap).sort().slice(-20);
+  const keys = Object.keys(zoneMap).sort().slice(zoneGroupBy === 'week' ? -26 : -12);
   const fmtKey = k => {
     if (zoneGroupBy === 'week') return fmtWeekLabel(k);
     const [yr,mn]=k.split('-'); return `${NO_MTHS[+mn-1]} '${yr.slice(2)}`;
@@ -5492,7 +5492,7 @@ function renderWeeklyDistChart(sessions) {
     if (s.tempo)        { distDetails[key].paceSum += s.tempo;        distDetails[key].paceCount++; }
     if (s.gjsnittspuls) { distDetails[key].hrSum   += s.gjsnittspuls; distDetails[key].hrCount++;   }
   });
-  const distKeys = Object.keys(distMap).sort().slice(distGroupBy === 'week' ? -20 : -12);
+  const distKeys = Object.keys(distMap).sort().slice(distGroupBy === 'week' ? -26 : -12);
   const fmtDistKey = k => distGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
   document.getElementById('weeklyDistTitle').textContent = distGroupBy === 'week' ? 'Ukentlig distanse (km)' : 'Månedlig distanse (km)';
   destroyChart('weeklyDist');
@@ -5542,7 +5542,7 @@ function renderPaceWeekChart(sessions) {
       paceMap[key].secs += s.varighet;
     }
   });
-  const paceKeys = Object.keys(paceMap).sort().slice(paceGroupBy === 'week' ? -20 : -12);
+  const paceKeys = Object.keys(paceMap).sort().slice(paceGroupBy === 'week' ? -26 : -12);
   const fmtPaceKey = k => paceGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
   destroyChart('pace');
   const useKmh = paceUnit === 'kmh';
@@ -5719,7 +5719,7 @@ function renderDashboard() {
     if (!s.soner || !s.soner.some(v => v > 0)) return;
     loadWeekMap[wk] = (loadWeekMap[wk] || 0) + s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
   });
-  const loadWeeks = Object.keys(loadWeekMap).sort().slice(-20);
+  const loadWeeks = Object.keys(loadWeekMap).sort().slice(-26);
   const loadValues = loadWeeks.map(w => +loadWeekMap[w].toFixed(0));
   const maxLoad = Math.max(...loadValues, 1);
   const loadColors = loadValues.map(v => {
@@ -5785,7 +5785,7 @@ function renderDashboard() {
     planWeekMap[wk].actual += s.distanse || 0;
     planWeekMap[wk].target += s.malDistanse;
   });
-  const planWeeks = Object.keys(planWeekMap).sort().slice(-20);
+  const planWeeks = Object.keys(planWeekMap).sort().slice(-26);
   document.getElementById('planActualCard').style.display = planWeeks.length ? '' : 'none';
   if (planWeeks.length) {
     destroyChart('planActual');
@@ -6020,7 +6020,7 @@ function renderWeeklyOverviewTable(sessions) {
     if (s.tempo) { stats[key].paceSum += s.tempo; stats[key].paceCount++; }
   });
   const keys = Object.keys(stats).sort().reverse();
-  const fmtKey = k => overviewGroupBy === 'week' ? k : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
+  const fmtKey = k => overviewGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
   let totDist=0, totTime=0, totSessions=0, totPaceSum=0, totPaceCount=0;
   sessions.forEach(s=>{totDist+=s.distanse||0; totTime+=s.varighet||0; totSessions++; if(s.tempo){totPaceSum+=s.tempo; totPaceCount++;}});
   const head = document.getElementById('overviewPeriodHead');
