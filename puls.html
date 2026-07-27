@@ -293,7 +293,9 @@
   /* ── Weekly summary table ── */
   .weekly-table td, .weekly-table th { padding: 8px 14px; }
   .weekly-table thead th { position: sticky; top: 0; z-index: 2; }
-  .weekly-table tfoot td { position: sticky; bottom: 0; background: var(--surface); font-weight: 700; border-top: 2px solid var(--border); z-index: 2; }
+  .weekly-table tfoot td { position: sticky; background: var(--surface); z-index: 2; }
+  .weekly-table tfoot .wk-avg td { bottom: 34px; border-top: 2px solid var(--border); color: var(--muted); }
+  .weekly-table tfoot .wk-tot td { bottom: 0; font-weight: 700; }
 
   /* ── Toast ── */
   .toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:8px; font-size:13px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:toastIn .2s ease; pointer-events:none; }
@@ -810,7 +812,7 @@
           <span class="year-pill" id="overviewToggleMaaned">Måned</span>
         </div>
       </div>
-      <div style="overflow-x:auto;max-height:260px;overflow-y:auto">
+      <div style="overflow-x:auto;max-height:300px;overflow-y:auto">
         <table class="weekly-table" id="weeklyTable">
           <thead>
             <tr>
@@ -6019,8 +6021,8 @@ function renderWeeklyOverviewTable(sessions) {
   });
   const keys = Object.keys(stats).sort().reverse();
   const fmtKey = k => overviewGroupBy === 'week' ? k : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
-  let totDist=0, totTime=0, totSessions=0;
-  sessions.forEach(s=>{totDist+=s.distanse||0; totTime+=s.varighet||0; totSessions++;});
+  let totDist=0, totTime=0, totSessions=0, totPaceSum=0, totPaceCount=0;
+  sessions.forEach(s=>{totDist+=s.distanse||0; totTime+=s.varighet||0; totSessions++; if(s.tempo){totPaceSum+=s.tempo; totPaceCount++;}});
   const head = document.getElementById('overviewPeriodHead');
   if (head) head.textContent = overviewGroupBy === 'week' ? 'Uke' : 'Måned';
   const titleEl = document.getElementById('overviewTitle');
@@ -6036,9 +6038,21 @@ function renderWeeklyOverviewTable(sessions) {
       <td>${avgPace ? secsToMmSs(avgPace) : '–'}</td>
     </tr>`;
   }).join('');
-  document.getElementById('weeklyFoot').innerHTML = `<tr>
+  const nPeriods = keys.length || 1;
+  const avgPace = totPaceCount ? totPaceSum/totPaceCount : null;
+  const foot = document.getElementById('weeklyFoot');
+  foot.innerHTML = `<tr class="wk-avg">
+    <td>Snitt/${overviewGroupBy==='week'?'uke':'mnd'}</td>
+    <td>${(totSessions/nPeriods).toFixed(1)}</td>
+    <td>${(totDist/nPeriods).toFixed(1)} km</td>
+    <td>${secsToHms(totTime/nPeriods)}</td>
+    <td>${avgPace!=null ? secsToMmSs(avgPace) : '–'}</td>
+  </tr>
+  <tr class="wk-tot">
     <td>Totalt</td><td>${totSessions}</td><td>${totDist.toFixed(1)} km</td><td>${secsToHms(totTime)}</td><td>–</td>
   </tr>`;
+  const totH = foot.querySelector('.wk-tot').offsetHeight;
+  if (totH) foot.querySelectorAll('.wk-avg td').forEach(td => td.style.bottom = totH + 'px');
 }
 
 const PR_BRACKETS = [
