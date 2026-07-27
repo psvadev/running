@@ -3945,7 +3945,11 @@ const eventLinesPlugin = {
             bandEnd = (idx2 < meta.data.length ? meta.data[idx2].x : meta.data[meta.data.length - 1].x) + colWidth * 0.5;
           }
         }
-        const railX = bandStart != null ? bandStart : x;
+        // Anomaly bands: center the icon over the whole shaded period. Point events + plan
+        // starts (no shading) stay pinned to their exact date.
+        const hasBand = bandStart != null && evt.type !== 'plan';
+        const railX = hasBand ? (clamp(bandStart) + clamp(bandEnd)) / 2
+                    : (bandStart != null ? bandStart : x);
         if (railX < chartArea.left - 4 || railX > chartArea.right + 4) return;
         markers.push({ evt, x, bandStart, bandEnd, railX });
       });
