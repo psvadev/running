@@ -28,7 +28,7 @@ A self-contained single-file running tracker — log a run in seconds and follow
 - **Treningsbelastning per uke** — weekly training load scored by zone intensity (Z1=1 … Z5=5 points/min), color-coded bars with 4-week rolling average
 - **Treningsstatus (PMC)** — Performance Management Chart: Fitness (CTL, 42-day), Fatigue (ATL, 7-day), and Form (TSB = CTL−ATL) over the last 365 days
 - **Ukentlig distanse** — km per week or month (Uke/Måned toggle); weekly mode shows last 20 weeks, monthly mode shows last 12 months; click a bar to drill into that week
-- **Tempo per uke** — weighted average pace per week
+- **Tempo per uke** — weighted average pace per week or month (Uke/Måned toggle; week = last 20 weeks, month = last 12 months); switches title to "Tempo per måned" in month mode
 - **Aerob effektivitet (rolige økter)** — aerobic efficiency trend (speed ÷ heart rate) for conversational-pace runs, with rolling average and personal average reference line. A rising trend means **lower HR at the same speed, or higher speed at the same HR** — improving aerobic form. **Run-type toggle** (Begge / Easy / Long) covers both easy and long runs; Steady/Tempo/Intervaller and other harder sessions are excluded by design (not Zone 2 targets). **Venue toggle** (Alle / Utendørs / Tredemølle) slices by run type; **Sone 2** filter isolates only runs where avg HR (or ≥70% of zone time) falls within configured Zone 2 — a cleaner aerobic signal that drops runs that drifted too hard
 - **Interactive charts** — hover any weekly chart for a full week summary (km, løp, tid, tempo, HR); click a bar/point to open a drill-down detail panel for that week; click a shoe bar to open shoe detail; click a heatmap day to open session or week detail
 - **Ute vs inne** — stacked bar splitting km between outdoor (🏃) and treadmill (⚙️); Uke/Måned toggle (week = last 26 weeks, month = last 12 months); hidden until first treadmill session is logged
@@ -38,7 +38,7 @@ A self-contained single-file running tracker — log a run in seconds and follow
 - **Sko oversikt** — total km per shoe pair + per-shoe stats: run count, avg pace, avg HR, last used date
 - **Ukentlig oversikt** — scrollable summary table (sessions, distance, time, avg pace per week)
 
-Dashboard filters: session type, training plan, run type (outdoor/treadmill), **tempo unit (min/km ↔ km/t)**, year pills — all charts update live. The tempo unit toggle switches "Tempo per uke" between pace and speed. **Nullstill** resets all filters including chart-local type pills, the pace unit toggle, and the Pulssoner Uke/Måned toggle.
+Dashboard filters: session type, training plan, run type (outdoor/treadmill), **tempo unit (min/km ↔ km/t)**, year pills — all charts update live. The tempo unit toggle switches "Tempo per uke" between pace and speed. **Nullstill** resets all filters including chart-local type pills, the pace unit toggle, and every chart's Uke/Måned toggle (Ukentlig distanse, Tempo, Pulssoner, Ute vs inne, Høydemeter).
 
 **Mobile:** all charts resize to fit the screen width — no horizontal page scrolling. The training calendar scrolls horizontally within its own card.
 
