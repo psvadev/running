@@ -126,7 +126,7 @@
   .land-chip:hover { border-color:var(--accent); }
   .land-chip img { height:16px; width:auto; border-radius:2px; display:block; }
   .land-chip .lc-count { color:var(--muted); font-weight:600; font-size:12px; }
-  .land-chip .lc-new { font-size:12px; line-height:1; }
+  .land-chip .lc-new, .land-chip .lc-home { font-size:12px; line-height:1; }
   .land-chip .lc-note { font-size:11px; line-height:1; }
   /* ── Løpeatlas ── */
   .atlas-badges-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(232px, 1fr)); gap:12px; margin-top:10px; }
@@ -2081,6 +2081,7 @@ function renderAtlas(sessions, events) {
           ${flag ? `<img src="${flag}" alt="" loading="lazy">` : ''}
           <span>${escapeHtml(landName(code))}</span>
           ${notes[code] ? '<span class="lc-note" title="Har notat">📝</span>' : ''}
+          ${code === ATLAS_HOME ? '<span class="lc-home" title="Hjemland">🏠</span>' : ''}
           ${code === newCode ? '<span class="lc-new" title="Nyeste land">✨</span>' : ''}
           <span class="lc-count">${a.byCountry[code].runs}</span>
         </span>`;
