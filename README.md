@@ -36,7 +36,7 @@ A self-contained single-file running tracker — log a run in seconds and follow
 - **Pulssoner** — stacked minutes per zone per week or month (toggle)
 - **Årssammenligning** — cumulative km by week number, one line per year; summary table below the chart shows total km, run count, and avg km per active week per year (color-coded to match chart lines)
 - **Sko oversikt** — total km per shoe pair + per-shoe stats: run count, avg pace, avg HR, last used date
-- **Ukentlig oversikt** — scrollable summary table (økter, distance, **time**, avg pace) with a **Uke/Måned toggle** to compare each metric per week or per month
+- **Ukentlig oversikt** — scrollable summary table (økter, distance, **time**, avg pace) with a **Uke/Måned toggle** to compare each metric per week or per month. The column header stays pinned while scrolling, and a **sticky footer** keeps two summary rows always in view: a **Snitt** row (per-active-period averages — a typical week/month — plus overall average pace) above the **Totalt** row
 
 Dashboard filters: session type, training plan, run type (outdoor/treadmill), **tempo unit (min/km ↔ km/t)**, year pills — all charts update live. The tempo unit toggle switches "Tempo per uke" between pace and speed. **Nullstill** resets all filters including chart-local type pills, the pace unit toggle, and every Uke/Måned toggle (Ukentlig distanse, Tempo, Pulssoner, Ute vs inne, Høydemeter charts + the Ukentlig oversikt table).
 
