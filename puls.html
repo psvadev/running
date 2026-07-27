@@ -5877,7 +5877,8 @@ function renderDashboard() {
   });
   // Build cumulative per year
   const compYears = Object.keys(yearGroups).sort();
-  const maxWeek = 52;
+  // 52 floor, but extend to 53 for ISO 53-week years (e.g. 2026) so week-53 km isn't dropped
+  const maxWeek = Math.max(52, ...compYears.map(y => Math.max(...Object.keys(yearGroups[y]).map(Number))));
   const yearDatasets = compYears.map((year, i) => {
     const weekly = yearGroups[year];
     let cum = 0;
