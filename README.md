@@ -38,6 +38,8 @@ A self-contained single-file running tracker — log a run in seconds and follow
 - **Sko oversikt** — total km per shoe pair + per-shoe stats: run count, avg pace, avg HR, last used date
 - **Ukentlig oversikt** — scrollable summary table (økter, distance, **time**, avg pace) with a **Uke/Måned toggle** to compare each metric per week or per month. The column header stays pinned while scrolling, and a **sticky footer** keeps two summary rows always in view: a **Snitt** row (per-active-period averages — a typical week/month — plus overall average pace) above the **Totalt** row
 
+**Event markers (Hendelser)** — training events (plan / race / sykdom / ferie / deload / taper / annet) show on the weekly charts as a compact **icon rail** across the top (📋 🏁 🤒 🏖️ 🪫 📉 📌); anomaly periods (sykdom/ferie/deload/taper) also shade a soft band, and plans stay as a baseline marker. **Hover** an icon for the event's title, type, and date range; markers that bunch up **collapse into a count badge** (hover lists them all). A matching **legend** sits by the Hendelser toggle when there are ≥2 event types. Toggle all markers with the **Hendelser** checkbox (off by default on small screens).
+
 Dashboard filters: session type, training plan, run type (outdoor/treadmill), **tempo unit (min/km ↔ km/t)**, year pills — all charts update live. The tempo unit toggle switches "Tempo per uke" between pace and speed. **Nullstill** resets all filters including chart-local type pills, the pace unit toggle, and every Uke/Måned toggle (Ukentlig distanse, Tempo, Pulssoner, Ute vs inne, Høydemeter charts + the Ukentlig oversikt table).
 
 **Mobile:** all charts resize to fit the screen width — no horizontal page scrolling. The training calendar scrolls horizontally within its own card.
