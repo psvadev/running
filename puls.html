@@ -4841,7 +4841,7 @@ function renderBlocks() {
       { v: current.totalKm.toFixed(1)+' km', l: 'totalt' },
       { v: current.runs,                      l: 'løp' },
       { v: current.avgKmWeek.toFixed(1)+' km/uke', l: 'snitt per uke' },
-      ...(current.avgPace ? [{ v: secsToMmSs(current.avgPace)+'/km', l: 'snitt tempo' }] : []),
+      ...(current.avgPace ? [{ v: secsToMmSs(current.avgPace)+' /km', l: 'snitt tempo' }] : []),
       ...(current.avgHR   ? [{ v: current.avgHR,                      l: 'snitt HR'   }] : []),
     ];
     heroHtml = `
@@ -5047,7 +5047,7 @@ const DetailPanel = {
       { v: totalKm.toFixed(1)+' km', l: 'distanse' },
       { v: weekSessions.length,       l: 'løp' },
       { v: secsToHms(totalSecs),      l: 'tid' },
-      ...(avgPace ? [{ v: secsToMmSs(avgPace)+'/km', l: 'snitt tempo' }] : []),
+      ...(avgPace ? [{ v: secsToMmSs(avgPace)+' /km', l: 'snitt tempo' }] : []),
       ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
     ];
     const sessionRows = weekSessions.slice().sort((a,b)=>a.dato.localeCompare(b.dato)).map(s =>
@@ -5077,7 +5077,7 @@ const DetailPanel = {
       ['Type løp',       s.løpetype === 'treadmill' ? 'Tredemølle' : 'Utendørs'],
       ['Distanse',       s.distanse ? s.distanse+' km' : null],
       ['Tid',            s.varighet ? secsToHms(s.varighet) : null],
-      ['Tempo',          s.tempo    ? secsToMmSs(s.tempo)+'/km' : null],
+      ['Tempo',          s.tempo    ? secsToMmSs(s.tempo)+' /km' : null],
       ['Snitt km/t',     s.snittkmh ? s.snittkmh+' km/t' : null],
       ['HR snitt / topp',(s.gjsnittspuls||s.toppuls) ? [s.gjsnittspuls, s.toppuls].filter(Boolean).join(' / ') : null],
       ['Kalorier',       s.kalorier ? s.kalorier+' kcal' : null],
@@ -5106,7 +5106,7 @@ const DetailPanel = {
     const stats = [
       { v: totalKm.toFixed(0)+' km', l: 'totalt' },
       { v: sessions.length,           l: 'løp' },
-      ...(avgPace ? [{ v: secsToMmSs(avgPace)+'/km', l: 'snitt tempo' }] : []),
+      ...(avgPace ? [{ v: secsToMmSs(avgPace)+' /km', l: 'snitt tempo' }] : []),
       ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
     ];
     const recent = sessions.slice().sort((a,b)=>b.dato.localeCompare(a.dato)).slice(0,5);
@@ -5296,7 +5296,7 @@ const DetailPanel = {
       { v: runs,                           l: 'løp' },
       { v: secsToHms(totalSecs),           l: 'tid' },
       { v: avgKmWeek.toFixed(1)+' km/uke', l: 'km per uke' },
-      ...(avgPace ? [{ v: secsToMmSs(avgPace)+'/km', l: 'snitt tempo' }] : []),
+      ...(avgPace ? [{ v: secsToMmSs(avgPace)+' /km', l: 'snitt tempo' }] : []),
       ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
     ];
 
@@ -5377,7 +5377,7 @@ const DetailPanel = {
         { l:'distanse', v:(kmDiff>=0?'+':'')+kmDiff.toFixed(0)+' km', sub:(kmPct>=0?'+':'')+kmPct.toFixed(0)+'%', c:kmColor },
         { l:'km/uke',   v:(wkDiff>=0?'+':'')+wkDiff.toFixed(1)+' km', c:kmColor },
         ...(paceDiff !== null && Math.abs(paceDiff) >= 5
-          ? [{ l:'tempo', v:secsToMmSs(Math.abs(paceDiff))+'/km', sub:paceDiff>0?'raskere':'langsommere', c:paceDiff>0?'#22c55e':'#ef4444' }]
+          ? [{ l:'tempo', v:secsToMmSs(Math.abs(paceDiff))+' /km', sub:paceDiff>0?'raskere':'langsommere', c:paceDiff>0?'#22c55e':'#ef4444' }]
           : []),
         { l:'konsistens', v:(consDiff>=0?'+':'')+consDiff+'%', c:consDiff>=0?'#22c55e':'#ef4444' },
       ];
