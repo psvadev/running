@@ -4977,8 +4977,10 @@ function renderBlocks() {
           </div>` : `<div style="font-size:12px;color:var(--muted)">Planlagte økter · ${planned.length} i blokken</div>`;
           return `<div style="margin-bottom:12px">${bar}${nextHtml}</div>`;
         })()}
-        ${blockSparkline(current.weeklyKm)}
-        <div style="font-size:10px;color:var(--muted);margin-top:4px">Ukentlig distanse</div>
+        ${(() => {
+          const spark = blockSparkline(current.weeklyKm);
+          return spark ? spark + '<div style="font-size:10px;color:var(--muted);margin-top:4px">Ukentlig distanse</div>' : '';
+        })()}
       </div>`;
   }
 
