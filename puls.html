@@ -2078,10 +2078,10 @@ function renderAtlas(sessions, events) {
       ${chipKeys.map(code => {
         const flag = landFlagUrl(code);
         return `<span class="land-chip" data-land="${escapeHtml(code)}">
-          ${code === ATLAS_HOME ? '<span class="lc-home" title="Hjemland">🏠</span>' : ''}
           ${flag ? `<img src="${flag}" alt="" loading="lazy">` : ''}
           <span>${escapeHtml(landName(code))}</span>
           ${notes[code] ? '<span class="lc-note" title="Har notat">📝</span>' : ''}
+          ${code === ATLAS_HOME ? '<span class="lc-home" title="Hjemland">🏠</span>' : ''}
           ${code === newCode ? '<span class="lc-new" title="Nyeste land">✨</span>' : ''}
           <span class="lc-count">${a.byCountry[code].runs}</span>
         </span>`;
