@@ -3611,6 +3611,31 @@ const Continuity = {
       if (typeof Settings !== 'undefined' && Settings.loadContinuityFields) Settings.loadContinuityFields();
     }
   },
+
+  // Fire-and-forget auto-analysis after a session is saved from the log form, so a new outdoor
+  // Strava run joins the Run/walk ratio trend without the manual backfill. **One fetch per run:**
+  // it no-ops if the run is ineligible OR already analysed at the current thresholds (_isCurrent),
+  // and an in-flight guard blocks a double-fetch on rapid re-saves — so a routine edit of an
+  // already-analysed run costs zero network. Never blocks the save, never toasts on failure (the
+  // detail-view button + backfill stay as fallbacks); on success it persists + refreshes the trend.
+  _autoInflight: new Set(),
+  async autoAnalyzeOnSave(id) {
+    const s = Store.data.sessions.find(x => x.id === id);
+    if (!s || !this._eligible(s)) return;
+    if (this._isCurrent(s.stravaAnalysis && s.stravaAnalysis.continuity)) return;
+    if (this._autoInflight.has(id)) return;
+    this._autoInflight.add(id);
+    try {
+      const status = await this._analyzeInto(s, this.thresholds());
+      if (status !== 'ok') return;   // ratelimit/nostreams/nodata → silent; a later re-save or the backfill retries
+      await FileIO.save();
+      if (typeof renderDashboard === 'function') renderDashboard();
+    } catch (e) {
+      /* silent — auto path must never disrupt saving; manual analyse/backfill remain */
+    } finally {
+      this._autoInflight.delete(id);
+    }
+  },
 };
 
 // ── Dev inspection helpers (Phase-2 verification; run in the browser console) ──
@@ -4016,11 +4041,13 @@ const Form = {
     const s = this.read();
     if (!s.dato) { alert('Velg en dato.'); return; }
     if (s.distanse <= 0) { alert('Fyll inn distanse.'); return; }
+    const savedId = s.id;   // stable in both paths (editId when editing, fresh genId when new)
 
     if (this.editId) {
       Store.updateSession(this.editId, s);
       this.cancelEdit();
       showMsg('Økt oppdatert!');
+      refreshAll();
     } else {
       Store.addSession(s);
       const sko = s.sko;
@@ -4029,9 +4056,10 @@ const Form = {
       showMsg('Økt lagret!');
       refreshAll();
       switchTab('log');
-      return;
     }
-    refreshAll();
+    // Auto Run/walk ratio: fire-and-forget, one fetch per run (no-ops if ineligible or already
+    // analysed). Runs after the user-facing save so it never delays the form.
+    Continuity.autoAnalyzeOnSave(savedId);
   },
 
   clear() {
