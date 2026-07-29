@@ -1164,6 +1164,22 @@
       <div id="stravaStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
       <button class="btn-secondary btn-sm" id="stravaConnectBtn">Koble til Strava</button>
     </div>
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Løpekontinuitet</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Fartsgrenser for å anslå løping vs. gange fra Strava-data på utendørsøkter. Under nedre grense = gange, over øvre = løping, imellom = uklart. Juster til din fart om anslaget ikke stemmer (gange og rolig jogg overlapper ofte).</p>
+      <div style="display:flex;gap:12px;margin-bottom:10px">
+        <div style="flex:1">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Gange under (km/t)</label>
+          <input type="number" step="0.1" min="1" max="15" id="contWalkMax" placeholder="7" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Løping over (km/t)</label>
+          <input type="number" step="0.1" min="1" max="20" id="contRunMin" placeholder="7.5" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+        </div>
+      </div>
+      <button class="btn-secondary btn-sm" id="contSaveBtn">Lagre grenser</button>
+      <span id="contMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span>
+    </div>
   </div>
 
   <div style="text-align:center;font-size:12px;color:var(--muted);padding:20px 0 4px">
@@ -3228,10 +3244,13 @@ const StravaIO = (() => {
 // walk — all from GPS-derived speed, never manual entry. Thresholds live here in code
 // (no UI settings) until validated on real activities. Everything is labelled "estimert".
 const CONTINUITY_ANALYSIS_VERSION  = 1;   // bump when the algorithm / output shape changes
-const CONTINUITY_THRESHOLD_VERSION = 1;   // bump when the numeric thresholds below change
+const CONTINUITY_THRESHOLD_VERSION = 2;   // bump when the numeric threshold DEFAULTS below change (v2: 7.0/7.5, calibrated on 4 real runs)
+// Defaults calibrated 2026-07-29 against 4 real outdoor runs: this runner walks ~6–7 km/h
+// (brisk) and runs ~8+, so 5.5/6.5 hid the walking. 7.0/7.5 gave a stable ~25–35% walk across
+// all four. Overridable per-user via Innstillinger → Løpekontinuitet (Store.data.continuitySettings).
 const CONTINUITY_DEFAULTS = {
-  definiteWalkMaxKmh: 5.5,          // speed strictly BELOW this ⇒ walk
-  definiteRunMinKmh: 6.5,           // speed strictly ABOVE this ⇒ run; the band between (incl. exact equality) is "unclassified"
+  definiteWalkMaxKmh: 7.0,          // speed strictly BELOW this ⇒ walk
+  definiteRunMinKmh: 7.5,           // speed strictly ABOVE this ⇒ run; the band between (incl. exact equality) is "unclassified"
   minimumSegmentSeconds: 8,         // segments shorter than this are cleaned up as noise
   minimumTransitionSeconds: 8,      // both sides of a counted run→walk transition must be ≥ this
   uphillGradeThresholdPercent: 2.5, // smoothed grade ≥ this ⇒ "uphill" (experimental only)
@@ -3359,13 +3378,21 @@ function analyzeRunningContinuity(streams, options = {}) {
   const movingT = runT + walkT + unclT;
   const ratio = x => movingT > 0 ? Math.min(1, Math.max(0, x / movingT)) : 0;
 
-  // 8. Directional run→walk transitions: a surviving cleaned RUN segment IMMEDIATELY followed
-  //    by a surviving cleaned WALK segment (both ≥ minimumTransitionSeconds). walk→run,
-  //    run→unclassified, and anything touching a stopped segment never count.
-  let transitions = 0;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const a = segments[i], b = segments[i + 1];
-    if (a.cls === RUN && b.cls === WALK && a.dur >= cfg.minimumTransitionSeconds && b.dur >= cfg.minimumTransitionSeconds) transitions++;
+  // 8. Run→walk transitions (how many times the runner dropped to a walk). Count each time the
+  //    runner goes from a running state INTO a walking state. Ambiguous (unclassified) segments
+  //    are TRANSPARENT — they don't change the "definite" state — so run → unclassified → walk
+  //    still counts as one transition (real runs have a fuzzy speed band between run and walk,
+  //    and requiring strict adjacency badly undercounts). A STOPPED segment RESETS the state (a
+  //    pause is not a walk break), walk→run never counts, and the walk must survive cleanup
+  //    (≥ minimumTransitionSeconds). Preserves run→walk→run→walk = 2 and walk→run→… ignored.
+  let transitions = 0, lastDefinite = null; // 'run' | 'walk' | null (null after a stop / at start)
+  for (const s of segments) {
+    if (s.cls === STOP) { lastDefinite = null; continue; }
+    if (s.cls === UNCL) continue;                                   // ambiguous: definite state unchanged
+    if (s.cls === WALK) {
+      if (lastDefinite === RUN && s.dur >= cfg.minimumTransitionSeconds) transitions++;
+      lastDefinite = WALK;
+    } else { lastDefinite = RUN; }
   }
 
   // 9. Longest continuous run. A walk or stopped segment breaks it; only an unclassified gap
@@ -3428,16 +3455,26 @@ function analyzeRunningContinuity(streams, options = {}) {
 // the current algorithm + threshold versions (unless forced by "Analyser på nytt").
 const Continuity = {
   _eligible(s) { return !!s && s.løpetype === 'utendors' && !!s.stravaId && StravaIO.isSignedIn(); },
+  // Effective walk/run speed thresholds: per-user override (Innstillinger → Løpekontinuitet) or defaults.
+  thresholds() {
+    const c = Store.data.continuitySettings || {};
+    const w = Number(c.walkMaxKmh), r = Number(c.runMinKmh);
+    const walk = (isFinite(w) && w > 0) ? w : CONTINUITY_DEFAULTS.definiteWalkMaxKmh;
+    let run = (isFinite(r) && r > 0) ? r : CONTINUITY_DEFAULTS.definiteRunMinKmh;
+    if (run <= walk) run = walk + 0.1;   // run threshold must sit above walk
+    return { definiteWalkMaxKmh: walk, definiteRunMinKmh: run };
+  },
   _referenceMovingTime(s) {
     const v = s && s.varighet;
     if (typeof v === 'number' && isFinite(v) && v > 0) return v;
     if (typeof v === 'string' && v.trim()) { const p = hmsToSecs(v); return p > 0 ? p : null; }
     return null;
   },
-  _toPersisted(r, sourceActivityId) {
+  _toPersisted(r, sourceActivityId, thr) {
     return {
       version: CONTINUITY_ANALYSIS_VERSION, thresholdVersion: CONTINUITY_THRESHOLD_VERSION,
       analyzedAt: new Date().toISOString(), sourceActivityId,
+      walkMaxKmh: thr.definiteWalkMaxKmh, runMinKmh: thr.definiteRunMinKmh,
       movingTimeSeconds: r.movingTimeSeconds, runningTimeSeconds: r.runningTimeSeconds, walkingTimeSeconds: r.walkingTimeSeconds, unclassifiedTimeSeconds: r.unclassifiedTimeSeconds,
       runningRatio: r.runningRatio, walkingRatio: r.walkingRatio, unclassifiedRatio: r.unclassifiedRatio,
       runningDistanceMeters: r.runningDistanceMeters, walkingDistanceMeters: r.walkingDistanceMeters,
@@ -3461,10 +3498,11 @@ const Continuity = {
       if (streams && streams.error === 429) { setMsg('Strava-grense nådd — prøv igjen senere', true); return; }
       if (!streams) { setMsg('Kunne ikke hente Strava-data', true); return; }
       const ref = this._referenceMovingTime(s);
-      const result = analyzeRunningContinuity(streams, ref != null ? { referenceMovingTimeSeconds: ref } : {});
+      const thr = this.thresholds();
+      const result = analyzeRunningContinuity(streams, ref != null ? { ...thr, referenceMovingTimeSeconds: ref } : { ...thr });
       if (result.insufficientData) { setMsg('Strava-strømmen mangler tid/distanse/fart — kan ikke analysere', true); return; }
       s.stravaAnalysis = s.stravaAnalysis || {};
-      s.stravaAnalysis.continuity = this._toPersisted(result, s.stravaId);
+      s.stravaAnalysis.continuity = this._toPersisted(result, s.stravaId, thr);
       await FileIO.save();
       DetailPanel.openSession(id);   // re-render with the fresh result
     } catch (e) {
@@ -3501,7 +3539,8 @@ window._inspectRunningContinuity = async function (stravaId) {
   if (!streams || streams.error) { console.warn('Kunne ikke hente streams', streams && streams.error); return; }
   const s = Store.data.sessions.find(x => String(x.stravaId) === String(stravaId));
   const ref = s ? Continuity._referenceMovingTime(s) : null;
-  const result = analyzeRunningContinuity(streams, ref != null ? { referenceMovingTimeSeconds: ref } : {});
+  const thr = Continuity.thresholds();
+  const result = analyzeRunningContinuity(streams, ref != null ? { ...thr, referenceMovingTimeSeconds: ref } : { ...thr });
   const { segments, ...summary } = result;
   console.log('%cLøpekontinuitet (ikke lagret)', 'font-weight:700', summary);
   if (ref != null) console.log(`movingTime(stream)=${Math.round(result.movingTimeSeconds)}s  vs  session.varighet=${ref}s`);
@@ -3521,7 +3560,9 @@ window._testRunningContinuity = function () {
   const approx = (a, b, tol) => Math.abs(a - b) <= (tol == null ? 0.5 : tol);
   const check = (name, cond, detail) => results.push({ name, pass: !!cond, detail: cond ? '' : (detail || '') });
   const A = (streams, opt) => analyzeRunningContinuity(streams, opt || {});
-  const sharp = { smoothingWindowSeconds: 0 };
+  // Pin structural tests to fixed thresholds so they stay valid regardless of CONTINUITY_DEFAULTS
+  // (the default is user-tunable / was bumped to 7.0/7.5). Exact-threshold tests override these.
+  const sharp = { smoothingWindowSeconds: 0, definiteWalkMaxKmh: 5.5, definiteRunMinKmh: 6.5 };
   // Build key_by_type streams at `hz` from phases [{ kmh, seconds, moving?, grade? }].
   const synth = (phases, opt = {}) => {
     const hz = opt.hz || 1, dt = 1 / hz; const time = [], distance = [], velocity = [], moving = [], grade = [];
@@ -3545,6 +3586,10 @@ window._testRunningContinuity = function () {
   check('run→walk→run→walk: 2 transitions', r.runToWalkTransitions === 2, 't=' + r.runToWalkTransitions);
   r = A(synth([{ kmh: 4, seconds: 40 }, { kmh: 11, seconds: 40 }, { kmh: 4, seconds: 40 }, { kmh: 11, seconds: 40 }]), sharp);
   check('walk→run→walk→run: 1 (walk→run not counted)', r.runToWalkTransitions === 1, 't=' + r.runToWalkTransitions);
+  r = A(synth([{ kmh: 11, seconds: 40 }, { kmh: 6.0, seconds: 40 }, { kmh: 4, seconds: 40 }]), sharp);
+  check('run→uncl→walk: 1 (ambiguous bridged)', r.runToWalkTransitions === 1, 't=' + r.runToWalkTransitions);
+  r = A(synth([{ kmh: 11, seconds: 40 }, { kmh: 0, seconds: 40, moving: false }, { kmh: 4, seconds: 40 }]), sharp);
+  check('run→stop→walk: 0 (stop resets state)', r.runToWalkTransitions === 0, 't=' + r.runToWalkTransitions);
   r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 4, seconds: 4 }, { kmh: 11, seconds: 60 }]), sharp);
   check('brief-walk-dip: cleaned to run (0 transitions)', r.runToWalkTransitions === 0 && r.walkingTimeSeconds === 0, 'w=' + r.walkingTimeSeconds + ' t=' + r.runToWalkTransitions);
   r = A(synth([{ kmh: 4, seconds: 60 }, { kmh: 11, seconds: 4 }, { kmh: 4, seconds: 60 }]), sharp);
@@ -5571,31 +5616,50 @@ const DetailPanel = {
 
   // Løpekontinuitet (POC) — estimated run/walk breakdown from Strava streams. Only for an
   // explicitly-outdoor Strava-linked session while signed in; treadmill / manual / no-stravaId
-  // / unknown-venue render nothing. Shows the four primary metrics + Datakvalitet when analysed,
-  // uphill separately as experimental, otherwise the analyse button. All numbers are estimates.
+  // / unknown-venue render nothing. Shows a stacked run/walk/uklart bar + three stat tiles
+  // (lengste løp · overganger · datakvalitet) when analysed, uphill separately as experimental,
+  // otherwise the analyse button. Stored result is "current" only if it matches the algorithm +
+  // threshold versions AND the user's current speed thresholds. All numbers are estimates.
   continuitySectionHtml(s) {
     if (!Continuity._eligible(s)) return '';
     const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
-    const current = c && c.version === CONTINUITY_ANALYSIS_VERSION && c.thresholdVersion === CONTINUITY_THRESHOLD_VERSION;
+    const thr = Continuity.thresholds();
+    const current = c && c.version === CONTINUITY_ANALYSIS_VERSION && c.thresholdVersion === CONTINUITY_THRESHOLD_VERSION
+      && c.walkMaxKmh === thr.definiteWalkMaxKmh && c.runMinKmh === thr.definiteRunMinKmh;
     const label = '<div class="dp-section-label">Løpekontinuitet <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
     if (!current) {
-      return `${label}<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Estimer løping vs. gange fra Strava-data (eksperimentelt).</div>`
+      const stale = c ? ' <span style="color:var(--muted)">· grensene er endret, kjør på nytt</span>' : '';
+      return `${label}<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Estimer løping vs. gange fra Strava-data (eksperimentelt).${stale}</div>`
         + `<button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}')">🔬 Analyser løpekontinuitet</button>`
         + `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>`;
     }
     const pct = x => Math.round((x || 0) * 100);
+    const w = x => (Math.max(0, Math.min(1, x || 0)) * 100).toFixed(2);
+    const GREY = '#565c7a';
     const kvalColor = { 'høy': 'var(--green)', 'middels': 'var(--yellow)', 'lav': 'var(--danger)' }[c.datakvalitet] || 'var(--muted)';
-    const row = (l, v) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:170px;color:var(--muted)">${l}</span><span>${v}</span></div>`;
-    const primary = row('Estimert fordeling', `Løping ${pct(c.runningRatio)}% · Gange ${pct(c.walkingRatio)}% · Uklart ${pct(c.unclassifiedRatio)}%`)
-      + row('Lengste sammenhengende løp', `${(c.longestContinuousRunMeters / 1000).toFixed(1)} km · ${secsToHms(c.longestContinuousRunSeconds)}`)
-      + row('Overganger til gange', String(c.runToWalkTransitions))
-      + row('Datakvalitet', `<span style="color:${kvalColor};font-weight:600">${escapeHtml(c.datakvalitet)}</span>`);
+    // Stacked proportion bar — widths use the raw ratios (sum to 1) so it always fills exactly.
+    const bar = `<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:4px 0 8px;background:var(--surface2)">`
+      + `<div style="width:${w(c.runningRatio)}%;background:var(--green)"></div>`
+      + `<div style="width:${w(c.walkingRatio)}%;background:var(--yellow)"></div>`
+      + `<div style="width:${w(c.unclassifiedRatio)}%;background:${GREY}"></div></div>`;
+    const dot = col => `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${col};margin-right:5px"></span>`;
+    const legend = `<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-bottom:12px">`
+      + `<span>${dot('var(--green)')}Løping ${pct(c.runningRatio)}%</span>`
+      + `<span>${dot('var(--yellow)')}Gange ${pct(c.walkingRatio)}%</span>`
+      + `<span>${dot(GREY)}Uklart ${pct(c.unclassifiedRatio)}%</span></div>`;
+    const tiles = [
+      { v: `${(c.longestContinuousRunMeters / 1000).toFixed(1)} km`, l: `lengste løp · ${secsToHmsShort(c.longestContinuousRunSeconds)}` },
+      { v: String(c.runToWalkTransitions), l: 'overganger til gange' },
+      { v: `<span style="color:${kvalColor}">${escapeHtml(c.datakvalitet)}</span>`, l: 'datakvalitet' },
+    ];
+    const tilesHtml = `<div class="dp-stat-row">${tiles.map(t => `<div class="dp-stat"><div class="dpv">${t.v}</div><div class="dpl">${t.l}</div></div>`).join('')}</div>`;
     const uphill = (c.uphillWalkingTimeSeconds != null)
-      ? `<div style="font-size:11px;color:var(--muted);margin-top:8px">🧪 Eksperimentelt · Gange i motbakke: ${Math.round(c.uphillWalkingDistanceMeters)} m · ${secsToHms(c.uphillWalkingTimeSeconds)}</div>` : '';
+      ? `<div style="font-size:11px;color:var(--muted);margin-top:10px">🧪 Eksperimentelt · Gange i motbakke: ${Math.round(c.uphillWalkingDistanceMeters)} m · ${secsToHms(c.uphillWalkingTimeSeconds)}</div>` : '';
     const warn = (c.warnings && c.warnings.length)
       ? `<div style="font-size:11px;color:var(--yellow);margin-top:6px">⚠︎ ${c.warnings.map(escapeHtml).join(' · ')}</div>` : '';
-    return `${label}${primary}${uphill}${warn}`
-      + `<div style="margin-top:8px"><button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}', {force:true})">↻ Analyser på nytt</button>`
+    const hint = `<div style="font-size:10px;color:var(--muted);margin-top:10px">Grenser: gange &lt; ${thr.definiteWalkMaxKmh} · løping &gt; ${thr.definiteRunMinKmh} km/t — endre i Innstillinger</div>`;
+    return `${label}${bar}${legend}${tilesHtml}${uphill}${warn}${hint}`
+      + `<div style="margin-top:10px"><button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}', {force:true})">↻ Analyser på nytt</button>`
       + `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span></div>`;
   },
 
@@ -7187,6 +7251,8 @@ const Settings = {
 
     // Treningsrytme thresholds
     document.getElementById('btnSaveConsistency').addEventListener('click', () => this.saveConsistency());
+    const contBtn = document.getElementById('contSaveBtn');
+    if (contBtn) contBtn.addEventListener('click', () => this.saveContinuity());
 
     // Custom økttyper / treningsplan
     document.getElementById('btnAddCustomOkttype').addEventListener('click', () => CustomLists.add('okttype'));
@@ -7223,6 +7289,7 @@ const Settings = {
     this.renderZoneEditor();
     this.loadProfileFields();
     this.loadConsistencyFields();
+    this.loadContinuityFields();
     this.renderEventList();
     this.renderRaceHistory();
     this.renderPlannedList();
@@ -7866,6 +7933,24 @@ const Settings = {
     const msg = document.getElementById('consistencyMsg');
     msg.textContent = 'Lagret!';
     setTimeout(() => { msg.textContent = ''; }, 2000);
+  },
+
+  loadContinuityFields() {
+    const t = Continuity.thresholds();
+    const w = document.getElementById('contWalkMax'), r = document.getElementById('contRunMin');
+    if (w) w.value = t.definiteWalkMaxKmh;
+    if (r) r.value = t.definiteRunMinKmh;
+  },
+
+  saveContinuity() {
+    const walk = parseFloat(document.getElementById('contWalkMax').value);
+    const run  = parseFloat(document.getElementById('contRunMin').value);
+    const msg  = document.getElementById('contMsg');
+    const flash = (txt, ok) => { if (!msg) return; msg.style.color = ok ? 'var(--green)' : 'var(--danger)'; msg.textContent = txt; setTimeout(() => { if (msg) { msg.textContent = ''; msg.style.color = 'var(--green)'; } }, ok ? 2000 : 3200); };
+    if (!(walk > 0) || !(run > 0) || run <= walk) { flash('Løping-grensen må være høyere enn gange-grensen', false); return; }
+    Store.data.continuitySettings = { walkMaxKmh: walk, runMinKmh: run };
+    FileIO.save();
+    flash('Lagret! Kjør «Analyser på nytt» på en økt for å bruke de nye grensene.', true);
   },
 
   saveProfile() {
