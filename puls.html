@@ -5831,7 +5831,13 @@ const DetailPanel = {
       ? `<div style="font-size:11px;color:var(--muted);margin-top:10px">🧪 Eksperimentelt · Gange i motbakke: ${Math.round(c.uphillWalkingDistanceMeters)} m · ${secsToHmsShort(c.uphillWalkingTimeSeconds)}</div>` : '';
     const warn = (c.warnings && c.warnings.length)
       ? `<div style="font-size:11px;color:var(--yellow);margin-top:6px">⚠︎ ${c.warnings.map(escapeHtml).join(' · ')}</div>` : '';
-    const hint = `<div style="font-size:10px;color:var(--muted);margin-top:10px">Grenser: gange &lt; ${thr.definiteWalkMaxKmh} · løping &gt; ${thr.definiteRunMinKmh} km/t — endre i Innstillinger</div>`;
+    // Collapsed by default — the raw thresholds read heavy inline, so tuck the "how" behind a
+    // subtle ⓘ affordance (native <details>, no JS). Expanding shows the current grenser + the
+    // honest "it's a trend" caveat + where to change them.
+    const hint = `<details style="margin-top:10px">`
+      + `<summary style="font-size:10px;color:var(--muted);cursor:pointer;list-style:none;user-select:none">ⓘ Hvordan beregnes dette?</summary>`
+      + `<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">Estimert fra Strava sin fart sekund for sekund: under ${thr.definiteWalkMaxKmh} km/t = gange, over ${thr.definiteRunMinKmh} km/t = løping, imellom = uklart. Gange og rolig jogg overlapper ofte, så tallene er en trend, ikke fasit. Juster grensene i Innstillinger.</div>`
+      + `</details>`;
     return `${label}${bar}${legend}${tilesHtml}${uphill}${warn}${hint}`
       + `<div style="margin-top:10px"><button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}', {force:true})">↻ Analyser på nytt</button>`
       + `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span></div>`;
