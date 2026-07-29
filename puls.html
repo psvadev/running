@@ -3169,6 +3169,17 @@ const StravaIO = (() => {
     return data;
   }
 
+  // Per-activity time-series ("streams"). key_by_type=true returns an object keyed by
+  // stream name, each { data:[…], series_type, original_size, resolution }. Used by the
+  // run/walk continuity analysis. Same auth/scope/CORS as the siblings — no Worker change.
+  async function fetchActivityStreams(activityId) {
+    const keys = 'time,distance,velocity_smooth,moving,grade_smooth,altitude,heartrate,cadence';
+    const { ok, status, data } = await _authedFetch(`https://www.strava.com/api/v3/activities/${activityId}/streams?keys=${keys}&key_by_type=true`);
+    if (status === 429) return { error: 429 };
+    if (!ok || !data) return null;
+    return data;
+  }
+
   function _setStatus(msg) {
     const el = document.getElementById('stravaStatus');
     if (!el) return;
@@ -3206,8 +3217,383 @@ const StravaIO = (() => {
     if (ok) showToast('Strava koblet til', 'success');
   }
 
-  return { init, connect, disconnect, isSignedIn, handleCallback, handleOAuthCallback, fetchActivities, fetchZones, fetchAthleteZones, fetchActivitiesPage, fetchActivityDetail };
+  return { init, connect, disconnect, isSignedIn, handleCallback, handleOAuthCallback, fetchActivities, fetchZones, fetchAthleteZones, fetchActivitiesPage, fetchActivityDetail, fetchActivityStreams };
 })();
+
+// ═══════════════════════════════════════════════════════
+// RUN/WALK CONTINUITY  (derived from Strava per-activity streams)
+// ═══════════════════════════════════════════════════════
+// Pure, dependency-free ESTIMATE of how much of an outdoor run was actually running vs.
+// walking, the longest unbroken running stretch, and how often the runner dropped to a
+// walk — all from GPS-derived speed, never manual entry. Thresholds live here in code
+// (no UI settings) until validated on real activities. Everything is labelled "estimert".
+const CONTINUITY_ANALYSIS_VERSION  = 1;   // bump when the algorithm / output shape changes
+const CONTINUITY_THRESHOLD_VERSION = 1;   // bump when the numeric thresholds below change
+const CONTINUITY_DEFAULTS = {
+  definiteWalkMaxKmh: 5.5,          // speed strictly BELOW this ⇒ walk
+  definiteRunMinKmh: 6.5,           // speed strictly ABOVE this ⇒ run; the band between (incl. exact equality) is "unclassified"
+  minimumSegmentSeconds: 8,         // segments shorter than this are cleaned up as noise
+  minimumTransitionSeconds: 8,      // both sides of a counted run→walk transition must be ≥ this
+  uphillGradeThresholdPercent: 2.5, // smoothed grade ≥ this ⇒ "uphill" (experimental only)
+  smoothingWindowSeconds: 5,        // centered time-window speed smoothing before classifying
+  graceSeconds: 8,                  // an unclassified gap ≤ this may bridge two runs (longest-run only)
+};
+
+// Pure analysis. `streams` = Strava key_by_type object ({ time:{data:[…]}, … }); `options`
+// overrides CONTINUITY_DEFAULTS and may carry `referenceMovingTimeSeconds` for a cross-check.
+// Never fetches, never touches the DOM, never persists. Returns a summary + `segments[]`
+// (diagnostics; the caller strips segments before saving).
+function analyzeRunningContinuity(streams, options = {}) {
+  const cfg = Object.assign({}, CONTINUITY_DEFAULTS, options || {});
+  const warnings = [];
+  const RUN = 'run', WALK = 'walk', UNCL = 'unclassified', STOP = 'stopped';
+
+  const zeroResult = (extra) => Object.assign({
+    version: CONTINUITY_ANALYSIS_VERSION, thresholdVersion: CONTINUITY_THRESHOLD_VERSION,
+    movingTimeSeconds: 0, runningTimeSeconds: 0, walkingTimeSeconds: 0, unclassifiedTimeSeconds: 0, stoppedTimeSeconds: 0,
+    runningRatio: 0, walkingRatio: 0, unclassifiedRatio: 0,
+    runningDistanceMeters: 0, walkingDistanceMeters: 0, unclassifiedDistanceMeters: 0,
+    longestContinuousRunSeconds: 0, longestContinuousRunMeters: 0, runToWalkTransitions: 0,
+    uphillWalkingTimeSeconds: null, uphillWalkingDistanceMeters: null,
+    sampleCount: 0, datakvalitet: 'lav', warnings, segments: [], insufficientData: false,
+  }, extra || {});
+
+  // 1. Extract arrays (key_by_type → .data; tolerate an already-unwrapped array).
+  const pick = k => (streams && streams[k] && Array.isArray(streams[k].data)) ? streams[k].data
+                  : (streams && Array.isArray(streams[k]) ? streams[k] : null);
+  const time = pick('time'), distance = pick('distance'), velocity = pick('velocity_smooth');
+
+  // 2. Require the three core streams.
+  if (!time || !distance || !velocity || time.length < 2 || distance.length < 2 || velocity.length < 2) {
+    warnings.push('Mangler kjernedata (tid/distanse/fart)');
+    return zeroResult({ insufficientData: true });
+  }
+  const n = Math.min(time.length, distance.length, velocity.length);
+  if (time.length !== distance.length || time.length !== velocity.length) warnings.push('Ulik strømlengde — kappet til korteste');
+
+  // moving (optional): needs full coverage to be trusted; absence ⇒ everything counts as moving.
+  let moving = pick('moving'), movingPresent = false;
+  if (moving && moving.length >= n) movingPresent = true;
+  else if (moving) warnings.push('«moving»-strøm ufullstendig — pauser ikke skilt ut');
+  else warnings.push('Ingen «moving»-strøm — pauser ikke skilt ut');
+
+  // grade_smooth (optional, experimental): usable only if full-length and not all zero/NaN.
+  let grade = pick('grade_smooth'), gradeUsable = false;
+  if (grade && grade.length >= n) {
+    if (grade.slice(0, n).some(g => typeof g === 'number' && isFinite(g) && g !== 0)) gradeUsable = true;
+    else warnings.push('«grade_smooth» uten reelle verdier — motbakke utelatt');
+  } else if (grade) warnings.push('«grade_smooth» ufullstendig — motbakke utelatt');
+  else warnings.push('Ingen «grade_smooth» — motbakke ikke tilgjengelig');
+
+  // 3. Centered time-window speed smoothing (real dt from the time stream — never assume 1 Hz).
+  const half = cfg.smoothingWindowSeconds / 2;
+  const smoothAt = (i) => {
+    const t0 = time[i]; let sum = 0, cnt = 0;
+    for (let j = i; j >= 0 && (t0 - time[j]) <= half; j--) { const v = velocity[j]; if (typeof v === 'number' && isFinite(v)) { sum += v; cnt++; } }
+    for (let j = i + 1; j < n && (time[j] - t0) <= half; j++) { const v = velocity[j]; if (typeof v === 'number' && isFinite(v)) { sum += v; cnt++; } }
+    return cnt ? sum / cnt : (typeof velocity[i] === 'number' && isFinite(velocity[i]) ? velocity[i] : 0);
+  };
+
+  // 4. Per-INTERVAL classification (interval i spans sample i→i+1). Strict boundaries; a
+  //    speed exactly equal to either threshold is unclassified.
+  const intervals = []; let irregularCount = 0;
+  for (let i = 0; i < n - 1; i++) {
+    let dt = time[i + 1] - time[i];
+    if (!(dt > 0)) { irregularCount++; continue; }       // non-monotonic/zero gap — can't own time
+    if (dt > 5) irregularCount++;
+    let dd = distance[i + 1] - distance[i];
+    if (!(dd >= 0) || !isFinite(dd)) dd = 0;              // GPS jitter can go backwards
+    const kmh = smoothAt(i) * 3.6;
+    let cls;
+    if (movingPresent && moving[i] === false) cls = STOP;
+    else if (kmh < cfg.definiteWalkMaxKmh) cls = WALK;
+    else if (kmh > cfg.definiteRunMinKmh) cls = RUN;
+    else cls = UNCL;
+    const g = gradeUsable ? (typeof grade[i] === 'number' && isFinite(grade[i]) ? grade[i] : 0) : null;
+    intervals.push({ dt, dd, cls, grade: g });
+  }
+  if (intervals.length === 0) { warnings.push('Ingen gyldige intervaller'); return zeroResult({ insufficientData: true, sampleCount: n }); }
+
+  // 5. Group contiguous same-class intervals into segments (i0..i1 = interval index range).
+  const mergeAdjacent = (segs) => {
+    const out = [];
+    for (const s of segs) {
+      const last = out[out.length - 1];
+      if (last && last.cls === s.cls) { last.dur += s.dur; last.dist += s.dist; last.i1 = s.i1; }
+      else out.push({ cls: s.cls, dur: s.dur, dist: s.dist, i0: s.i0, i1: s.i1 });
+    }
+    return out;
+  };
+  let segments = mergeAdjacent(intervals.map((iv, i) => ({ cls: iv.cls, dur: iv.dt, dist: iv.dd, i0: i, i1: i + 1 })));
+
+  // 6. Deterministic cleanup to a FIXPOINT. Each pass snapshots every short (< minSeg),
+  //    non-stopped segment's target from its CURRENT neighbors, then applies all targets at
+  //    once — so the result is independent of iteration order. A short segment surrounded by
+  //    the same mergeable class inherits it; otherwise it becomes unclassified. Stopped is
+  //    never merged into run/walk. Re-merge after each pass; repeat until stable.
+  const mergeable = c => c === RUN || c === WALK || c === UNCL;
+  for (let iter = 0; iter < 200; iter++) {
+    const targets = segments.map((s, idx) => {
+      if (s.cls === STOP || s.dur >= cfg.minimumSegmentSeconds) return s.cls;
+      const prev = segments[idx - 1], next = segments[idx + 1];
+      const pc = prev && prev.cls !== STOP ? prev.cls : null;
+      const nc = next && next.cls !== STOP ? next.cls : null;
+      return (pc && nc && pc === nc && mergeable(pc)) ? pc : UNCL;
+    });
+    let changed = false;
+    for (let idx = 0; idx < segments.length; idx++) if (segments[idx].cls !== targets[idx]) { segments[idx].cls = targets[idx]; changed = true; }
+    const before = segments.length;
+    segments = mergeAdjacent(segments);
+    if (segments.length !== before) changed = true;
+    if (!changed) break;
+  }
+
+  // 7. Accumulate per final class. movingTime excludes stopped.
+  let runT = 0, walkT = 0, unclT = 0, stopT = 0, runD = 0, walkD = 0, unclD = 0;
+  for (const s of segments) {
+    if (s.cls === RUN) { runT += s.dur; runD += s.dist; }
+    else if (s.cls === WALK) { walkT += s.dur; walkD += s.dist; }
+    else if (s.cls === UNCL) { unclT += s.dur; unclD += s.dist; }
+    else { stopT += s.dur; }
+  }
+  const movingT = runT + walkT + unclT;
+  const ratio = x => movingT > 0 ? Math.min(1, Math.max(0, x / movingT)) : 0;
+
+  // 8. Directional run→walk transitions: a surviving cleaned RUN segment IMMEDIATELY followed
+  //    by a surviving cleaned WALK segment (both ≥ minimumTransitionSeconds). walk→run,
+  //    run→unclassified, and anything touching a stopped segment never count.
+  let transitions = 0;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const a = segments[i], b = segments[i + 1];
+    if (a.cls === RUN && b.cls === WALK && a.dur >= cfg.minimumTransitionSeconds && b.dur >= cfg.minimumTransitionSeconds) transitions++;
+  }
+
+  // 9. Longest continuous run. A walk or stopped segment breaks it; only an unclassified gap
+  //    ≤ graceSeconds may bridge two runs (held as "pending" and folded in only if a run
+  //    actually follows — a leading gap or a gap before a walk/stop is discarded, not counted).
+  let curT = 0, curD = 0, penT = 0, penD = 0, bestT = 0, bestD = 0;
+  const finalizeRun = () => { if (curT > bestT) { bestT = curT; bestD = curD; } curT = curD = penT = penD = 0; };
+  for (const s of segments) {
+    if (s.cls === RUN) { if (curT > 0) { curT += penT + s.dur; curD += penD + s.dist; } else { curT = s.dur; curD = s.dist; } penT = penD = 0; }
+    else if (s.cls === UNCL && s.dur <= cfg.graceSeconds) { penT += s.dur; penD += s.dist; }
+    else finalizeRun();
+  }
+  finalizeRun();
+
+  // 10. Uphill walking (experimental, secondary — only if grade usable). Never affects datakvalitet.
+  let uphillT = null, uphillD = null;
+  if (gradeUsable) {
+    uphillT = 0; uphillD = 0;
+    for (const s of segments) {
+      if (s.cls !== WALK) continue;
+      for (let i = s.i0; i < s.i1; i++) { const iv = intervals[i]; if (iv.grade != null && iv.grade >= cfg.uphillGradeThresholdPercent) { uphillT += iv.dt; uphillD += iv.dd; } }
+    }
+  }
+
+  // 11. datakvalitet: start "høy", drop one level per issue (grade availability EXCLUDED).
+  //     Issues: no moving stream · irregular sampling · high unclassified fraction · thin/short
+  //     data · large moving_time mismatch. Every downgrade also pushes a warning.
+  const sampleCount = n; let score = 2; // 2 høy · 1 middels · 0 lav
+  if (!movingPresent) score--;                                                   // already warned above
+  if (irregularCount > intervals.length * 0.25) { score--; warnings.push('Uregelmessige måleintervaller — lavere sikkerhet'); }
+  if ((movingT > 0 ? unclT / movingT : 1) > 0.30) { score--; warnings.push('Stor uklassifisert andel — lavere sikkerhet'); }
+  if (movingT < 120 || sampleCount < 30) { score--; warnings.push('Kort/tynt datagrunnlag — lavere sikkerhet'); }
+  const ref = options.referenceMovingTimeSeconds;
+  if (typeof ref === 'number' && isFinite(ref) && ref > 0) {
+    if (Math.abs(movingT - ref) / ref > 0.20) { score--; warnings.push(`Avvik mot Stravas bevegelsestid (${secsToHms(Math.round(ref))}) — lavere sikkerhet`); }
+  }
+  score = Math.max(0, Math.min(2, score));
+  const datakvalitet = score >= 2 ? 'høy' : score === 1 ? 'middels' : 'lav';
+
+  // 12. Diagnostic segments (stripped before persisting).
+  const outSegments = segments.map(s => {
+    let avgGrade = null;
+    if (gradeUsable) { let gs = 0, gc = 0; for (let i = s.i0; i < s.i1; i++) { const g = intervals[i].grade; if (g != null) { gs += g; gc++; } } avgGrade = gc ? gs / gc : null; }
+    return { startSec: time[s.i0], endSec: time[s.i1], durationSeconds: s.dur, distanceMeters: s.dist, class: s.cls, avgSpeedKmh: s.dur > 0 ? (s.dist / s.dur) * 3.6 : 0, avgGrade };
+  });
+
+  return {
+    version: CONTINUITY_ANALYSIS_VERSION, thresholdVersion: CONTINUITY_THRESHOLD_VERSION,
+    movingTimeSeconds: movingT, runningTimeSeconds: runT, walkingTimeSeconds: walkT, unclassifiedTimeSeconds: unclT, stoppedTimeSeconds: stopT,
+    runningRatio: ratio(runT), walkingRatio: ratio(walkT), unclassifiedRatio: ratio(unclT),
+    runningDistanceMeters: runD, walkingDistanceMeters: walkD, unclassifiedDistanceMeters: unclD,
+    longestContinuousRunSeconds: bestT, longestContinuousRunMeters: bestD, runToWalkTransitions: transitions,
+    uphillWalkingTimeSeconds: uphillT, uphillWalkingDistanceMeters: uphillD,
+    sampleCount, datakvalitet, warnings, segments: outSegments, insufficientData: false,
+  };
+}
+
+// Session-level orchestration: fetch → analyze → persist a COMPACT summary (segments stripped)
+// on the session → save → re-render. Re-fetch is skipped when a stored result already matches
+// the current algorithm + threshold versions (unless forced by "Analyser på nytt").
+const Continuity = {
+  _eligible(s) { return !!s && s.løpetype === 'utendors' && !!s.stravaId && StravaIO.isSignedIn(); },
+  _referenceMovingTime(s) {
+    const v = s && s.varighet;
+    if (typeof v === 'number' && isFinite(v) && v > 0) return v;
+    if (typeof v === 'string' && v.trim()) { const p = hmsToSecs(v); return p > 0 ? p : null; }
+    return null;
+  },
+  _toPersisted(r, sourceActivityId) {
+    return {
+      version: CONTINUITY_ANALYSIS_VERSION, thresholdVersion: CONTINUITY_THRESHOLD_VERSION,
+      analyzedAt: new Date().toISOString(), sourceActivityId,
+      movingTimeSeconds: r.movingTimeSeconds, runningTimeSeconds: r.runningTimeSeconds, walkingTimeSeconds: r.walkingTimeSeconds, unclassifiedTimeSeconds: r.unclassifiedTimeSeconds,
+      runningRatio: r.runningRatio, walkingRatio: r.walkingRatio, unclassifiedRatio: r.unclassifiedRatio,
+      runningDistanceMeters: r.runningDistanceMeters, walkingDistanceMeters: r.walkingDistanceMeters,
+      longestContinuousRunSeconds: r.longestContinuousRunSeconds, longestContinuousRunMeters: r.longestContinuousRunMeters,
+      runToWalkTransitions: r.runToWalkTransitions,
+      uphillWalkingTimeSeconds: r.uphillWalkingTimeSeconds, uphillWalkingDistanceMeters: r.uphillWalkingDistanceMeters,
+      datakvalitet: r.datakvalitet, warnings: r.warnings,
+    };
+  },
+  async analyzeSession(id, opts = {}) {
+    const s = Store.data.sessions.find(x => x.id === id);
+    if (!s || !this._eligible(s)) return;
+    const existing = s.stravaAnalysis && s.stravaAnalysis.continuity;
+    if (!opts.force && existing && existing.version === CONTINUITY_ANALYSIS_VERSION && existing.thresholdVersion === CONTINUITY_THRESHOLD_VERSION) return existing;
+    const btn = document.getElementById('continuityBtn');
+    const orig = btn ? btn.textContent : '';
+    const setMsg = (txt, isErr) => { const m = document.getElementById('continuityMsg'); if (m) { m.textContent = txt; m.style.color = isErr ? 'var(--danger)' : 'var(--muted)'; } };
+    if (btn) { btn.disabled = true; btn.textContent = 'Analyserer…'; }
+    try {
+      const streams = await StravaIO.fetchActivityStreams(s.stravaId);
+      if (streams && streams.error === 429) { setMsg('Strava-grense nådd — prøv igjen senere', true); return; }
+      if (!streams) { setMsg('Kunne ikke hente Strava-data', true); return; }
+      const ref = this._referenceMovingTime(s);
+      const result = analyzeRunningContinuity(streams, ref != null ? { referenceMovingTimeSeconds: ref } : {});
+      if (result.insufficientData) { setMsg('Strava-strømmen mangler tid/distanse/fart — kan ikke analysere', true); return; }
+      s.stravaAnalysis = s.stravaAnalysis || {};
+      s.stravaAnalysis.continuity = this._toPersisted(result, s.stravaId);
+      await FileIO.save();
+      DetailPanel.openSession(id);   // re-render with the fresh result
+    } catch (e) {
+      setMsg('Analyse feilet', true);
+    } finally {
+      if (btn && document.getElementById('continuityBtn') === btn) { btn.disabled = false; btn.textContent = orig; }
+    }
+  },
+};
+
+// ── Dev inspection helpers (Phase-2 verification; run in the browser console) ──
+// They print stream availability / a full segment table but SAVE NOTHING and never log the
+// access token. Use on one real outdoor run before trusting the metric.
+window._inspectStravaStreams = async function (stravaId) {
+  if (!StravaIO.isSignedIn()) { console.warn('Ikke koblet til Strava'); return; }
+  const streams = await StravaIO.fetchActivityStreams(stravaId);
+  if (!streams || streams.error) { console.warn('Kunne ikke hente streams', streams && streams.error); return; }
+  const timeLen = streams.time && streams.time.data ? streams.time.data.length : 0;
+  const rows = ['time','distance','velocity_smooth','moving','grade_smooth','altitude','heartrate','cadence'].map(k => {
+    const d = streams[k] && streams[k].data; const present = Array.isArray(d);
+    const approxInterval = (k === 'time' && present && d.length > 1) ? +((d[d.length - 1] - d[0]) / (d.length - 1)).toFixed(2) : '—';
+    return { stream: k, present, samples: present ? d.length : 0, lenMatchesTime: present ? d.length === timeLen : '—', approxIntervalSec: approxInterval };
+  });
+  console.table(rows);
+  const mv = streams.moving && streams.moving.data, gr = streams.grade_smooth && streams.grade_smooth.data;
+  console.log('Usability →', 'velocity_smooth:', Array.isArray(streams.velocity_smooth && streams.velocity_smooth.data),
+    '| moving:', Array.isArray(mv) ? `${mv.filter(x => x === false).length} paused samples` : 'absent',
+    '| grade_smooth:', Array.isArray(gr) && gr.some(g => g) ? 'usable' : 'absent/flat');
+  return rows;
+};
+window._inspectRunningContinuity = async function (stravaId) {
+  if (!StravaIO.isSignedIn()) { console.warn('Ikke koblet til Strava'); return; }
+  const streams = await StravaIO.fetchActivityStreams(stravaId);
+  if (!streams || streams.error) { console.warn('Kunne ikke hente streams', streams && streams.error); return; }
+  const s = Store.data.sessions.find(x => String(x.stravaId) === String(stravaId));
+  const ref = s ? Continuity._referenceMovingTime(s) : null;
+  const result = analyzeRunningContinuity(streams, ref != null ? { referenceMovingTimeSeconds: ref } : {});
+  const { segments, ...summary } = result;
+  console.log('%cLøpekontinuitet (ikke lagret)', 'font-weight:700', summary);
+  if (ref != null) console.log(`movingTime(stream)=${Math.round(result.movingTimeSeconds)}s  vs  session.varighet=${ref}s`);
+  console.table((segments || []).map(seg => ({
+    start: secsToHms(Math.round(seg.startSec)), end: secsToHms(Math.round(seg.endSec)),
+    dur: Math.round(seg.durationSeconds) + 's', dist: Math.round(seg.distanceMeters) + 'm',
+    class: seg.class, kmh: seg.avgSpeedKmh.toFixed(1), grade: seg.avgGrade == null ? '—' : seg.avgGrade.toFixed(1) + '%',
+  })));
+  return result;
+};
+
+// ── Synthetic test harness (dev-only; no JS test runner). Run window._testRunningContinuity()
+// in the console — must pass before any commit. Uses smoothingWindowSeconds:0 for structural
+// assertions so segment boundaries are exact. ──
+window._testRunningContinuity = function () {
+  const results = [];
+  const approx = (a, b, tol) => Math.abs(a - b) <= (tol == null ? 0.5 : tol);
+  const check = (name, cond, detail) => results.push({ name, pass: !!cond, detail: cond ? '' : (detail || '') });
+  const A = (streams, opt) => analyzeRunningContinuity(streams, opt || {});
+  const sharp = { smoothingWindowSeconds: 0 };
+  // Build key_by_type streams at `hz` from phases [{ kmh, seconds, moving?, grade? }].
+  const synth = (phases, opt = {}) => {
+    const hz = opt.hz || 1, dt = 1 / hz; const time = [], distance = [], velocity = [], moving = [], grade = [];
+    let t = 0, d = 0;
+    phases.forEach(p => { const v = (p.kmh || 0) / 3.6; const steps = Math.max(1, Math.round(p.seconds * hz));
+      for (let k = 0; k < steps; k++) { time.push(+t.toFixed(3)); distance.push(d); velocity.push(v); moving.push(p.moving === false ? false : true); grade.push(p.grade != null ? p.grade : 0); t += dt; d += v * dt; } });
+    time.push(+t.toFixed(3)); distance.push(d); velocity.push(velocity[velocity.length - 1] || 0); moving.push(moving[moving.length - 1] !== false); grade.push(grade[grade.length - 1] || 0);
+    const wrap = a => ({ data: a }); const out = { time: wrap(time), distance: wrap(distance), velocity_smooth: wrap(velocity) };
+    if (!opt.noMoving) out.moving = wrap(moving); if (!opt.noGrade) out.grade_smooth = wrap(grade); return out;
+  };
+  let r;
+  r = A(synth([{ kmh: 11, seconds: 150 }]), sharp);
+  check('all-run: running≈100%', approx(r.runningRatio, 1, 0.02) && r.walkingTimeSeconds === 0, JSON.stringify(r));
+  check('all-run: 0 transitions', r.runToWalkTransitions === 0);
+  check('all-run: longest≈moving', approx(r.longestContinuousRunSeconds, r.movingTimeSeconds, 2));
+  r = A(synth([{ kmh: 4, seconds: 150 }]), sharp);
+  check('all-walk: walking≈100%', approx(r.walkingRatio, 1, 0.02) && r.runningTimeSeconds === 0);
+  r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 4, seconds: 60 }, { kmh: 11, seconds: 60 }]), sharp);
+  check('run→walk→run: 1 transition', r.runToWalkTransitions === 1, 't=' + r.runToWalkTransitions);
+  r = A(synth([{ kmh: 11, seconds: 40 }, { kmh: 4, seconds: 40 }, { kmh: 11, seconds: 40 }, { kmh: 4, seconds: 40 }]), sharp);
+  check('run→walk→run→walk: 2 transitions', r.runToWalkTransitions === 2, 't=' + r.runToWalkTransitions);
+  r = A(synth([{ kmh: 4, seconds: 40 }, { kmh: 11, seconds: 40 }, { kmh: 4, seconds: 40 }, { kmh: 11, seconds: 40 }]), sharp);
+  check('walk→run→walk→run: 1 (walk→run not counted)', r.runToWalkTransitions === 1, 't=' + r.runToWalkTransitions);
+  r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 4, seconds: 4 }, { kmh: 11, seconds: 60 }]), sharp);
+  check('brief-walk-dip: cleaned to run (0 transitions)', r.runToWalkTransitions === 0 && r.walkingTimeSeconds === 0, 'w=' + r.walkingTimeSeconds + ' t=' + r.runToWalkTransitions);
+  r = A(synth([{ kmh: 4, seconds: 60 }, { kmh: 11, seconds: 4 }, { kmh: 4, seconds: 60 }]), sharp);
+  check('brief-run-spike: cleaned to walk', r.runningTimeSeconds === 0, 'run=' + r.runningTimeSeconds);
+  r = A(synth([{ kmh: 11, seconds: 40 }, { kmh: 0, seconds: 40, moving: false }, { kmh: 11, seconds: 40 }]), sharp);
+  check('stop: excluded from moving (≈80s)', approx(r.movingTimeSeconds, 80, 2), 'm=' + r.movingTimeSeconds);
+  check('stop: breaks longest run (≈40s)', approx(r.longestContinuousRunSeconds, 40, 2), 'lr=' + r.longestContinuousRunSeconds);
+  check('stop: 0 run→walk transitions', r.runToWalkTransitions === 0);
+  // Exact-threshold equality → unclassified. Feed a speed and set the threshold to the SAME
+  // round-tripped km/h the algorithm computes (both sides evaluate the identical v*3.6), so the
+  // boundary is hit exactly regardless of float representation — this tests the strict < / >.
+  { const kmhBack = (5.5 / 3.6) * 3.6;
+    r = A(synth([{ kmh: 5.5, seconds: 60 }]), Object.assign({}, sharp, { definiteWalkMaxKmh: kmhBack, definiteRunMinKmh: kmhBack + 1 }));
+    check('= walkMax exactly → unclassified', r.walkingTimeSeconds === 0 && r.runningTimeSeconds === 0 && approx(r.unclassifiedRatio, 1, 0.02), JSON.stringify({ w: r.walkingTimeSeconds, run: r.runningTimeSeconds, u: r.unclassifiedRatio })); }
+  { const kmhBack = (6.5 / 3.6) * 3.6;
+    r = A(synth([{ kmh: 6.5, seconds: 60 }]), Object.assign({}, sharp, { definiteWalkMaxKmh: kmhBack - 1, definiteRunMinKmh: kmhBack }));
+    check('= runMin exactly → unclassified', r.runningTimeSeconds === 0 && r.walkingTimeSeconds === 0 && approx(r.unclassifiedRatio, 1, 0.02)); }
+  r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 4, seconds: 4 }, { kmh: 6.0, seconds: 4 }, { kmh: 11, seconds: 60 }]), sharp);
+  check('adjacent-short diff-class: 0 transitions', r.runToWalkTransitions === 0, 't=' + r.runToWalkTransitions);
+  check('adjacent-short diff-class: walking≈0', r.walkingTimeSeconds === 0, 'w=' + r.walkingTimeSeconds);
+  check('adjacent-short diff-class: bridged longest≈128', approx(r.longestContinuousRunSeconds, 128, 3), 'lr=' + r.longestContinuousRunSeconds);
+  r = A(synth([{ kmh: 11, seconds: 150 }], { noMoving: true }), sharp);
+  check('no-moving: warns', r.warnings.some(w => /moving/i.test(w)), r.warnings.join('|'));
+  check('no-moving: not høy', r.datakvalitet !== 'høy');
+  const wg = A(synth([{ kmh: 4, seconds: 150, grade: 5 }]), sharp);
+  const ng = A(synth([{ kmh: 4, seconds: 150 }], { noGrade: true }), sharp);
+  check('grade present: uphill computed', wg.uphillWalkingTimeSeconds > 0, 'up=' + wg.uphillWalkingTimeSeconds);
+  check('grade absent: uphill null', ng.uphillWalkingTimeSeconds === null);
+  check('grade absent: datakvalitet unaffected', wg.datakvalitet === ng.datakvalitet, wg.datakvalitet + ' vs ' + ng.datakvalitet);
+  const mm = synth([{ kmh: 11, seconds: 150 }]); mm.distance.data = mm.distance.data.slice(0, 60);
+  r = A(mm, sharp);
+  check('mismatched-lengths: warns + computes', r.warnings.some(w => /strømlengde|korteste/i.test(w)) && r.movingTimeSeconds > 0, r.warnings.join('|'));
+  r = A(synth([{ kmh: 11, seconds: 300 }], { hz: 0.1 }), sharp);
+  check('irregular-intervals: not høy', r.datakvalitet !== 'høy', r.datakvalitet);
+  r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 4, seconds: 30 }, { kmh: 6.0, seconds: 20 }, { kmh: 0, seconds: 20, moving: false }]), sharp);
+  check('consistency: run+walk+uncl == moving', approx(r.runningTimeSeconds + r.walkingTimeSeconds + r.unclassifiedTimeSeconds, r.movingTimeSeconds, 0.001), JSON.stringify(r));
+  check('consistency: ratios sum≈1', approx(r.runningRatio + r.walkingRatio + r.unclassifiedRatio, 1, 0.001));
+  check('consistency: each ratio ≤ 1', r.runningRatio <= 1 && r.walkingRatio <= 1 && r.unclassifiedRatio <= 1);
+  check('consistency: stopped excluded', r.stoppedTimeSeconds > 0 && !approx(r.movingTimeSeconds, r.movingTimeSeconds + r.stoppedTimeSeconds, 0.001));
+  let threw = false;
+  try { check('empty {}: insufficient', A({}).insufficientData === true); } catch (e) { threw = true; }
+  try { check('null: insufficient', A(null).insufficientData === true); } catch (e) { threw = true; }
+  check('malformed: no throw', !threw);
+  const failed = results.filter(x => !x.pass);
+  console.group(`%c_testRunningContinuity: ${results.length - failed.length}/${results.length} passed`, `color:${failed.length ? '#e05555' : '#4caf87'};font-weight:700`);
+  results.forEach(x => console.log(`${x.pass ? '✓' : '✗'} ${x.name}${x.detail ? '  — ' + x.detail : ''}`));
+  console.groupEnd();
+  return failed.length === 0;
+};
 
 // ═══════════════════════════════════════════════════════
 // FORM
@@ -5180,7 +5566,37 @@ const DetailPanel = {
       ['Notater',        s.notater || null],
     ].filter(([,v]) => v);
     const table = rows.map(([l,v,raw]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${raw ? v : escapeHtml(v)}</span></div>`).join('');
-    this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : ''));
+    this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : '') + this.continuitySectionHtml(s));
+  },
+
+  // Løpekontinuitet (POC) — estimated run/walk breakdown from Strava streams. Only for an
+  // explicitly-outdoor Strava-linked session while signed in; treadmill / manual / no-stravaId
+  // / unknown-venue render nothing. Shows the four primary metrics + Datakvalitet when analysed,
+  // uphill separately as experimental, otherwise the analyse button. All numbers are estimates.
+  continuitySectionHtml(s) {
+    if (!Continuity._eligible(s)) return '';
+    const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
+    const current = c && c.version === CONTINUITY_ANALYSIS_VERSION && c.thresholdVersion === CONTINUITY_THRESHOLD_VERSION;
+    const label = '<div class="dp-section-label">Løpekontinuitet <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
+    if (!current) {
+      return `${label}<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Estimer løping vs. gange fra Strava-data (eksperimentelt).</div>`
+        + `<button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}')">🔬 Analyser løpekontinuitet</button>`
+        + `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>`;
+    }
+    const pct = x => Math.round((x || 0) * 100);
+    const kvalColor = { 'høy': 'var(--green)', 'middels': 'var(--yellow)', 'lav': 'var(--danger)' }[c.datakvalitet] || 'var(--muted)';
+    const row = (l, v) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:170px;color:var(--muted)">${l}</span><span>${v}</span></div>`;
+    const primary = row('Estimert fordeling', `Løping ${pct(c.runningRatio)}% · Gange ${pct(c.walkingRatio)}% · Uklart ${pct(c.unclassifiedRatio)}%`)
+      + row('Lengste sammenhengende løp', `${(c.longestContinuousRunMeters / 1000).toFixed(1)} km · ${secsToHms(c.longestContinuousRunSeconds)}`)
+      + row('Overganger til gange', String(c.runToWalkTransitions))
+      + row('Datakvalitet', `<span style="color:${kvalColor};font-weight:600">${escapeHtml(c.datakvalitet)}</span>`);
+    const uphill = (c.uphillWalkingTimeSeconds != null)
+      ? `<div style="font-size:11px;color:var(--muted);margin-top:8px">🧪 Eksperimentelt · Gange i motbakke: ${Math.round(c.uphillWalkingDistanceMeters)} m · ${secsToHms(c.uphillWalkingTimeSeconds)}</div>` : '';
+    const warn = (c.warnings && c.warnings.length)
+      ? `<div style="font-size:11px;color:var(--yellow);margin-top:6px">⚠︎ ${c.warnings.map(escapeHtml).join(' · ')}</div>` : '';
+    return `${label}${primary}${uphill}${warn}`
+      + `<div style="margin-top:8px"><button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}', {force:true})">↻ Analyser på nytt</button>`
+      + `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span></div>`;
   },
 
   openShoe(name) {
