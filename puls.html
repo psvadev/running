@@ -762,6 +762,23 @@
       <div id="elevSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 26 uker · kun utendørsløp 🏃</div>
       <div class="chart-wrap"><canvas id="chartElev"></canvas></div>
     </div>
+    <div class="card span2" id="contTrendCard">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px;flex-wrap:wrap">
+        <div class="card-title" id="contTrendTitle" style="margin-bottom:0">Andel løping per uke</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="contMetricRun">Løping %</span>
+          <span class="year-pill" id="contMetricLong">Lengste løp</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <div id="contTrendSubtitle" style="font-size:11px;color:var(--muted)">Siste 26 uker · kun utendørsløp med Strava-data 🏃 · estimert</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="contTrendToggleWeek">Uke</span>
+          <span class="year-pill" id="contTrendToggleMaaned">Måned</span>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chartContTrend"></canvas></div>
+    </div>
     <div class="card span2" id="yearCompCard">
       <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
       <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
@@ -1179,6 +1196,11 @@
       </div>
       <button class="btn-secondary btn-sm" id="contSaveBtn">Lagre grenser</button>
       <span id="contMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Analyser alle utendørsøkter med Strava-kobling på én gang, så løpekontinuitet-trenden på Oversikt fylles ut. Kjøres i bolker for å holde seg under Strava sin grense — klikk igjen for å fortsette om den pauser.</p>
+        <button class="btn-secondary btn-sm" id="contBackfillBtn">Analyser alle utendørsøkter</button>
+        <span id="contBackfillMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+      </div>
     </div>
   </div>
 
@@ -3455,6 +3477,14 @@ function analyzeRunningContinuity(streams, options = {}) {
 // the current algorithm + threshold versions (unless forced by "Analyser på nytt").
 const Continuity = {
   _eligible(s) { return !!s && s.løpetype === 'utendors' && !!s.stravaId && StravaIO.isSignedIn(); },
+  // A stored analysis is "current" only if it matches the algorithm + threshold versions AND the
+  // user's active speed thresholds — otherwise it must be re-run before it can be trusted or charted.
+  // Shared by the detail panel, the single-session guard, and the backfill/trend so they never drift.
+  _isCurrent(c, thr) {
+    thr = thr || this.thresholds();
+    return !!c && c.version === CONTINUITY_ANALYSIS_VERSION && c.thresholdVersion === CONTINUITY_THRESHOLD_VERSION
+      && c.walkMaxKmh === thr.definiteWalkMaxKmh && c.runMinKmh === thr.definiteRunMinKmh;
+  },
   // Effective walk/run speed thresholds: per-user override (Innstillinger → Løpekontinuitet) or defaults.
   thresholds() {
     const c = Store.data.continuitySettings || {};
@@ -3484,31 +3514,101 @@ const Continuity = {
       datakvalitet: r.datakvalitet, warnings: r.warnings,
     };
   },
+  // Analyze one eligible session in place: fetch streams → analyze → store the derived summary on
+  // the object (segments are stripped by _toPersisted's shape). No save, no render — the caller owns
+  // those, so this is safe to loop. Returns a status: 'ok' | 'ratelimit' | 'nostreams' | 'nodata'.
+  // Never fabricates: a missing/short stream returns a status, it does not invent numbers.
+  async _analyzeInto(s, thr) {
+    const streams = await StravaIO.fetchActivityStreams(s.stravaId);
+    if (streams && streams.error === 429) return 'ratelimit';
+    if (!streams) return 'nostreams';
+    const ref = this._referenceMovingTime(s);
+    const result = analyzeRunningContinuity(streams, ref != null ? { ...thr, referenceMovingTimeSeconds: ref } : { ...thr });
+    if (result.insufficientData) return 'nodata';
+    s.stravaAnalysis = s.stravaAnalysis || {};
+    s.stravaAnalysis.continuity = this._toPersisted(result, s.stravaId, thr);
+    return 'ok';
+  },
   async analyzeSession(id, opts = {}) {
     const s = Store.data.sessions.find(x => x.id === id);
     if (!s || !this._eligible(s)) return;
     const existing = s.stravaAnalysis && s.stravaAnalysis.continuity;
-    if (!opts.force && existing && existing.version === CONTINUITY_ANALYSIS_VERSION && existing.thresholdVersion === CONTINUITY_THRESHOLD_VERSION) return existing;
+    if (!opts.force && this._isCurrent(existing)) return existing;
     const btn = document.getElementById('continuityBtn');
     const orig = btn ? btn.textContent : '';
     const setMsg = (txt, isErr) => { const m = document.getElementById('continuityMsg'); if (m) { m.textContent = txt; m.style.color = isErr ? 'var(--danger)' : 'var(--muted)'; } };
     if (btn) { btn.disabled = true; btn.textContent = 'Analyserer…'; }
     try {
-      const streams = await StravaIO.fetchActivityStreams(s.stravaId);
-      if (streams && streams.error === 429) { setMsg('Strava-grense nådd — prøv igjen senere', true); return; }
-      if (!streams) { setMsg('Kunne ikke hente Strava-data', true); return; }
-      const ref = this._referenceMovingTime(s);
-      const thr = this.thresholds();
-      const result = analyzeRunningContinuity(streams, ref != null ? { ...thr, referenceMovingTimeSeconds: ref } : { ...thr });
-      if (result.insufficientData) { setMsg('Strava-strømmen mangler tid/distanse/fart — kan ikke analysere', true); return; }
-      s.stravaAnalysis = s.stravaAnalysis || {};
-      s.stravaAnalysis.continuity = this._toPersisted(result, s.stravaId, thr);
+      const status = await this._analyzeInto(s, this.thresholds());
+      if (status === 'ratelimit') { setMsg('Strava-grense nådd — prøv igjen senere', true); return; }
+      if (status === 'nostreams') { setMsg('Kunne ikke hente Strava-data', true); return; }
+      if (status === 'nodata')    { setMsg('Strava-strømmen mangler tid/distanse/fart — kan ikke analysere', true); return; }
       await FileIO.save();
       DetailPanel.openSession(id);   // re-render with the fresh result
     } catch (e) {
       setMsg('Analyse feilet', true);
     } finally {
       if (btn && document.getElementById('continuityBtn') === btn) { btn.disabled = false; btn.textContent = orig; }
+    }
+  },
+
+  // How many outdoor Strava runs still need analysing at the current thresholds (drives the
+  // backfill button's label; ignores sign-in so the count is honest even while signed out).
+  _pendingCount() {
+    const thr = this.thresholds();
+    return Store.data.sessions.filter(s => s && s.løpetype === 'utendors' && s.stravaId && !this._isCurrent(s.stravaAnalysis && s.stravaAnalysis.continuity, thr)).length;
+  },
+
+  // One-time backfill: analyse every eligible outdoor Strava run that isn't already current, so the
+  // Løpekontinuitet-trend on Oversikt has history to draw. Throttled (BACKFILL_MAX_PER_BATCH per
+  // click) + resumable — already-current runs are skipped, so clicking again continues after a pause
+  // or a 429. Saves once per batch. Runs with missing core streams are skipped and counted, never faked.
+  BACKFILL_MAX_PER_BATCH: 40,
+  _backfillRunning: false,
+  async analyzeAllOutdoor() {
+    if (this._backfillRunning) return;
+    const setMsg = (txt, col) => { const m = document.getElementById('contBackfillMsg'); if (m) { m.textContent = txt; m.style.color = col || 'var(--muted)'; } };
+    if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava først', 'var(--danger)'); return; }
+    const thr = this.thresholds();
+    const pending = Store.data.sessions.filter(s => this._eligible(s) && !this._isCurrent(s.stravaAnalysis && s.stravaAnalysis.continuity, thr));
+    if (!pending.length) { setMsg('Alle utendørsøkter er allerede analysert ✓', 'var(--green)'); return; }
+    const btn = document.getElementById('contBackfillBtn');
+    this._backfillRunning = true;
+    if (btn) btn.disabled = true;
+    const total = pending.length;
+    let ok = 0, noData = 0, done = 0;
+    try {
+      for (const s of pending) {
+        if (done >= this.BACKFILL_MAX_PER_BATCH) {
+          if (ok) await FileIO.save();
+          setMsg(`Pause for å holde meg under Strava sin grense — analyserte ${ok}. Klikk igjen for ${total - done} til.`, 'var(--yellow)');
+          if (ok && typeof renderDashboard === 'function') renderDashboard();
+          return;
+        }
+        const status = await this._analyzeInto(s, thr);
+        done++;
+        if (status === 'ratelimit') {
+          if (ok) await FileIO.save();
+          setMsg(`Strava-grense nådd — prøv igjen om ~15 min (analyserte ${ok}).`, 'var(--yellow)');
+          if (ok && typeof renderDashboard === 'function') renderDashboard();
+          return;
+        }
+        if (status === 'ok') ok++;
+        else if (status === 'nodata') noData++;
+        // 'nostreams' = transient fetch miss → counted as done, skipped (don't fabricate); re-run picks it up.
+        setMsg(`Analyserer… ${done}/${total}`, 'var(--muted)');
+      }
+      if (ok) await FileIO.save();
+      const skip = noData ? ` · hoppet over ${noData} uten data` : '';
+      setMsg(`Ferdig — analyserte ${ok} økt${ok === 1 ? '' : 'er'}${skip} ✓`, 'var(--green)');
+      if (typeof renderDashboard === 'function') renderDashboard();
+    } catch (e) {
+      if (ok) await FileIO.save();
+      setMsg('Noe gikk galt: ' + (e.message || 'ukjent feil'), 'var(--danger)');
+    } finally {
+      this._backfillRunning = false;
+      if (btn) btn.disabled = false;
+      if (typeof Settings !== 'undefined' && Settings.loadContinuityFields) Settings.loadContinuityFields();
     }
   },
 };
@@ -4216,6 +4316,8 @@ let paceGroupBy = 'week';   // 'week' | 'month' — Tempo-chart grouping (mirror
 let overviewGroupBy = 'week';   // 'week' | 'month' — Ukentlig/Månedlig oversikt table grouping
 let venueGroupBy = 'week';
 let elevGroupBy = 'week';
+let contTrendGroupBy = 'week';    // 'week' | 'month' — Løpekontinuitet-trend grouping
+let contTrendMetric = 'running';  // 'running' (% av bevegelsestid) | 'longest' (km sammenhengende)
 let aeVenueFilter = 'all';
 let aeZ2Filter = 'all';
 let aeTypeFilter = 'both';   // 'both' (Easy+Long) | 'Easy' | 'Long' — rolige-økter type filter
@@ -5539,6 +5641,76 @@ function renderElevChart(sessions) {
   });
 }
 
+// Løpekontinuitet-trend — how continuous the running has become over time, from the stored
+// run/walk analyses (Continuity). Two metrics via toggle: "Løping %" (Σ løpetid ÷ Σ bevegelsestid
+// per periode — bevegelsestid-vektet, så en lang økt teller mer enn en kort) and "Lengste løp"
+// (beste sammenhengende løp i perioden, km). Only outdoor runs with a *current* analysis count, so
+// the whole line is built on one consistent threshold; changing grensene empties it until re-analyse
+// (backfill in Innstillinger). Line chart (a trend reads better as a line than bars).
+function renderContinuityTrend(sessions) {
+  destroyChart('contTrend');
+  const el = document.getElementById('chartContTrend');
+  if (!el) return;
+
+  const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+  const thr = Continuity.thresholds();
+  const agg = {};   // periodkey → { runSec, moveSec, longestM }
+  sessions.forEach(s => {
+    if (!s.dato || s.løpetype !== 'utendors') return;
+    const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
+    if (!Continuity._isCurrent(c, thr)) return;
+    const key = contTrendGroupBy === 'week' ? isoWeek(s.dato) : s.dato.slice(0, 7);
+    const a = agg[key] || (agg[key] = { runSec: 0, moveSec: 0, longestM: 0 });
+    a.runSec  += c.runningTimeSeconds || 0;
+    a.moveSec += c.movingTimeSeconds || 0;
+    a.longestM = Math.max(a.longestM, c.longestContinuousRunMeters || 0);
+  });
+
+  const keys = Object.keys(agg).sort().slice(contTrendGroupBy === 'week' ? -26 : -12);
+  const fmtKey = k => contTrendGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
+  const isRunning = contTrendMetric === 'running';
+  const data = keys.map(k => {
+    const a = agg[k];
+    if (isRunning) return a.moveSec > 0 ? Math.round((a.runSec / a.moveSec) * 100) : null;
+    return +(a.longestM / 1000).toFixed(2);
+  });
+
+  const title = document.getElementById('contTrendTitle');
+  if (title) title.textContent = (isRunning ? 'Andel løping' : 'Lengste sammenhengende løp') + (contTrendGroupBy === 'week' ? ' per uke' : ' per måned');
+  const subtitle = document.getElementById('contTrendSubtitle');
+  if (subtitle) subtitle.textContent = (contTrendGroupBy === 'week' ? 'Siste 26 uker' : 'Siste 12 måneder') + ' · kun utendørsløp med Strava-data 🏃 · estimert';
+
+  if (!keys.length) return;
+
+  Charts.contTrend = new Chart(el, {
+    type: 'line',
+    data: {
+      labels: keys.map(fmtKey),
+      datasets: [{
+        label: isRunning ? 'Andel løping' : 'Lengste løp',
+        data,
+        borderColor: 'rgba(75,190,120,1)',
+        backgroundColor: 'rgba(75,190,120,.15)',
+        fill: true, tension: .3, pointRadius: 3, pointHoverRadius: 5, spanGaps: true
+      }]
+    },
+    options: {
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => isRunning ? `${c.parsed.y}% løping` : `${(c.parsed.y || 0).toFixed(2)} km sammenhengende` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
+        y: isRunning
+          ? { min: 0, max: 100, grid: { color: '#2e3248' }, ticks: { color: '#7880a0', callback: v => v + '%' }, title: { display: true, text: 'andel løping', color: '#7880a0' } }
+          : { beginAtZero: true, grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'km', color: '#7880a0' } }
+      },
+      responsive: true, maintainAspectRatio: false,
+      onClick: (evt, elements) => { if (elements.length && contTrendGroupBy === 'week') DetailPanel.openWeek(keys[elements[0].index], Store.data.sessions); }
+    }
+  });
+}
+
 // ═══════════════════════════════════════════════════════
 // DETAIL PANEL
 // ═══════════════════════════════════════════════════════
@@ -5624,8 +5796,7 @@ const DetailPanel = {
     if (!Continuity._eligible(s)) return '';
     const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
     const thr = Continuity.thresholds();
-    const current = c && c.version === CONTINUITY_ANALYSIS_VERSION && c.thresholdVersion === CONTINUITY_THRESHOLD_VERSION
-      && c.walkMaxKmh === thr.definiteWalkMaxKmh && c.runMinKmh === thr.definiteRunMinKmh;
+    const current = Continuity._isCurrent(c, thr);
     const label = '<div class="dp-section-label">Løpekontinuitet <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
     if (!current) {
       const stale = c ? ' <span style="color:var(--muted)">· grensene er endret, kjør på nytt</span>' : '';
@@ -5654,7 +5825,7 @@ const DetailPanel = {
     ];
     const tilesHtml = `<div class="dp-stat-row">${tiles.map(t => `<div class="dp-stat"><div class="dpv">${t.v}</div><div class="dpl">${t.l}</div></div>`).join('')}</div>`;
     const uphill = (c.uphillWalkingTimeSeconds != null)
-      ? `<div style="font-size:11px;color:var(--muted);margin-top:10px">🧪 Eksperimentelt · Gange i motbakke: ${Math.round(c.uphillWalkingDistanceMeters)} m · ${secsToHms(c.uphillWalkingTimeSeconds)}</div>` : '';
+      ? `<div style="font-size:11px;color:var(--muted);margin-top:10px">🧪 Eksperimentelt · Gange i motbakke: ${Math.round(c.uphillWalkingDistanceMeters)} m · ${secsToHmsShort(c.uphillWalkingTimeSeconds)}</div>` : '';
     const warn = (c.warnings && c.warnings.length)
       ? `<div style="font-size:11px;color:var(--yellow);margin-top:6px">⚠︎ ${c.warnings.map(escapeHtml).join(' · ')}</div>` : '';
     const hint = `<div style="font-size:10px;color:var(--muted);margin-top:10px">Grenser: gange &lt; ${thr.definiteWalkMaxKmh} · løping &gt; ${thr.definiteRunMinKmh} km/t — endre i Innstillinger</div>`;
@@ -6424,6 +6595,13 @@ function renderDashboard() {
   renderElevChart(sessions);
   const hasElev = sessions.some(s => (s.løpetype || 'utendors') !== 'treadmill' && (s.hoydeMeter || 0) > 0);
   document.getElementById('elevCard').style.display = hasElev ? '' : 'none';
+
+  // Løpekontinuitet-trend — only once at least one outdoor run has a current analysis (backfill in
+  // Innstillinger). Historical data, so not gated on being signed in.
+  renderContinuityTrend(sessions);
+  const thrCT = Continuity.thresholds();
+  const hasContTrend = sessions.some(s => s.løpetype === 'utendors' && Continuity._isCurrent(s.stravaAnalysis && s.stravaAnalysis.continuity, thrCT));
+  document.getElementById('contTrendCard').style.display = hasContTrend ? '' : 'none';
 
   // HR Zone stacked bar
   renderZoneChart(sessions);
@@ -7253,6 +7431,8 @@ const Settings = {
     document.getElementById('btnSaveConsistency').addEventListener('click', () => this.saveConsistency());
     const contBtn = document.getElementById('contSaveBtn');
     if (contBtn) contBtn.addEventListener('click', () => this.saveContinuity());
+    const contBackfillBtn = document.getElementById('contBackfillBtn');
+    if (contBackfillBtn) contBackfillBtn.addEventListener('click', () => Continuity.analyzeAllOutdoor());
 
     // Custom økttyper / treningsplan
     document.getElementById('btnAddCustomOkttype').addEventListener('click', () => CustomLists.add('okttype'));
@@ -7940,6 +8120,14 @@ const Settings = {
     const w = document.getElementById('contWalkMax'), r = document.getElementById('contRunMin');
     if (w) w.value = t.definiteWalkMaxKmh;
     if (r) r.value = t.definiteRunMinKmh;
+    // Backfill button reflects how many outdoor runs still need analysing (or the connect/done state).
+    const cb = document.getElementById('contBackfillBtn');
+    if (cb) {
+      const n = Continuity._pendingCount();
+      if (!StravaIO.isSignedIn()) { cb.textContent = 'Analyser alle utendørsøkter'; cb.disabled = true; }
+      else if (!n)               { cb.textContent = 'Alle utendørsøkter er analysert ✓'; cb.disabled = true; }
+      else                       { cb.textContent = `Analyser alle utendørsøkter (${n})`; cb.disabled = false; }
+    }
   },
 
   saveContinuity() {
@@ -8200,6 +8388,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Løpekontinuitet-trend — period (Uke/Måned) and metric (Løping % / Lengste løp) toggles
+  [['contTrendToggleWeek','week'],['contTrendToggleMaaned','month']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      contTrendGroupBy = val;
+      document.querySelectorAll('#contTrendToggleWeek,#contTrendToggleMaaned').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderContinuityTrend(DashFilter.get(Store.data.sessions));
+    });
+  });
+  [['contMetricRun','running'],['contMetricLong','longest']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      contTrendMetric = val;
+      document.querySelectorAll('#contMetricRun,#contMetricLong').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderContinuityTrend(DashFilter.get(Store.data.sessions));
+    });
+  });
+
   // Dashboard filters
   document.getElementById('dfType').addEventListener('change', e => { DashFilter.type = e.target.value; renderDashboard(); });
   document.getElementById('dfPlan').addEventListener('change', e => { DashFilter.plan = e.target.value; renderDashboard(); });
@@ -8242,6 +8448,12 @@ document.addEventListener('DOMContentLoaded', () => {
     elevGroupBy = 'week';
     document.querySelectorAll('#elevToggleWeek,#elevToggleMaaned').forEach(el => el.classList.remove('active'));
     document.getElementById('elevToggleWeek').classList.add('active');
+    contTrendGroupBy = 'week';
+    document.querySelectorAll('#contTrendToggleWeek,#contTrendToggleMaaned').forEach(el => el.classList.remove('active'));
+    document.getElementById('contTrendToggleWeek').classList.add('active');
+    contTrendMetric = 'running';
+    document.querySelectorAll('#contMetricRun,#contMetricLong').forEach(el => el.classList.remove('active'));
+    document.getElementById('contMetricRun').classList.add('active');
     renderDashboard();
   });
 
