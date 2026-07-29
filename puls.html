@@ -764,14 +764,14 @@
     </div>
     <div class="card span2" id="contTrendCard">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px;flex-wrap:wrap">
-        <div class="card-title" id="contTrendTitle" style="margin-bottom:0">Andel løping per uke</div>
+        <div class="card-title" id="contTrendTitle" style="margin-bottom:0">Run/walk ratio</div>
         <div style="display:flex;gap:6px">
           <span class="year-pill active" id="contMetricRun">Løping %</span>
           <span class="year-pill" id="contMetricLong">Lengste løp</span>
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
-        <div id="contTrendSubtitle" style="font-size:11px;color:var(--muted)">Siste 26 uker · kun utendørsløp med Strava-data 🏃 · estimert</div>
+        <div id="contTrendSubtitle" style="font-size:11px;color:var(--muted)">Andel løping · siste 26 uker · kun utendørsløp med Strava-data 🏃 · estimert</div>
         <div style="display:flex;gap:6px">
           <span class="year-pill active" id="contTrendToggleWeek">Uke</span>
           <span class="year-pill" id="contTrendToggleMaaned">Måned</span>
@@ -1182,7 +1182,7 @@
       <button class="btn-secondary btn-sm" id="stravaConnectBtn">Koble til Strava</button>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Løpekontinuitet</div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Run/walk ratio</div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Fartsgrenser for å anslå løping vs. gange fra Strava-data på utendørsøkter. Under nedre grense = gange, over øvre = løping, imellom = uklart. Juster til din fart om anslaget ikke stemmer (gange og rolig jogg overlapper ofte).</p>
       <div style="display:flex;gap:12px;margin-bottom:10px">
         <div style="flex:1">
@@ -1197,7 +1197,7 @@
       <button class="btn-secondary btn-sm" id="contSaveBtn">Lagre grenser</button>
       <span id="contMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span>
       <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
-        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Analyser alle utendørsøkter med Strava-kobling på én gang, så løpekontinuitet-trenden på Oversikt fylles ut. Kjøres i bolker for å holde seg under Strava sin grense — klikk igjen for å fortsette om den pauser.</p>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Analyser alle utendørsøkter med Strava-kobling på én gang, så run/walk ratio-trenden på Oversikt fylles ut. Kjøres i bolker for å holde seg under Strava sin grense — klikk igjen for å fortsette om den pauser.</p>
         <button class="btn-secondary btn-sm" id="contBackfillBtn">Analyser alle utendørsøkter</button>
         <span id="contBackfillMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
       </div>
@@ -5675,10 +5675,13 @@ function renderContinuityTrend(sessions) {
     return +(a.longestM / 1000).toFixed(2);
   });
 
+  // Fixed English concept title (a known running term); the active metric + period live in the
+  // subtitle so the "Lengste løp" view still reads clearly (run/walk ratio only names the % view).
   const title = document.getElementById('contTrendTitle');
-  if (title) title.textContent = (isRunning ? 'Andel løping' : 'Lengste sammenhengende løp') + (contTrendGroupBy === 'week' ? ' per uke' : ' per måned');
+  if (title) title.textContent = 'Run/walk ratio';
   const subtitle = document.getElementById('contTrendSubtitle');
-  if (subtitle) subtitle.textContent = (contTrendGroupBy === 'week' ? 'Siste 26 uker' : 'Siste 12 måneder') + ' · kun utendørsløp med Strava-data 🏃 · estimert';
+  if (subtitle) subtitle.textContent = (isRunning ? 'Andel løping' : 'Lengste sammenhengende løp') + ' · '
+    + (contTrendGroupBy === 'week' ? 'siste 26 uker' : 'siste 12 måneder') + ' · kun utendørsløp med Strava-data 🏃 · estimert';
 
   if (!keys.length) return;
 
@@ -5797,11 +5800,11 @@ const DetailPanel = {
     const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
     const thr = Continuity.thresholds();
     const current = Continuity._isCurrent(c, thr);
-    const label = '<div class="dp-section-label">Løpekontinuitet <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
+    const label = '<div class="dp-section-label">Run/walk ratio <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
     if (!current) {
       const stale = c ? ' <span style="color:var(--muted)">· grensene er endret, kjør på nytt</span>' : '';
       return `${label}<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Estimer løping vs. gange fra Strava-data (eksperimentelt).${stale}</div>`
-        + `<button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}')">🔬 Analyser løpekontinuitet</button>`
+        + `<button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}')">🔬 Analyser løp vs. gange</button>`
         + `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>`;
     }
     const pct = x => Math.round((x || 0) * 100);
