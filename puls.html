@@ -1275,14 +1275,39 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
+// ISO-8601 week key, e.g. "2026-31". Anchored at local NOON so DST shifts and the UTC parse of a
+// "YYYY-MM-DD" string can't move the calendar day.
+// The previous version measured from Jan 1 at local MIDNIGHT while the Thursday sat at noon; the
+// stray half-day pushed Math.ceil over whenever (dayOffset + 1) was a multiple of 7 — i.e. EVERY
+// day of an ISO year that starts on a Friday (2016, 2021, 2027, 2038, 2044). It was dormant only
+// because 2025/2026 don't start on a Friday; 2027 would have shifted every week label by one and
+// invented a "Uke 53". Measuring Thursday-to-Thursday from the week-1 Thursday (the week holding
+// Jan 4, per ISO) removes the fractional day entirely: verified 0 mismatches vs ISO 8601 across
+// 2015-2045, where the old one had 1820.
 function isoWeek(dateStr) {
   const d = new Date(dateStr);
   d.setHours(12, 0, 0, 0);
-  const day = d.getDay() || 7;
-  d.setDate(d.getDate() + 4 - day);
-  const yearStart = new Date(d.getFullYear(), 0, 1);
-  const week = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-  return `${d.getFullYear()}-${String(week).padStart(2, '0')}`;
+  d.setDate(d.getDate() - (d.getDay() + 6) % 7 + 3);      // Thursday of this ISO week
+  const yr = d.getFullYear();
+  const wk1Thu = new Date(yr, 0, 4);                      // Jan 4 is always in ISO week 1
+  wk1Thu.setHours(12, 0, 0, 0);
+  wk1Thu.setDate(wk1Thu.getDate() - (wk1Thu.getDay() + 6) % 7 + 3);
+  const week = 1 + Math.round((d - wk1Thu) / (7 * 86400000));
+  return `${yr}-${String(week).padStart(2, '0')}`;
+}
+// Week number *within the calendar year the date falls in*, for the Årssammenligning chart/table.
+// Those are deliberately bucketed by CALENDAR year (an earlier audit settled that), but they were
+// numbering the weeks with the raw ISO week — so a 1 Jan run (ISO week 52/53 of the PREVIOUS ISO
+// year) was filed as week 53 of the new year. That made the year's last-week marker 53 while every
+// earlier week was empty, drawing the whole line flat at zero until the final point. Clamping the
+// two boundary cases keeps calendar-year semantics and removes the artefact.
+function calYearWeek(dato) {
+  const year = dato.slice(0, 4);
+  const key = isoWeek(dato);
+  const isoYear = key.slice(0, 4);
+  if (isoYear < year) return 1;    // early Jan: belongs to last ISO year → first week of this one
+  if (isoYear > year) return 53;   // late Dec: belongs to next ISO year → last week of this one
+  return +key.slice(5);
 }
 function absWeekNum(d) { return Math.floor((new Date(d).getTime() + 3*86400000) / (7*86400000)); }
 // Local-calendar YYYY-MM-DD (and YYYY-MM). toISOString() is UTC, so an evening run in
@@ -7310,11 +7335,7 @@ function renderDashboard() {
   sessions.forEach(s => {
     if (!s.dato || !s.distanse) return;
     const year = s.dato.slice(0, 4);
-    const d = new Date(s.dato); d.setHours(12);
-    const day = d.getDay() || 7;
-    d.setDate(d.getDate() + 4 - day);
-    const yearStart = new Date(d.getFullYear(), 0, 1);
-    const wk = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+    const wk = calYearWeek(s.dato);   // ISO week clamped into this calendar year — see the helper
     if (!yearGroups[year]) yearGroups[year] = {};
     yearGroups[year][wk] = (yearGroups[year][wk] || 0) + s.distanse;
   });
@@ -7366,11 +7387,7 @@ function renderDashboard() {
     if (!yearStats[year]) yearStats[year] = { km: 0, runs: 0, weeks: new Set() };
     yearStats[year].km += s.distanse;
     yearStats[year].runs++;
-    const d2 = new Date(s.dato); d2.setHours(12);
-    const day2 = d2.getDay() || 7;
-    d2.setDate(d2.getDate() + 4 - day2);
-    const ys = new Date(d2.getFullYear(), 0, 1);
-    yearStats[year].weeks.add(Math.ceil(((d2 - ys) / 86400000 + 1) / 7));
+    yearStats[year].weeks.add(calYearWeek(s.dato));   // same numbering as the chart above
   });
   document.getElementById('yearCompTable').innerHTML = `
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px">
