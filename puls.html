@@ -6038,8 +6038,21 @@ const DetailPanel = {
       tiles.push({ v: `${a.avgCadenceSpm}<span style="font-size:11px;color:var(--muted)"> spm</span>`, l: 'kadens · snitt' });
     }
     const tilesHtml = `<div class="dp-stat-row">${tiles.map(t => `<div class="dp-stat"><div class="dpv">${t.v}</div><div class="dpl">${t.l}</div></div>`).join('')}</div>`;
-    const caption = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Lavere HR-drift = mer aerobt utholdende (mest meningsfylt på rolige/lange økter). Kadens = steg per minutt.</div>`;
-    return `${label}${tilesHtml}${caption}`;
+    // Short at-a-glance directional cue + a collapsed ⓘ explainer (the aerobic block's own, since the
+    // run/walk one only covers speed thresholds): what HR-drift means + the benchmark table + caveat.
+    const caption = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Lavere HR-drift = mer aerobt utholdende · kadens i steg per minutt.</div>`;
+    const help = `<details style="margin-top:6px">`
+      + `<summary style="font-size:10px;color:var(--muted);cursor:pointer;list-style:none;user-select:none">ⓘ Hvordan beregnes dette?</summary>`
+      + `<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">`
+      + `<b>HR-drift</b> (aerob decoupling) = fart ÷ puls i 1. vs 2. halvdel av økta. Positiv % = pulsen krøp opp for å holde tempoet (mindre uthvilt sent i økta); negativ = mer effektiv i 2. halvdel (godt oppvarmet); rundt 0 = helt jevnt.`
+      + `<div style="margin:6px 0;display:grid;grid-template-columns:auto 1fr;gap:2px 10px">`
+      + `<span style="color:var(--green)">&lt; 5 %</span><span>sterk aerob base — holder tempoet sent i økta</span>`
+      + `<span>5–10 %</span><span>moderat</span>`
+      + `<span>&gt; 10 %</span><span>gikk for hardt / for fort tidlig, eller ikke aerobt klar for lengden</span>`
+      + `</div>`
+      + `Gjelder <b>jevne, sammenhengende</b> økter — gangepauser og motbakker blåser opp tallet, så les det helst på rolige/lange løp, og sammenlign inne-mot-inne / ute-mot-ute (inne løper varmere).`
+      + `</div></details>`;
+    return `${label}${tilesHtml}${caption}${help}`;
   },
 
   openShoe(name) {
