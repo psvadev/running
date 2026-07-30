@@ -2280,7 +2280,12 @@ const Store = {
   updateSession(id, s) {
     const i = this.data.sessions.findIndex(x => x.id === id);
     if (i >= 0) {
-      this.data.sessions[i] = { ...s, id };
+      // MERGE, don't replace. `s` comes from Form.read(), which only knows the form's own fields —
+      // a bare replacement silently deleted every derived/legacy key the form doesn't render
+      // (stravaAnalysis with its run/walk + HR-drift + cadence results, and historically `sovn`).
+      // Spreading the existing session first keeps those; `s` still wins for everything it owns,
+      // including fields the user deliberately cleared (Form.read emits those as explicit undefined).
+      this.data.sessions[i] = { ...this.data.sessions[i], ...s, id };
       this.data.sessions.sort((a,b) => a.dato.localeCompare(b.dato));
       this.data.lastUpdated = new Date().toISOString();
       FileIO.save();
@@ -3999,6 +4004,12 @@ const Continuity = {
     try {
       const status = await this._analyzeInto(s, this.thresholds());
       if (status !== 'ok') return;   // ratelimit/nostreams/nodata → silent; a later re-save or the backfill retries
+      // `s` may have been detached while we awaited: Store.updateSession swaps in a NEW object for the
+      // array slot, so a re-save during the fetch would leave the fresh analysis on an orphan (and the
+      // in-flight guard suppresses the retry that would have healed it). Re-look-up and re-attach.
+      const cur = Store.data.sessions.find(x => x.id === id);
+      if (!cur) return;                                                    // deleted while analysing
+      if (cur !== s && s.stravaAnalysis) cur.stravaAnalysis = s.stravaAnalysis;
       await FileIO.save();
       if (typeof renderDashboard === 'function') renderDashboard();
     } catch (e) {
