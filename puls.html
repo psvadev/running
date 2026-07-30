@@ -1538,10 +1538,13 @@ function parseRunnaIcs(text) {
   return Object.values(byId).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// Planned sessions falling within a training block (date on/after its start).
-function plannedForBlock(startDate) {
+// Planned sessions falling within a training block's window. The end bound matters because an
+// .ics import REPLACES plannedSessions with the newest block's plan — without it, opening a
+// finished block showed the current plan's sessions and its adherence % under the old block's
+// heading. End is optional so a still-open block still collects everything from its start.
+function plannedForBlock(startDate, endDate) {
   return (Store.data.plannedSessions || [])
-    .filter(p => p.date >= startDate)
+    .filter(p => p.date >= startDate && (!endDate || p.date <= endDate))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -5026,13 +5029,23 @@ const eventLinesPlugin = {
       // Compare like with like: week-label charts must range-check against the event's
       // ISO week, not its date — "2026-07-20" sorts before week-string "2026-28", which
       // parked future events at week 10 on the weekly charts.
-      const labelsAreDates = /^\d{4}-\d{2}-\d{2}$/.test(rawLabels[0] || '');
+      // A chart labels its x-axis by date, ISO week, or month. Week and month keys are BOTH
+      // "YYYY-NN" ("2026-07" is week 7 or July — undecidable from the string), so a chart in
+      // month mode has to declare it via _labelKind. Without that, an event's ISO week was
+      // matched against month keys and a January race rendered on February; a mid-March event
+      // (week 12) landed on December.
+      const labelKind = (chart.data && chart.data._labelKind) ||
+        (/^\d{4}-\d{2}-\d{2}$/.test(rawLabels[0] || '') ? 'date' : 'week');
+      const labelsAreDates = labelKind === 'date';
+      const keyOf = dateStr => labelKind === 'date'  ? dateStr
+                             : labelKind === 'month' ? dateStr.slice(0, 7)
+                             : isoWeek(dateStr);
       const clamp = v => Math.max(chartArea.left, Math.min(chartArea.right, v));
 
       // 1) Resolve each event to pixel positions (band start/end for ranges)
       const markers = [];
       events.forEach(evt => {
-        const evtKey = labelsAreDates ? evt.date : isoWeek(evt.date);
+        const evtKey = keyOf(evt.date);
         let idx = rawLabels.indexOf(evt.date);
         if (idx < 0) idx = rawLabels.indexOf(evtKey);
         if (idx < 0 && evtKey >= rawLabels[0] && evtKey <= rawLabels[rawLabels.length - 1])
@@ -5046,7 +5059,7 @@ const eventLinesPlugin = {
             bandStart = interpX(evt.date, rawLabels, meta.data);
             bandEnd   = interpX(evt.endDate, rawLabels, meta.data);
           } else {
-            const endWkIso = isoWeek(evt.endDate);
+            const endWkIso = keyOf(evt.endDate);
             let idx2 = rawLabels.indexOf(evt.endDate);
             if (idx2 < 0) idx2 = rawLabels.indexOf(endWkIso);
             if (idx2 < 0 && endWkIso <= (rawLabels[rawLabels.length - 1] || '')) {
@@ -5932,6 +5945,10 @@ function computeBlocks(allSessions) {
   return planEvents.map((evt, i) => {
     const startDate     = evt.date;
     const endDate       = evt.endDate || planEvents[i+1]?.date || today;
+    // True when `endDate` above is just "today" standing in for an unknown end (no explicit end,
+    // no following plan). Such a block is still open-ended forward, so anything that looks at
+    // FUTURE items (planned sessions) must not treat today as a ceiling — see plannedForBlock.
+    const endIsOpen     = !evt.endDate && !planEvents[i+1];
     // For an in-progress block, per-week rates + consistency are measured only up to *now* — the
     // weeks that haven't happened yet aren't "missed". `weeks` stays the full planned span (used for
     // the "N uker" label + target-week counts); `elapsedWeeks` drives km/uke, runs/uke, consistency.
@@ -5969,7 +5986,7 @@ function computeBlocks(allSessions) {
     const kmAboveTarget   = targetKmWeek   ? Object.values(weekKm).filter(km=>km>=targetKmWeek).length   : null;
     const runsAboveTarget = targetRunsWeek ? Object.values(weekRuns).filter(c=>c>=targetRunsWeek).length : null;
 
-    return { id:evt.id, title:evt.title, startDate, endDate, weeks, totalKm, totalSecs, runs,
+    return { id:evt.id, title:evt.title, startDate, endDate, endIsOpen, weeks, totalKm, totalSecs, runs,
              avgKmWeek: totalKm/elapsedWeeks, avgRunsWeek: runs/elapsedWeeks, avgPace, avgHR,
              bestWeekKm, longestRun, consistencyScore, indoorKm, outdoorKm,
              shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget,
@@ -6075,7 +6092,7 @@ function renderBlocks() {
           </div>
         </div>
         ${(() => {
-          const planned = plannedForBlock(current.startDate);
+          const planned = plannedForBlock(current.startDate, current.endIsOpen ? null : current.endDate);
           if (!planned.length) return '';
           const matchOf = matchPlannedSessions(planned);
           const pastDue = plannedDueList(planned, matchOf, today);
@@ -6200,6 +6217,7 @@ function renderElevChart(sessions) {
   const subtitle = document.getElementById('elevSubtitle');
   if (subtitle) subtitle.textContent = (elevGroupBy === 'week' ? 'Siste 26 uker' : 'Siste 12 måneder') + ' · kun utendørsløp 🏃';
 
+  showChartEmpty('chartElev', !keys.length, 'Ingen høydemeter registrert i perioden');
   if (!keys.length) return;
 
   Charts.elev = new Chart(el, {
@@ -6262,6 +6280,7 @@ function renderContinuityTrend(sessions) {
   if (subtitle) subtitle.textContent = (isRunning ? 'Andel løping' : 'Lengste sammenhengende løp') + ' · '
     + (contTrendGroupBy === 'week' ? 'siste 26 uker' : 'siste 12 måneder') + ' · kun utendørsløp med Strava-data 🏃 · estimert';
 
+  showChartEmpty('chartContTrend', !keys.length, 'Ingen analyserte utendørsløp i perioden');
   if (!keys.length) return;
 
   Charts.contTrend = new Chart(el, {
@@ -6339,7 +6358,15 @@ function renderAeroTrend(sessions) {
   if (subtitle) subtitle.textContent = (isDrift ? 'HR-drift (aerob decoupling)' : 'Kadens (steg/min)') + ' · '
     + (aeroTrendGroupBy === 'week' ? 'siste 26 uker' : 'siste 12 måneder') + ' · alle Strava-løp 🏃 · estimert';
 
-  if (!keys.length || (!hasUte && !hasInne)) return;
+  // The card is shown when ANY run has drift OR cadence, but each metric is plotted on its own —
+  // so the selected one can legitimately be empty while the other has data (HR-drift needs a pulse
+  // stream and 10+ min moving; cadence needs a cadence stream). Say so and point at the other
+  // toggle instead of rendering a blank box.
+  const noData = !keys.length || (!hasUte && !hasInne);
+  showChartEmpty('chartAeroTrend', noData, isDrift
+    ? 'Ingen HR-drift å vise — krever puls og minst 10 min i bevegelse. Prøv Kadens.'
+    : 'Ingen kadensdata å vise. Prøv HR-drift.');
+  if (noData) return;
 
   const mkDataset = (label, data, rgb) => ({
     label, data,
@@ -6711,7 +6738,7 @@ const DetailPanel = {
   },
 
   openBlock(block) {
-    const { id, title, startDate, endDate, weeks, totalKm, totalSecs, runs,
+    const { id, title, startDate, endDate, endIsOpen, weeks, totalKm, totalSecs, runs,
             avgKmWeek, avgPace, avgHR,
             consistencyScore, indoorKm, outdoorKm, shoes,
             targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget } = block;
@@ -6877,7 +6904,7 @@ const DetailPanel = {
     ).join('');
 
     // Planned-vs-actual for this block (from an imported Runna plan overlapping the block window).
-    const planned = plannedForBlock(startDate);
+    const planned = plannedForBlock(startDate, endIsOpen ? null : endDate);
     let plannedHtml = '';
     if (planned.length) {
       const pMatch = matchPlannedSessions(planned);
@@ -6955,6 +6982,7 @@ function renderWeeklyDistChart(sessions) {
       type:'bar',
       data:{
         _rawLabels: distKeys,
+        _labelKind: distGroupBy === 'week' ? 'week' : 'month',   // event markers can't infer this
         labels: distKeys.map(fmtDistKey),
         datasets:[{ data: distKeys.map(k => distMap[k].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
       },
@@ -7005,7 +7033,8 @@ function renderPaceWeekChart(sessions) {
   if (paceKeys.length) {
     Charts.pace = new Chart(document.getElementById('chartPace'), {
       type:'line',
-      data:{ _rawLabels: paceKeys, labels: paceKeys.map(fmtPaceKey),
+      data:{ _rawLabels: paceKeys, _labelKind: paceGroupBy === 'week' ? 'week' : 'month',
+             labels: paceKeys.map(fmtPaceKey),
         datasets:[{
           data: paceKeys.map(k => { const {dist,secs}=paceMap[k]; return useKmh ? parseFloat((dist/(secs/3600)).toFixed(2)) : parseFloat((secs/dist/60).toFixed(3)); }),
           borderColor:'#6c8fff', backgroundColor:'rgba(108,143,255,.1)',
