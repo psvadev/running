@@ -328,6 +328,7 @@
   .page-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
   .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 4px; }
   .sync-dot.saving { background: var(--yellow); animation: pulse .8s infinite; }
+  .sync-dot.error { background: var(--danger); }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
   /* ── Heatmap ── */
@@ -2556,8 +2557,12 @@ const FileIO = {
     this.updateStatus('Ny fil (ikke lagret ennå)');
   },
 
+  // Returns true when the data reached durable storage (file, Drive, or the platform's best
+  // available), false when it did NOT. Bulk-write callers await this before reporting success —
+  // silently swallowing a failed write is how weeks of runs can live only in a clearable cache.
   async save() {
     this.setSyncSaving();
+    let writeFailed = false;
     const json = Store.toJSON();
     // Quota overflow here must not abort the whole save — Drive/disk writes below
     // are the real persistence; the cache is just a fast-startup convenience.
@@ -2603,8 +2608,8 @@ const FileIO = {
           if (diskCount > Store.data.sessions.length &&
               !confirm(`Filen "${file.name}" inneholder ${diskCount} økter, men appen har bare ${Store.data.sessions.length} i minnet (lagrede data kunne ikke leses ved oppstart). Overskrive filen likevel?\n\nAvbryt anbefales — åpne filen via Innstillinger → Åpne fil først.`)) {
             this.updateStatus('Ikke lagret til fil — åpne filen via Innstillinger først');
-            this.setSyncOk();
-            return;
+            this.setSyncError('Ikke lagret til fil');
+            return false;
           }
         } catch { /* unreadable or brand-new file — nothing to protect */ }
         Store.loadedFromPersisted = true; // decision made; don't re-prompt every save
@@ -2620,8 +2625,11 @@ const FileIO = {
           localStorage.setItem('lpl_handle_name', this.handle.name);
           this.updateStatus(this.handle.name);
         } catch(e) {
-          if (e.name === 'AbortError') { this.setSyncOk(); return; }
+          // Cancelling the picker is deliberate, but nothing reached a file — say so rather
+          // than flashing "Lagret"; the data is in the browser cache only.
+          if (e.name === 'AbortError') { this.setSyncLocalOnly(); return false; }
           console.warn('showSaveFilePicker failed', e);
+          writeFailed = true;
         }
       }
 
@@ -2632,14 +2640,23 @@ const FileIO = {
           await writable.close();
           this.updateStatus(localStorage.getItem('lpl_handle_name') || this.handle.name);
           this.setSyncOk();
-          return;
-        } catch(e) { console.warn('Could not write to file handle', e); }
+          return true;
+        } catch(e) { console.warn('Could not write to file handle', e); writeFailed = true; }
       }
+    }
+    // A write that threw must never report success. The file is unreachable (moved, renamed,
+    // permission lapsed, network path offline) and the data is only in the clearable cache —
+    // this used to fall through to "Lagret", so the loss stayed invisible indefinitely.
+    if (writeFailed) {
+      this.setSyncError('Ikke lagret til fil');
+      showToast('Kunne ikke skrive til datafilen — data ligger foreløpig kun i nettleseren. Åpne filen på nytt via Innstillinger → Datafil.', 'error');
+      return false;
     }
     // Firefox / Safari with no File System Access API and no Drive — data lives only in
     // the clearable browser cache, so don't claim it's "Lagret" like a real file/Drive save.
-    if (!this.supportsApi && !DriveIO.isSignedIn()) { this.setSyncLocalOnly(); return; }
+    if (!this.supportsApi && !DriveIO.isSignedIn()) { this.setSyncLocalOnly(); return true; }
     this.setSyncOk();
+    return true;
   },
 
   download() {
@@ -2668,6 +2685,13 @@ const FileIO = {
     document.getElementById('syncDot').className = 'sync-dot';
     document.getElementById('syncText').textContent = 'Lagret';
     setTimeout(() => { document.getElementById('syncText').textContent = 'Klar'; }, 1500);
+  },
+
+  // A real save failure. Unlike setSyncOk this does NOT auto-clear — a failed write means the
+  // data exists only in the clearable browser cache, so the warning must stay on screen.
+  setSyncError(msg) {
+    document.getElementById('syncDot').className = 'sync-dot error';
+    document.getElementById('syncText').textContent = msg || 'Ikke lagret';
   },
 
   // Browser-cache-only persistence (Firefox/Safari, no Drive): stays visible and honest
@@ -3799,20 +3823,37 @@ const StravaBackfill = {
     btn.disabled = n === 0;
   },
 
+  _applying: false,
   async apply() {
+    if (this._applying) return;                       // double-click guard (the click handler is bare)
     const chosen = [...document.querySelectorAll('#backfillBody input[type=checkbox]:checked')]
       .map(cb => this.proposed[+cb.dataset.i]).filter(Boolean);
     if (!chosen.length) return;
-    const byId = {};
-    Store.data.sessions.forEach(s => byId[s.id] = s);
-    let linked = 0;
-    chosen.forEach(m => { const s = byId[m.sessionId]; if (s && !s.stravaId) { s.stravaId = String(m.activityId); linked++; } });
-    await FileIO.save();
-    this.close();
-    showToast(`Koblet ${linked} økter til Strava — henter pulsdata…`, 'success');
-    refreshAll();
-    if (typeof Settings !== 'undefined' && Settings.loadContinuityFields) Settings.loadContinuityFields();
-    Continuity.analyzeAll();   // newly-linked runs are now _needsAnalysis → metrics + trends fill in
+    this._applying = true;
+    const btn = document.getElementById('backfillApplyBtn');
+    if (btn) btn.disabled = true;
+    try {
+      const byId = {};
+      Store.data.sessions.forEach(s => byId[s.id] = s);
+      let linked = 0;
+      chosen.forEach(m => { const s = byId[m.sessionId]; if (s && !s.stravaId) { s.stravaId = String(m.activityId); linked++; } });
+      const saved = await FileIO.save();
+      this.close();
+      refreshAll();
+      if (typeof Settings !== 'undefined' && Settings.loadContinuityFields) Settings.loadContinuityFields();
+      if (saved) {
+        showToast(`Koblet ${linked} økter til Strava — henter pulsdata…`, 'success');
+        Continuity.analyzeAll();   // newly-linked runs are now _needsAnalysis → metrics + trends fill in
+      } else {
+        // Don't claim success, and don't spend ~40 Strava fetches analysing state that can't be
+        // persisted — let the user restore the file first, then re-run from Innstillinger.
+        showToast(`Koblet ${linked} økter, men lagringen feilet — se statuslinjen. Analysen er ikke startet.`, 'error');
+      }
+    } finally {
+      this._applying = false;
+      const b = document.getElementById('backfillApplyBtn');
+      if (b) b.disabled = false;
+    }
   },
 };
 
