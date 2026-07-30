@@ -1197,8 +1197,8 @@
       <button class="btn-secondary btn-sm" id="contSaveBtn">Lagre grenser</button>
       <span id="contMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span>
       <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
-        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Analyser alle utendørsøkter med Strava-kobling på én gang, så run/walk ratio-trenden på Oversikt fylles ut. Kjøres i bolker for å holde seg under Strava sin grense — klikk igjen for å fortsette om den pauser.</p>
-        <button class="btn-secondary btn-sm" id="contBackfillBtn">Analyser alle utendørsøkter</button>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Analyser alle Strava-koblede økter på én gang, så run/walk (utendørs) + HR-drift &amp; kadens (alle økter) fylles ut i øktdetaljer og trender. Kjøres i bolker for å holde seg under Strava sin grense — klikk igjen for å fortsette om den pauser.</p>
+        <button class="btn-secondary btn-sm" id="contBackfillBtn">Analyser alle Strava-økter</button>
         <span id="contBackfillMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
       </div>
     </div>
@@ -3472,6 +3472,65 @@ function analyzeRunningContinuity(streams, options = {}) {
   };
 }
 
+// ── Aerobic metrics (HR drift / decoupling + cadence) — pure, from the SAME streams the run/walk
+// analysis already fetches. Venue-agnostic: it reads the HR sensor + accelerometer (not GPS), so it
+// works on treadmill runs too. HR drift = (first-half speed÷HR − second-half) / first-half × 100 over
+// the moving portion: positive = HR crept up relative to pace (less aerobically durable); most
+// meaningful on steady/long runs. Cadence = mean steps/min over moving samples (Strava's running
+// cadence stream is often per-leg ~85–95 → doubled below a threshold to read as true spm). Never
+// fabricates — a missing HR or cadence stream just leaves that metric absent (has*=false), not invented.
+const AEROBIC_ANALYSIS_VERSION = 1;
+function analyzeAerobicMetrics(streams, options = {}) {
+  const cfg = { minMovingSecondsForDrift: 600, minDriftSamples: 20, cadenceLegDoubleBelow: 120, ...options };
+  const arr = k => (streams && streams[k] && Array.isArray(streams[k].data)) ? streams[k].data : null;
+  const time = arr('time'), vel = arr('velocity_smooth'), hr = arr('heartrate'), cad = arr('cadence'), moving = arr('moving');
+  if (!time || !time.length) return { insufficientData: true, warnings: ['Mangler tid-strøm'] };
+  const n = time.length;
+  const warnings = [];
+  const isMoving = i => moving ? moving[i] !== false : true;
+
+  // Cadence — mean over moving samples with cadence > 0; double a per-leg average into true spm.
+  let cadSum = 0, cadCount = 0;
+  if (cad) for (let i = 0; i < n; i++) { if (isMoving(i) && typeof cad[i] === 'number' && cad[i] > 0) { cadSum += cad[i]; cadCount++; } }
+  const hasCadence = cadCount > 0;
+  const avgCadenceRaw = hasCadence ? cadSum / cadCount : null;
+  const avgCadenceSpm = hasCadence ? Math.round(avgCadenceRaw < cfg.cadenceLegDoubleBelow ? avgCadenceRaw * 2 : avgCadenceRaw) : null;
+  if (!cad) warnings.push('Mangler kadens-strøm');
+
+  // HR drift / decoupling — split the moving portion in two by moving time; compare speed÷HR of each
+  // half (units cancel in the ratio). Needs HR + speed and enough steady moving time to mean anything.
+  let hasDecoupling = false, decouplingPercent = null, movingTimeSeconds = 0;
+  if (hr && vel) {
+    const samples = [];
+    for (let i = 0; i < n; i++) {
+      if (!isMoving(i)) continue;
+      const h = hr[i], v = vel[i];
+      if (!(h > 0) || !(v >= 0)) continue;
+      const dt = i > 0 ? Math.max(0, time[i] - time[i - 1]) : 1;
+      samples.push({ v, h, dt });
+      movingTimeSeconds += dt;
+    }
+    if (movingTimeSeconds >= cfg.minMovingSecondsForDrift && samples.length >= cfg.minDriftSamples) {
+      const half = movingTimeSeconds / 2;
+      let acc = 0, v1 = 0, h1 = 0, v2 = 0, h2 = 0;
+      for (const s of samples) {
+        if (acc < half) { v1 += s.v * s.dt; h1 += s.h * s.dt; }
+        else            { v2 += s.v * s.dt; h2 += s.h * s.dt; }
+        acc += s.dt;
+      }
+      const ef1 = h1 > 0 ? v1 / h1 : 0, ef2 = h2 > 0 ? v2 / h2 : 0;
+      if (ef1 > 0 && ef2 > 0) { decouplingPercent = ((ef1 - ef2) / ef1) * 100; hasDecoupling = true; }
+    } else {
+      warnings.push('For kort for pålitelig HR-drift');
+    }
+  } else {
+    if (!hr) warnings.push('Mangler puls-strøm');
+    if (!vel) warnings.push('Mangler fart-strøm');
+  }
+
+  return { version: AEROBIC_ANALYSIS_VERSION, hasDecoupling, decouplingPercent, hasCadence, avgCadenceRaw, avgCadenceSpm, movingTimeSeconds, warnings, insufficientData: false };
+}
+
 // Session-level orchestration: fetch → analyze → persist a COMPACT summary (segments stripped)
 // on the session → save → re-render. Re-fetch is skipped when a stored result already matches
 // the current algorithm + threshold versions (unless forced by "Analyser på nytt").
@@ -3484,6 +3543,19 @@ const Continuity = {
     thr = thr || this.thresholds();
     return !!c && c.version === CONTINUITY_ANALYSIS_VERSION && c.thresholdVersion === CONTINUITY_THRESHOLD_VERSION
       && c.walkMaxKmh === thr.definiteWalkMaxKmh && c.runMinKmh === thr.definiteRunMinKmh;
+  },
+  // Broader than _eligible (run/walk's outdoor-only rule): ANY Strava-linked run while signed in can
+  // be analysed — run/walk still gates on outdoor *inside* the analysis, but the aerobic metrics
+  // (HR drift + cadence) read the HR sensor + accelerometer, so they apply to indoor runs too.
+  _analyzable(s) { return !!s && !!s.stravaId && StravaIO.isSignedIn(); },
+  _isAerobicCurrent(a) { return !!a && a.version === AEROBIC_ANALYSIS_VERSION; },
+  // A run needs (re)analysis if its run/walk is stale (outdoor only) OR its aerobic metrics are.
+  // Drives the auto-on-save guard, the backfill filter, and the detail-view button.
+  _needsAnalysis(s) {
+    if (!this._analyzable(s)) return false;
+    const sa = s.stravaAnalysis || {};
+    const contStale = s.løpetype === 'utendors' && !this._isCurrent(sa.continuity);
+    return contStale || !this._isAerobicCurrent(sa.aerobic);
   },
   // Effective walk/run speed thresholds: per-user override (Innstillinger → Løpekontinuitet) or defaults.
   thresholds() {
@@ -3514,26 +3586,41 @@ const Continuity = {
       datakvalitet: r.datakvalitet, warnings: r.warnings,
     };
   },
-  // Analyze one eligible session in place: fetch streams → analyze → store the derived summary on
-  // the object (segments are stripped by _toPersisted's shape). No save, no render — the caller owns
-  // those, so this is safe to loop. Returns a status: 'ok' | 'ratelimit' | 'nostreams' | 'nodata'.
-  // Never fabricates: a missing/short stream returns a status, it does not invent numbers.
+  _toPersistedAerobic(a, sourceActivityId) {
+    return {
+      version: AEROBIC_ANALYSIS_VERSION, analyzedAt: new Date().toISOString(), sourceActivityId,
+      hasDecoupling: a.hasDecoupling, decouplingPercent: a.decouplingPercent,
+      hasCadence: a.hasCadence, avgCadenceSpm: a.avgCadenceSpm, avgCadenceRaw: a.avgCadenceRaw,
+      movingTimeSeconds: a.movingTimeSeconds, warnings: a.warnings,
+    };
+  },
+  // Analyze one Strava-linked session in place from ONE stream fetch: run/walk (outdoor only) +
+  // aerobic HR-drift/cadence (all venues). Stores whatever the data supports on the object (segments
+  // stripped by the _toPersisted shapes). No save, no render — the caller owns those, so it's safe to
+  // loop. Returns 'ok' | 'ratelimit' | 'nostreams' | 'nodata'. Never fabricates: a missing stream just
+  // leaves that metric out; 'nodata' only when nothing at all could be derived.
   async _analyzeInto(s, thr) {
     const streams = await StravaIO.fetchActivityStreams(s.stravaId);
     if (streams && streams.error === 429) return 'ratelimit';
     if (!streams) return 'nostreams';
-    const ref = this._referenceMovingTime(s);
-    const result = analyzeRunningContinuity(streams, ref != null ? { ...thr, referenceMovingTimeSeconds: ref } : { ...thr });
-    if (result.insufficientData) return 'nodata';
     s.stravaAnalysis = s.stravaAnalysis || {};
-    s.stravaAnalysis.continuity = this._toPersisted(result, s.stravaId, thr);
-    return 'ok';
+    let any = false;
+    // Run/walk — outdoor only (needs GPS speed to classify running vs walking).
+    if (s.løpetype === 'utendors') {
+      const ref = this._referenceMovingTime(s);
+      const result = analyzeRunningContinuity(streams, ref != null ? { ...thr, referenceMovingTimeSeconds: ref } : { ...thr });
+      if (!result.insufficientData) { s.stravaAnalysis.continuity = this._toPersisted(result, s.stravaId, thr); any = true; }
+    }
+    // Aerobic HR-drift + cadence — all venues; stores even a partial result (has*=false) so it's
+    // stamped current and won't re-fetch (one fetch per run).
+    const aero = analyzeAerobicMetrics(streams);
+    if (!aero.insufficientData) { s.stravaAnalysis.aerobic = this._toPersistedAerobic(aero, s.stravaId); any = true; }
+    return any ? 'ok' : 'nodata';
   },
   async analyzeSession(id, opts = {}) {
     const s = Store.data.sessions.find(x => x.id === id);
-    if (!s || !this._eligible(s)) return;
-    const existing = s.stravaAnalysis && s.stravaAnalysis.continuity;
-    if (!opts.force && this._isCurrent(existing)) return existing;
+    if (!s || !this._analyzable(s)) return;
+    if (!opts.force && !this._needsAnalysis(s)) return;
     const btn = document.getElementById('continuityBtn');
     const orig = btn ? btn.textContent : '';
     const setMsg = (txt, isErr) => { const m = document.getElementById('continuityMsg'); if (m) { m.textContent = txt; m.style.color = isErr ? 'var(--danger)' : 'var(--muted)'; } };
@@ -3552,26 +3639,30 @@ const Continuity = {
     }
   },
 
-  // How many outdoor Strava runs still need analysing at the current thresholds (drives the
-  // backfill button's label; ignores sign-in so the count is honest even while signed out).
+  // How many Strava-linked runs still need analysing — run/walk (outdoor) or aerobic (any venue)
+  // (drives the backfill button's label; ignores sign-in so the count is honest even while signed out).
   _pendingCount() {
-    const thr = this.thresholds();
-    return Store.data.sessions.filter(s => s && s.løpetype === 'utendors' && s.stravaId && !this._isCurrent(s.stravaAnalysis && s.stravaAnalysis.continuity, thr)).length;
+    return Store.data.sessions.filter(s => {
+      if (!s || !s.stravaId) return false;
+      const sa = s.stravaAnalysis || {};
+      const contStale = s.løpetype === 'utendors' && !this._isCurrent(sa.continuity);
+      return contStale || !this._isAerobicCurrent(sa.aerobic);
+    }).length;
   },
 
-  // One-time backfill: analyse every eligible outdoor Strava run that isn't already current, so the
-  // Løpekontinuitet-trend on Oversikt has history to draw. Throttled (BACKFILL_MAX_PER_BATCH per
-  // click) + resumable — already-current runs are skipped, so clicking again continues after a pause
-  // or a 429. Saves once per batch. Runs with missing core streams are skipped and counted, never faked.
+  // One-time backfill: analyse every Strava-linked run that still needs it (run/walk on outdoor +
+  // HR-drift/kadens on all venues), so the trends have history to draw. Throttled (BACKFILL_MAX_PER_BATCH
+  // per click) + resumable — already-analysed runs are skipped, so clicking again continues after a
+  // pause or a 429. Saves once per batch. Runs with missing streams are skipped/counted, never faked.
   BACKFILL_MAX_PER_BATCH: 40,
   _backfillRunning: false,
-  async analyzeAllOutdoor() {
+  async analyzeAll() {
     if (this._backfillRunning) return;
     const setMsg = (txt, col) => { const m = document.getElementById('contBackfillMsg'); if (m) { m.textContent = txt; m.style.color = col || 'var(--muted)'; } };
     if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava først', 'var(--danger)'); return; }
     const thr = this.thresholds();
-    const pending = Store.data.sessions.filter(s => this._eligible(s) && !this._isCurrent(s.stravaAnalysis && s.stravaAnalysis.continuity, thr));
-    if (!pending.length) { setMsg('Alle utendørsøkter er allerede analysert ✓', 'var(--green)'); return; }
+    const pending = Store.data.sessions.filter(s => this._needsAnalysis(s));
+    if (!pending.length) { setMsg('Alle Strava-økter er allerede analysert ✓', 'var(--green)'); return; }
     const btn = document.getElementById('contBackfillBtn');
     this._backfillRunning = true;
     if (btn) btn.disabled = true;
@@ -3612,17 +3703,17 @@ const Continuity = {
     }
   },
 
-  // Fire-and-forget auto-analysis after a session is saved from the log form, so a new outdoor
-  // Strava run joins the Run/walk ratio trend without the manual backfill. **One fetch per run:**
-  // it no-ops if the run is ineligible OR already analysed at the current thresholds (_isCurrent),
-  // and an in-flight guard blocks a double-fetch on rapid re-saves — so a routine edit of an
-  // already-analysed run costs zero network. Never blocks the save, never toasts on failure (the
-  // detail-view button + backfill stay as fallbacks); on success it persists + refreshes the trend.
+  // Fire-and-forget auto-analysis after a session is saved from the log form, so a new Strava run
+  // joins the trends without the manual backfill. **One fetch per run:** it no-ops if the run is
+  // ineligible OR already analysed (_needsAnalysis), and an in-flight guard blocks a double-fetch on
+  // rapid re-saves — so a routine edit of an already-analysed run costs zero network. Never blocks the
+  // save, never toasts on failure (the detail-view button + backfill stay as fallbacks); on success it
+  // persists + refreshes the dashboard.
   _autoInflight: new Set(),
   async autoAnalyzeOnSave(id) {
     const s = Store.data.sessions.find(x => x.id === id);
-    if (!s || !this._eligible(s)) return;
-    if (this._isCurrent(s.stravaAnalysis && s.stravaAnalysis.continuity)) return;
+    if (!s || !this._analyzable(s)) return;
+    if (!this._needsAnalysis(s)) return;
     if (this._autoInflight.has(id)) return;
     this._autoInflight.add(id);
     try {
@@ -3760,6 +3851,55 @@ window._testRunningContinuity = function () {
   check('malformed: no throw', !threw);
   const failed = results.filter(x => !x.pass);
   console.group(`%c_testRunningContinuity: ${results.length - failed.length}/${results.length} passed`, `color:${failed.length ? '#e05555' : '#4caf87'};font-weight:700`);
+  results.forEach(x => console.log(`${x.pass ? '✓' : '✗'} ${x.name}${x.detail ? '  — ' + x.detail : ''}`));
+  console.groupEnd();
+  return failed.length === 0;
+};
+
+// Synthetic harness for the aerobic metrics (HR drift + cadence). Mirrors the Python port
+// (scratchpad aerobic_port.py) 1:1 — run in the browser console to regression-check the math.
+window._testAerobicMetrics = function () {
+  const results = [];
+  const check = (name, cond, detail) => results.push({ name, pass: !!cond, detail: cond ? '' : (detail || '') });
+  const wrap = a => ({ data: a });
+  const mk = (n, { vel, hr, cad, moving } = {}) => {
+    const fill = x => Array.isArray(x) ? x : Array.from({ length: n }, () => x);
+    const s = { time: wrap(Array.from({ length: n }, (_, i) => i)) };
+    if (vel != null) s.velocity_smooth = wrap(fill(vel));
+    if (hr  != null) s.heartrate       = wrap(fill(hr));
+    if (cad != null) s.cadence          = wrap(fill(cad));
+    if (moving != null) s.moving        = wrap(moving);
+    return s;
+  };
+  const N = 1200;   // 20 min ≥ the 600 s / 20-sample floor
+  const half = (a, b) => [...Array(N / 2).fill(a), ...Array(N / 2).fill(b)];
+  let r;
+  r = analyzeAerobicMetrics(mk(N, { vel: 3.0, hr: 150 }));
+  check('constant → HR-drift ≈ 0', r.hasDecoupling && Math.abs(r.decouplingPercent) < 0.01, 'd=' + r.decouplingPercent);
+  r = analyzeAerobicMetrics(mk(N, { vel: 3.0, hr: half(150, 165) }));
+  check('HR rises 2nd half → +drift', r.hasDecoupling && r.decouplingPercent > 8 && r.decouplingPercent < 11, 'd=' + r.decouplingPercent);
+  r = analyzeAerobicMetrics(mk(N, { vel: half(3.0, 2.7), hr: 150 }));
+  check('speed fades 2nd half → +drift', r.hasDecoupling && r.decouplingPercent > 9 && r.decouplingPercent < 11, 'd=' + r.decouplingPercent);
+  r = analyzeAerobicMetrics(mk(N, { vel: 3.0, hr: half(160, 150) }));
+  check('HR drops 2nd half → −drift', r.hasDecoupling && r.decouplingPercent < 0, 'd=' + r.decouplingPercent);
+  r = analyzeAerobicMetrics(mk(N, { cad: 90 }));
+  check('cadence per-leg → ×2 (180)', r.hasCadence && r.avgCadenceSpm === 180, 'c=' + r.avgCadenceSpm);
+  r = analyzeAerobicMetrics(mk(N, { cad: 176 }));
+  check('cadence already spm unchanged', r.hasCadence && r.avgCadenceSpm === 176, 'c=' + r.avgCadenceSpm);
+  r = analyzeAerobicMetrics(mk(N, { vel: 3.0, cad: 90 }));
+  check('missing HR → no drift, cadence ok', !r.hasDecoupling && r.hasCadence);
+  r = analyzeAerobicMetrics(mk(N, { vel: 3.0, hr: 150 }));
+  check('missing cadence → no cadence, drift ok', !r.hasCadence && r.hasDecoupling);
+  r = analyzeAerobicMetrics(mk(300, { vel: 3.0, hr: 150 }));
+  check('too short → no drift + warning', !r.hasDecoupling && r.warnings.some(w => /kort/.test(w)));
+  r = analyzeAerobicMetrics(mk(N, { vel: 3.0, hr: [...Array(10).fill(0), ...Array(N - 10).fill(150)] }));
+  check('zero-HR samples skipped', r.hasDecoupling);
+  r = analyzeAerobicMetrics({ heartrate: wrap([150, 150]) });
+  check('no time → insufficientData', r.insufficientData === true);
+  r = analyzeAerobicMetrics(mk(N, { cad: half(0, 176) }));
+  check('cadence zeros excluded', r.hasCadence && r.avgCadenceSpm === 176, 'c=' + r.avgCadenceSpm);
+  const failed = results.filter(x => !x.pass);
+  console.group(`%c_testAerobicMetrics: ${results.length - failed.length}/${results.length} passed`, `color:${failed.length ? '#e05555' : '#4caf87'};font-weight:700`);
   results.forEach(x => console.log(`${x.pass ? '✓' : '✗'} ${x.name}${x.detail ? '  — ' + x.detail : ''}`));
   console.groupEnd();
   return failed.length === 0;
@@ -5814,31 +5954,43 @@ const DetailPanel = {
       ['Notater',        s.notater || null],
     ].filter(([,v]) => v);
     const table = rows.map(([l,v,raw]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${raw ? v : escapeHtml(v)}</span></div>`).join('');
-    this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : '') + this.continuitySectionHtml(s));
+    this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : '') + this.stravaAnalysisSectionHtml(s));
   },
 
-  // Løpekontinuitet (POC) — estimated run/walk breakdown from Strava streams. Only for an
-  // explicitly-outdoor Strava-linked session while signed in; treadmill / manual / no-stravaId
-  // / unknown-venue render nothing. Shows a stacked run/walk/uklart bar + three stat tiles
-  // (lengste løp · overganger · datakvalitet) when analysed, uphill separately as experimental,
-  // otherwise the analyse button. Stored result is "current" only if it matches the algorithm +
-  // threshold versions AND the user's current speed thresholds. All numbers are estimates.
-  continuitySectionHtml(s) {
+  // Strava-analyse section — appended in openSession for any Strava-linked run while signed in.
+  // Two independent blocks from ONE analysis: Run/walk ratio (outdoor only) + HR-drift & kadens
+  // (all venues). A single shared "Analyser" / "Analyser på nytt" button drives both. Treadmill /
+  // manual / no-stravaId / signed-out render nothing. All numbers are estimates.
+  stravaAnalysisSectionHtml(s) {
+    if (!Continuity._analyzable(s)) return '';
+    const cont = this._continuityBlockHtml(s);   // run/walk block (outdoor + current) or ''
+    const aero = this._aerobicBlockHtml(s);       // HR-drift + cadence block (current) or ''
+    const msg = `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>`;
+    if (!(cont || aero)) {
+      // Nothing current yet — first-time prompt (or everything went stale after a version/threshold bump).
+      const had = s.stravaAnalysis && (s.stravaAnalysis.continuity || s.stravaAnalysis.aerobic);
+      const label = '<div class="dp-section-label">Strava-analyse <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
+      const stale = had ? ' <span style="color:var(--muted)">· utdatert, kjør på nytt</span>' : '';
+      return `${label}<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Estimer løping vs. gange (utendørs) + HR-drift &amp; kadens fra Strava-data (eksperimentelt).${stale}</div>`
+        + `<button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}')">🔬 Analyser Strava-data</button>${msg}`;
+    }
+    const staleNote = Continuity._needsAnalysis(s) ? ` <span style="color:var(--muted);font-size:11px">· noen mål er utdatert</span>` : '';
+    return cont + aero
+      + `<div style="margin-top:10px"><button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}', {force:true})">↻ Analyser på nytt</button>${msg}${staleNote}</div>`;
+  },
+
+  // Run/walk block (no button — the parent owns it). '' unless outdoor + signed-in + a current result;
+  // a stale/missing result returns '' so the parent shows the prompt/re-run instead.
+  _continuityBlockHtml(s) {
     if (!Continuity._eligible(s)) return '';
     const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
     const thr = Continuity.thresholds();
-    const current = Continuity._isCurrent(c, thr);
-    const label = '<div class="dp-section-label">Run/walk ratio <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
-    if (!current) {
-      const stale = c ? ' <span style="color:var(--muted)">· grensene er endret, kjør på nytt</span>' : '';
-      return `${label}<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Estimer løping vs. gange fra Strava-data (eksperimentelt).${stale}</div>`
-        + `<button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}')">🔬 Analyser løp vs. gange</button>`
-        + `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>`;
-    }
+    if (!Continuity._isCurrent(c, thr)) return '';
     const pct = x => Math.round((x || 0) * 100);
     const w = x => (Math.max(0, Math.min(1, x || 0)) * 100).toFixed(2);
     const GREY = '#565c7a';
     const kvalColor = { 'høy': 'var(--green)', 'middels': 'var(--yellow)', 'lav': 'var(--danger)' }[c.datakvalitet] || 'var(--muted)';
+    const label = '<div class="dp-section-label">Run/walk ratio <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
     // Stacked proportion bar — widths use the raw ratios (sum to 1) so it always fills exactly.
     const bar = `<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:4px 0 8px;background:var(--surface2)">`
       + `<div style="width:${w(c.runningRatio)}%;background:var(--green)"></div>`
@@ -5860,15 +6012,34 @@ const DetailPanel = {
     const warn = (c.warnings && c.warnings.length)
       ? `<div style="font-size:11px;color:var(--yellow);margin-top:6px">⚠︎ ${c.warnings.map(escapeHtml).join(' · ')}</div>` : '';
     // Collapsed by default — the raw thresholds read heavy inline, so tuck the "how" behind a
-    // subtle ⓘ affordance (native <details>, no JS). Expanding shows the current grenser + the
-    // honest "it's a trend" caveat + where to change them.
+    // subtle ⓘ affordance (native <details>, no JS). Expanding shows the current grenser + caveat.
     const hint = `<details style="margin-top:10px">`
       + `<summary style="font-size:10px;color:var(--muted);cursor:pointer;list-style:none;user-select:none">ⓘ Hvordan beregnes dette?</summary>`
       + `<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">Estimert fra Strava sin fart sekund for sekund: under ${thr.definiteWalkMaxKmh} km/t = gange, over ${thr.definiteRunMinKmh} km/t = løping, imellom = uklart. Gange og rolig jogg overlapper ofte, så tallene er en trend, ikke fasit. Juster grensene i Innstillinger.</div>`
       + `</details>`;
-    return `${label}${bar}${legend}${tilesHtml}${uphill}${warn}${hint}`
-      + `<div style="margin-top:10px"><button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}', {force:true})">↻ Analyser på nytt</button>`
-      + `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span></div>`;
+    return `${label}${bar}${legend}${tilesHtml}${uphill}${warn}${hint}`;
+  },
+
+  // HR-drift & kadens block (no button). Shows for ANY current aerobic result that has HR or cadence
+  // (indoor + outdoor). Lower/negative HR-drift = more aerobically durable (green ≤ 5%; higher stays
+  // neutral, since a hard effort legitimately drifts more). Cadence in steps/min.
+  _aerobicBlockHtml(s) {
+    const a = s.stravaAnalysis && s.stravaAnalysis.aerobic;
+    if (!Continuity._isAerobicCurrent(a)) return '';
+    if (!a.hasDecoupling && !a.hasCadence) return '';
+    const label = '<div class="dp-section-label">HR-drift &amp; kadens <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
+    const tiles = [];
+    if (a.hasDecoupling) {
+      const d = a.decouplingPercent;
+      const col = d <= 5 ? 'var(--green)' : 'var(--muted)';
+      tiles.push({ v: `<span style="color:${col}">${d > 0 ? '+' : ''}${d.toFixed(1)}%</span>`, l: 'HR-drift · 1. vs 2. halvdel' });
+    }
+    if (a.hasCadence) {
+      tiles.push({ v: `${a.avgCadenceSpm}<span style="font-size:11px;color:var(--muted)"> spm</span>`, l: 'kadens · snitt' });
+    }
+    const tilesHtml = `<div class="dp-stat-row">${tiles.map(t => `<div class="dp-stat"><div class="dpv">${t.v}</div><div class="dpl">${t.l}</div></div>`).join('')}</div>`;
+    const caption = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Lavere HR-drift = mer aerobt utholdende (mest meningsfylt på rolige/lange økter). Kadens = steg per minutt.</div>`;
+    return `${label}${tilesHtml}${caption}`;
   },
 
   openShoe(name) {
@@ -7469,7 +7640,7 @@ const Settings = {
     const contBtn = document.getElementById('contSaveBtn');
     if (contBtn) contBtn.addEventListener('click', () => this.saveContinuity());
     const contBackfillBtn = document.getElementById('contBackfillBtn');
-    if (contBackfillBtn) contBackfillBtn.addEventListener('click', () => Continuity.analyzeAllOutdoor());
+    if (contBackfillBtn) contBackfillBtn.addEventListener('click', () => Continuity.analyzeAll());
 
     // Custom økttyper / treningsplan
     document.getElementById('btnAddCustomOkttype').addEventListener('click', () => CustomLists.add('okttype'));
@@ -8157,13 +8328,13 @@ const Settings = {
     const w = document.getElementById('contWalkMax'), r = document.getElementById('contRunMin');
     if (w) w.value = t.definiteWalkMaxKmh;
     if (r) r.value = t.definiteRunMinKmh;
-    // Backfill button reflects how many outdoor runs still need analysing (or the connect/done state).
+    // Backfill button reflects how many Strava runs still need analysing (or the connect/done state).
     const cb = document.getElementById('contBackfillBtn');
     if (cb) {
       const n = Continuity._pendingCount();
-      if (!StravaIO.isSignedIn()) { cb.textContent = 'Analyser alle utendørsøkter'; cb.disabled = true; }
-      else if (!n)               { cb.textContent = 'Alle utendørsøkter er analysert ✓'; cb.disabled = true; }
-      else                       { cb.textContent = `Analyser alle utendørsøkter (${n})`; cb.disabled = false; }
+      if (!StravaIO.isSignedIn()) { cb.textContent = 'Analyser alle Strava-økter'; cb.disabled = true; }
+      else if (!n)               { cb.textContent = 'Alle Strava-økter er analysert ✓'; cb.disabled = true; }
+      else                       { cb.textContent = `Analyser alle Strava-økter (${n})`; cb.disabled = false; }
     }
   },
 
