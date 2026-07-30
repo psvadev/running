@@ -5,13 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Puls</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏃</text></svg>">
-<!-- Pinned version + Subresource Integrity: the browser refuses the file unless it hashes to exactly
-     the bytes verified on 2026-07-30 (confirmed Chart.js v4.4.0 UMD, byte-stable across fetches).
-     Without this, a CDN compromise would run arbitrary JS in this origin — which can read the
-     Strava/Drive tokens in localStorage. If the charts ever stop loading after a CDN-side change,
-     re-compute: curl the URL and sha384/base64 it. -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
-        integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g"
+<!-- Pinned version + Subresource Integrity. Without SRI a CDN compromise would run arbitrary JS in
+     this origin, which can read the Strava/Drive tokens in localStorage.
+     NOTE the path: chart.umd.js, NOT chart.umd.min.js. The npm package contains no *.min.js —
+     jsDelivr GENERATES that file (it prepends a banner to this one) and explicitly warns "Do NOT
+     use SRI with dynamically generated files", because its bytes depend on their build pipeline
+     rather than on the immutable package. This path is served byte-identical to the npm tarball
+     (verified 2026-07-30), so the hash can never drift. It is also 274 bytes SMALLER — the npm
+     file is already minified, and the "min" variant is just this plus jsDelivr's comment. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"
+        integrity="sha384-FcQlsUOd0TJjROrBxhJdUhXTUgNJQxTMcxZe6nHbaEfFL1zjQ+bq/uRoBQxb0KMo"
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   :root {
