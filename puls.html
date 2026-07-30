@@ -779,6 +779,23 @@
       </div>
       <div class="chart-wrap"><canvas id="chartContTrend"></canvas></div>
     </div>
+    <div class="card span2" id="aeroTrendCard">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px;flex-wrap:wrap">
+        <div class="card-title" id="aeroTrendTitle" style="margin-bottom:0">HR-drift &amp; kadens</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="aeroMetricDrift">HR-drift</span>
+          <span class="year-pill" id="aeroMetricCadence">Kadens</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <div id="aeroTrendSubtitle" style="font-size:11px;color:var(--muted)">Aerob decoupling (HR-drift) · siste 26 uker · alle Strava-løp 🏃 · estimert</div>
+        <div style="display:flex;gap:6px">
+          <span class="year-pill active" id="aeroTrendToggleWeek">Uke</span>
+          <span class="year-pill" id="aeroTrendToggleMaaned">Måned</span>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chartAeroTrend"></canvas></div>
+    </div>
     <div class="card span2" id="yearCompCard">
       <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
       <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
@@ -4486,6 +4503,8 @@ let venueGroupBy = 'week';
 let elevGroupBy = 'week';
 let contTrendGroupBy = 'week';    // 'week' | 'month' — Løpekontinuitet-trend grouping
 let contTrendMetric = 'running';  // 'running' (% av bevegelsestid) | 'longest' (km sammenhengende)
+let aeroTrendGroupBy = 'week';    // 'week' | 'month' — HR-drift/kadens-trend grouping
+let aeroTrendMetric = 'drift';    // 'drift' (HR-drift %) | 'cadence' (kadens spm)
 let aeVenueFilter = 'all';
 let aeZ2Filter = 'all';
 let aeTypeFilter = 'both';   // 'both' (Easy+Long) | 'Easy' | 'Long' — rolige-økter type filter
@@ -5882,6 +5901,79 @@ function renderContinuityTrend(sessions) {
   });
 }
 
+// HR-drift & kadens trend — the aerobic metrics (stravaAnalysis.aerobic) over time, so you can
+// watch the trend instead of comparing runs one by one. Two venue-separated lines (Ute/Inne):
+// treadmill runs drift near 0 (steady pace, no hills/heat) while outdoor drifts more, so blending
+// them into one average would make a week look worse just for training outdoors more. Splitting
+// keeps each line honest — and shows whether your indoor vs outdoor cadence actually differ.
+// Covers ALL Strava runs (drift needs ≥10 min moving; cadence is on nearly every run).
+function renderAeroTrend(sessions) {
+  destroyChart('aeroTrend');
+  const el = document.getElementById('chartAeroTrend');
+  if (!el) return;
+
+  const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+  const isDrift = aeroTrendMetric === 'drift';
+  const agg = {};   // periodkey → { ute:{sum,n}, inne:{sum,n} }
+  sessions.forEach(s => {
+    if (!s.dato) return;
+    const a = s.stravaAnalysis && s.stravaAnalysis.aerobic;
+    if (!Continuity._isAerobicCurrent(a)) return;
+    const val = isDrift ? (a.hasDecoupling ? a.decouplingPercent : null)
+                        : (a.hasCadence   ? a.avgCadenceSpm    : null);
+    if (val == null) return;
+    const key = aeroTrendGroupBy === 'week' ? isoWeek(s.dato) : s.dato.slice(0, 7);
+    const venue = s.løpetype === 'treadmill' ? 'inne' : 'ute';
+    const bucket = agg[key] || (agg[key] = { ute: { sum: 0, n: 0 }, inne: { sum: 0, n: 0 } });
+    bucket[venue].sum += val;
+    bucket[venue].n++;
+  });
+
+  const keys = Object.keys(agg).sort().slice(aeroTrendGroupBy === 'week' ? -26 : -12);
+  const fmtKey = k => aeroTrendGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
+  const mean = b => b.n > 0 ? (isDrift ? +(b.sum / b.n).toFixed(1) : Math.round(b.sum / b.n)) : null;
+  const uteData  = keys.map(k => mean(agg[k].ute));
+  const inneData = keys.map(k => mean(agg[k].inne));
+  const hasUte  = uteData.some(v => v != null);
+  const hasInne = inneData.some(v => v != null);
+
+  const title = document.getElementById('aeroTrendTitle');
+  if (title) title.textContent = 'HR-drift & kadens';
+  const subtitle = document.getElementById('aeroTrendSubtitle');
+  if (subtitle) subtitle.textContent = (isDrift ? 'Aerob decoupling (HR-drift)' : 'Kadens (steg/min)') + ' · '
+    + (aeroTrendGroupBy === 'week' ? 'siste 26 uker' : 'siste 12 måneder') + ' · alle Strava-løp 🏃 · estimert';
+
+  if (!keys.length || (!hasUte && !hasInne)) return;
+
+  const mkDataset = (label, data, rgb) => ({
+    label, data,
+    borderColor: `rgba(${rgb},1)`, backgroundColor: `rgba(${rgb},.15)`,
+    fill: false, tension: .3, pointRadius: 3, pointHoverRadius: 5, spanGaps: true
+  });
+  const datasets = [];
+  if (hasUte)  datasets.push(mkDataset('🏃 Utendørs',  uteData,  '75,190,120'));    // green (matches Ute-vs-inne)
+  if (hasInne) datasets.push(mkDataset('⚙️ Tredemølle', inneData, '99,179,237'));    // blue
+
+  Charts.aeroTrend = new Chart(el, {
+    type: 'line',
+    data: { labels: keys.map(fmtKey), datasets },
+    options: {
+      plugins: {
+        legend: { display: hasUte && hasInne, labels: { color: '#c8cce0', boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${isDrift ? (c.parsed.y > 0 ? '+' : '') + c.parsed.y + '%' : c.parsed.y + ' spm'}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
+        y: isDrift
+          ? { grid: { color: ctx => (ctx.tick && ctx.tick.value === 0) ? '#565c7a' : '#2e3248' }, ticks: { color: '#7880a0', callback: v => (v > 0 ? '+' : '') + v + '%' }, title: { display: true, text: 'HR-drift', color: '#7880a0' } }
+          : { grid: { color: '#2e3248' }, ticks: { color: '#7880a0', callback: v => v + ' spm' }, title: { display: true, text: 'kadens (spm)', color: '#7880a0' } }
+      },
+      responsive: true, maintainAspectRatio: false,
+      onClick: (evt, elements) => { if (elements.length && aeroTrendGroupBy === 'week') DetailPanel.openWeek(keys[elements[0].index], Store.data.sessions); }
+    }
+  });
+}
+
 // ═══════════════════════════════════════════════════════
 // DETAIL PANEL
 // ═══════════════════════════════════════════════════════
@@ -6826,6 +6918,14 @@ function renderDashboard() {
   const thrCT = Continuity.thresholds();
   const hasContTrend = sessions.some(s => s.løpetype === 'utendors' && Continuity._isCurrent(s.stravaAnalysis && s.stravaAnalysis.continuity, thrCT));
   document.getElementById('contTrendCard').style.display = hasContTrend ? '' : 'none';
+
+  // HR-drift & kadens trend — shows once any Strava run has a current aerobic analysis (all venues).
+  renderAeroTrend(sessions);
+  const hasAeroTrend = sessions.some(s => {
+    const a = s.stravaAnalysis && s.stravaAnalysis.aerobic;
+    return Continuity._isAerobicCurrent(a) && (a.hasDecoupling || a.hasCadence);
+  });
+  document.getElementById('aeroTrendCard').style.display = hasAeroTrend ? '' : 'none';
 
   // HR Zone stacked bar
   renderZoneChart(sessions);
@@ -8630,6 +8730,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // HR-drift & kadens trend — period (Uke/Måned) and metric (HR-drift / Kadens) toggles
+  [['aeroTrendToggleWeek','week'],['aeroTrendToggleMaaned','month']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      aeroTrendGroupBy = val;
+      document.querySelectorAll('#aeroTrendToggleWeek,#aeroTrendToggleMaaned').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderAeroTrend(DashFilter.get(Store.data.sessions));
+    });
+  });
+  [['aeroMetricDrift','drift'],['aeroMetricCadence','cadence']].forEach(([id, val]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      aeroTrendMetric = val;
+      document.querySelectorAll('#aeroMetricDrift,#aeroMetricCadence').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderAeroTrend(DashFilter.get(Store.data.sessions));
+    });
+  });
+
   // Dashboard filters
   document.getElementById('dfType').addEventListener('change', e => { DashFilter.type = e.target.value; renderDashboard(); });
   document.getElementById('dfPlan').addEventListener('change', e => { DashFilter.plan = e.target.value; renderDashboard(); });
@@ -8678,6 +8796,12 @@ document.addEventListener('DOMContentLoaded', () => {
     contTrendMetric = 'running';
     document.querySelectorAll('#contMetricRun,#contMetricLong').forEach(el => el.classList.remove('active'));
     document.getElementById('contMetricRun').classList.add('active');
+    aeroTrendGroupBy = 'week';
+    document.querySelectorAll('#aeroTrendToggleWeek,#aeroTrendToggleMaaned').forEach(el => el.classList.remove('active'));
+    document.getElementById('aeroTrendToggleWeek').classList.add('active');
+    aeroTrendMetric = 'drift';
+    document.querySelectorAll('#aeroMetricDrift,#aeroMetricCadence').forEach(el => el.classList.remove('active'));
+    document.getElementById('aeroMetricDrift').classList.add('active');
     renderDashboard();
   });
 
