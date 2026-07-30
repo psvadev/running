@@ -788,7 +788,7 @@
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
-        <div id="aeroTrendSubtitle" style="font-size:11px;color:var(--muted)">Aerob decoupling (HR-drift) · siste 26 uker · alle Strava-løp 🏃 · estimert</div>
+        <div id="aeroTrendSubtitle" style="font-size:11px;color:var(--muted)">HR-drift (aerob decoupling) · siste 26 uker · alle Strava-løp 🏃 · estimert</div>
         <div style="display:flex;gap:6px">
           <span class="year-pill active" id="aeroTrendToggleWeek">Uke</span>
           <span class="year-pill" id="aeroTrendToggleMaaned">Måned</span>
@@ -6203,7 +6203,11 @@ function renderAeroTrend(sessions) {
   const title = document.getElementById('aeroTrendTitle');
   if (title) title.textContent = 'HR-drift & kadens';
   const subtitle = document.getElementById('aeroTrendSubtitle');
-  if (subtitle) subtitle.textContent = (isDrift ? 'Aerob decoupling (HR-drift)' : 'Kadens (steg/min)') + ' · '
+  // Leads with "HR-drift" (not "Aerob decoupling") so it doesn't read as a near-duplicate of the
+  // "Aerob effektivitet" card three cards below — different metrics: efficiency is an absolute
+  // level across runs, HR-drift is the within-run first-vs-second-half fade. Matches the wording
+  // the detail-view ⓘ explainer already uses.
+  if (subtitle) subtitle.textContent = (isDrift ? 'HR-drift (aerob decoupling)' : 'Kadens (steg/min)') + ' · '
     + (aeroTrendGroupBy === 'week' ? 'siste 26 uker' : 'siste 12 måneder') + ' · alle Strava-løp 🏃 · estimert';
 
   if (!keys.length || (!hasUte && !hasInne)) return;
