@@ -2236,17 +2236,29 @@ const Store = {
   // to avoid overwriting a real file with an empty dataset after e.g. a corrupt cache.
   loadedFromPersisted: false,
 
+  // Returns true when the payload was accepted. On any rejection the previous data is left
+  // untouched — this used to assign the parse result BEFORE validating, so a file that was
+  // valid JSON but not a Puls dataset was adopted wholesale: an array serialises back as "[]"
+  // and a bare "null" as "null", quietly wiping the real data on the next save.
   load(json) {
+    let parsed;
     try {
-      this.data = JSON.parse(json);
-      if (!this.data.sessions) this.data.sessions = [];
-      if (!this.data.shoes) this.data.shoes = [];
-      this._migrate();
-      this.loadedFromPersisted = true;
-      BackupDB.save(json, this.data.sessions.length);
+      parsed = JSON.parse(json);
     } catch(e) {
       alert('Kunne ikke lese filen. Sjekk at det er en gyldig puls JSON-fil.');
+      return false;
     }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      alert('Filen ser ikke ut som en puls-datafil. Ingenting ble endret.');
+      return false;
+    }
+    this.data = parsed;
+    if (!this.data.sessions) this.data.sessions = [];
+    if (!this.data.shoes) this.data.shoes = [];
+    this._migrate();
+    this.loadedFromPersisted = true;
+    BackupDB.save(json, this.data.sessions.length);
+    return true;
   },
 
   _migrate() {
@@ -3833,6 +3845,10 @@ const StravaBackfill = {
     const btn = document.getElementById('backfillApplyBtn');
     if (btn) btn.disabled = true;
     try {
+      // Snapshot before a bulk mutation, same as the Slett-alle button — this writes stravaId
+      // onto dozens of sessions at once, so a bad match set should be recoverable from
+      // Innstillinger → Lokale sikkerhetskopier.
+      await BackupDB.save(Store.toJSON(), Store.data.sessions.length);
       const byId = {};
       Store.data.sessions.forEach(s => byId[s.id] = s);
       let linked = 0;
@@ -3992,6 +4008,9 @@ const Continuity = {
     const btn = document.getElementById('contBackfillBtn');
     this._backfillRunning = true;
     if (btn) btn.disabled = true;
+    // Snapshot before a bulk mutation (writes stravaAnalysis onto up to BACKFILL_MAX_PER_BATCH
+    // sessions), same as the Slett-alle button.
+    await BackupDB.save(Store.toJSON(), Store.data.sessions.length);
     const total = pending.length;
     let ok = 0, noData = 0, done = 0;
     try {
