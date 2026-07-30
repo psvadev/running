@@ -114,6 +114,8 @@ The ☁ Drive indicator in the top bar turns green when connected. Data is cache
 
 When Drive is active, the local file status and sync indicator are hidden — the Drive indicator is the only status shown. If you manually open a local file via Settings, both reappear alongside Drive sync.
 
+**Sync safety.** If Drive's copy has fewer sessions than this device, or this device has edited more recently, connecting **asks first** rather than overwriting — the same way uploading already asks. When a Drive save fails (offline, expired token), the app remembers that there are unpushed local edits **across reloads**, so the next page load can't quietly replace them with Drive's older copy; you get the conflict prompt instead. A save that fails to reach the file or Drive shows a **red sync indicator that stays put** plus a message — it never reports "Lagret" for a write that didn't happen.
+
 If you open the app on a new device, repeat steps 1–3 once; the same Drive file is used.
 
 **Requirements:**
@@ -157,7 +159,7 @@ Without Drive sync:
 
 Single `.html` file — no build step, no framework, no install.
 
-- [Chart.js 4.4.0](https://www.chartjs.org/) — charts
+- [Chart.js 4.4.0](https://www.chartjs.org/) — charts, loaded from jsDelivr with a pinned version and a **Subresource Integrity** hash, so the browser refuses the file if the CDN ever serves anything else (the hash targets `chart.umd.js`, the real packaged file served byte-identical to the immutable npm tarball — *not* jsDelivr's generated `.min.js`, which they explicitly warn against hashing)
 - File System Access API — local file read/write (Edge/Chrome)
 - IndexedDB — persists the file handle across page reloads so the file re-attaches automatically; also stores automatic daily local backups (last 7 days, one-click restore)
 - Google Drive API (via fetch) + OAuth 2.0 PKCE — optional cross-device sync; refresh token stored in localStorage for silent reconnect
