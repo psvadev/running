@@ -1218,6 +1218,10 @@
         <button class="btn-secondary btn-sm" id="contBackfillBtn">Analyser alle Strava-økter</button>
         <span id="contBackfillMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
       </div>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px" id="backfillOldSection">
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Har du økter fra før Strava-ID-feltet fantes? Finn og koble dem til Strava-aktiviteten — matches på dato + distanse/varighet, og du godkjenner hvert treff før noe kobles. Da får de gamle øktene også run/walk + HR-drift &amp; kadens. Éngangsjobb.</p>
+        <button class="btn-secondary btn-sm" id="backfillOldBtn">🔗 Koble gamle økter til Strava</button>
+      </div>
     </div>
   </div>
 
@@ -1246,6 +1250,19 @@
       <button class="btn-secondary btn-sm" id="btnStravaModalClose">✕</button>
     </div>
     <div class="modal-body" id="stravaActivityList" style="padding-top:14px"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="backfillModal">
+  <div class="modal" style="max-width:640px">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <h2 style="font-size:15px;font-weight:600">Koble gamle økter til Strava</h2>
+      <button class="btn-secondary btn-sm" id="btnBackfillClose">✕</button>
+    </div>
+    <div class="modal-body" id="backfillBody" style="padding-top:14px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:12px;border-top:1px solid var(--border)">
+      <button class="btn-secondary btn-sm" id="backfillApplyBtn" style="display:none">Godkjenn og koble</button>
+    </div>
   </div>
 </div>
 
@@ -3547,6 +3564,252 @@ function analyzeAerobicMetrics(streams, options = {}) {
 
   return { version: AEROBIC_ANALYSIS_VERSION, hasDecoupling, decouplingPercent, hasCadence, avgCadenceRaw, avgCadenceSpm, movingTimeSeconds, warnings, insufficientData: false };
 }
+
+// Read a session's duration in seconds. Stored as numeric seconds today (Form.save → hmsToSecs),
+// but legacy rows may hold a "H:MM:SS" string — handle both, like the run/walk reference check.
+function sessionDurationSeconds(s) {
+  const v = s && s.varighet;
+  if (typeof v === 'number') return v > 0 ? v : null;
+  if (typeof v === 'string' && v.trim()) { const p = hmsToSecs(v); return p > 0 ? p : null; }
+  return null;
+}
+
+// Match logged sessions to Strava activities for the one-time "link old runs" backfill (sessions
+// logged before the stravaId field existed). PURE — no fetch/DOM. A session matches an activity only
+// when they share the same local date AND venue (treadmill↔trainer) AND distance OR duration is within
+// tolerance — and only when exactly ONE such candidate exists. Zero/multiple candidates, or an activity
+// two sessions both claim (a duplicate log), are left UNMATCHED, never guessed — because a wrong link
+// silently attaches another run's streams. Duration (moving OR elapsed) is the fallback for intervals,
+// whose logged distance often counts only the work reps, not the recovery jog Strava's GPS still records.
+// Ported + tested in match_port.py (17/17) and window._testSessionMatching() below.
+function matchSessionsToActivities(sessions, activities, opt = {}) {
+  const distTolKm = opt.distTolKm ?? 0.15, distTolPct = opt.distTolPct ?? 0.025;
+  const durTolSec = opt.durTolSec ?? 120, durTolPct = opt.durTolPct ?? 0.05;
+
+  const byDate = {};   // local date → normalized runs (Run only; a Ride same day must never match)
+  for (const a of activities) {
+    const st = a.type || a.sport_type || '';
+    if (st !== 'Run') continue;
+    const date = (a.start_date_local || '').slice(0, 10);
+    if (!date) continue;
+    (byDate[date] || (byDate[date] = [])).push({
+      id: a.id, distKm: (a.distance || 0) / 1000, movSec: a.moving_time || 0,
+      elaSec: a.elapsed_time || 0, isTreadmill: !!a.trainer, name: a.name || ''
+    });
+  }
+
+  const matches = [], unmatched = [];
+  for (const s of sessions) {
+    if (s.stravaId) continue;                              // already linked — leave it
+    const date = s.dato || '';
+    const sDist = s.distanse || 0;
+    const sDur = sessionDurationSeconds(s);
+    const sTreadmill = (s.løpetype || 'utendors') === 'treadmill';
+    const cands = (byDate[date] || []).filter(c => c.isTreadmill === sTreadmill);
+    const confirming = [];
+    for (const c of cands) {
+      const distMatch = sDist > 0 && Math.abs(sDist - c.distKm) <= Math.max(distTolKm, sDist * distTolPct);
+      const durMatch = sDur != null && sDur > 0 && (
+        Math.abs(sDur - c.movSec) <= Math.max(durTolSec, sDur * durTolPct) ||
+        Math.abs(sDur - c.elaSec) <= Math.max(durTolSec, sDur * durTolPct)
+      );
+      if (distMatch || durMatch) confirming.push({ c, distMatch, durMatch });
+    }
+    if (confirming.length === 1) {
+      const { c, distMatch, durMatch } = confirming[0];
+      const confidence = (distMatch && durMatch) ? 'both' : (distMatch ? 'dist' : 'dur');
+      matches.push({ sessionId: s.id, activityId: c.id, confidence, activityName: c.name,
+                     activityDistKm: c.distKm, activityMovSec: c.movSec });
+    } else if (confirming.length === 0 && cands.length === 1) {
+      // Exactly one run that day but neither distance nor duration confirms — a hand-entered distance
+      // or a warmup/main/cooldown split. With ~1 run/day this is the common backfill case, so propose
+      // on date alone as the lowest tier (left unchecked + flagged so the user eyeballs the mismatch).
+      const c = cands[0];
+      matches.push({ sessionId: s.id, activityId: c.id, confidence: 'date', activityName: c.name,
+                     activityDistKm: c.distKm, activityMovSec: c.movSec });
+    } else {
+      // 0 candidates → nothing that day; >1 none confirming → a split, don't guess.
+      unmatched.push({ sessionId: s.id, reason: cands.length ? 'ambiguous' : 'none' });
+    }
+  }
+
+  // Collision guard: one activity must not link to two sessions — demote every side of a collision.
+  const counts = {};
+  matches.forEach(m => { counts[m.activityId] = (counts[m.activityId] || 0) + 1; });
+  const kept = [];
+  for (const m of matches) {
+    if (counts[m.activityId] > 1) unmatched.push({ sessionId: m.sessionId, reason: 'ambiguous' });
+    else kept.push(m);
+  }
+  return { matches: kept, unmatched };
+}
+
+// In-browser parity harness for matchSessionsToActivities (mirrors match_port.py). Run in the console.
+window._testSessionMatching = function () {
+  let pass = 0, fail = 0;
+  const chk = (n, c) => c ? pass++ : (fail++, console.warn('FAIL:', n));
+  const A = (id, date, distKm, mov, ela, trainer, type) => ({ id, start_date_local: date + 'T10:00:00Z',
+    distance: distKm * 1000, moving_time: mov, elapsed_time: ela == null ? mov : ela, trainer: !!trainer, type: type || 'Run' });
+  const S = (id, date, dist, varighet, venue, stravaId) => ({ id, dato: date, distanse: dist, varighet, løpetype: venue || 'utendors', ...(stravaId ? { stravaId } : {}) });
+  const D = '2026-07-08';
+  let r;
+  r = matchSessionsToActivities([S('s1', D, 8.70, 2568)], [A('a1', D, 8.70, 2568)]);
+  chk('steady exact → both', r.matches.length === 1 && r.matches[0].confidence === 'both');
+  r = matchSessionsToActivities([S('s1', D, 5.58, 2568)], [A('a1', D, 7.20, 2568)]);
+  chk('interval dist-off dur-ok → dur', r.matches.length === 1 && r.matches[0].confidence === 'dur');
+  r = matchSessionsToActivities([S('s1', D, 5.0, 1800), S('s2', D, 10.0, 3600)], [A('a1', D, 5.0, 1800), A('a2', D, 10.0, 3600)]);
+  chk('same-day different dist → correct pair', r.matches.length === 2 && r.matches.find(m => m.sessionId === 's1').activityId === 'a1');
+  r = matchSessionsToActivities([S('s1', D, 5.0, 1800)], [A('a1', D, 5.0, 1800), A('a2', D, 5.0, 1800)]);
+  chk('identical twins → ambiguous', r.matches.length === 0 && r.unmatched[0].reason === 'ambiguous');
+  r = matchSessionsToActivities([S('s1', D, 5.0, 1800, null, 'X')], [A('a1', D, 5.0, 1800)]);
+  chk('already-linked skipped', r.matches.length === 0 && r.unmatched.length === 0);
+  r = matchSessionsToActivities([S('s1', D, 5.0, 1800, 'treadmill')], [A('a1', D, 5.0, 1800, null, false)]);
+  chk('venue mismatch → none', r.matches.length === 0 && r.unmatched[0].reason === 'none');
+  r = matchSessionsToActivities([S('s1', D, 5.0, 1800, 'treadmill')], [A('a1', D, 5.0, 1800, null, true)]);
+  chk('treadmill ↔ trainer → match', r.matches.length === 1);
+  r = matchSessionsToActivities([S('s1', D, 5.0, 1800), S('s2', D, 5.0, 1800)], [A('a1', D, 5.0, 1800)]);
+  chk('collision → both unmatched', r.matches.length === 0 && r.unmatched.length === 2);
+  r = matchSessionsToActivities([S('s1', D, 99, 3600)], [A('a1', D, 5.0, 2400, 3600)]);
+  chk('dur via elapsed → dur', r.matches.length === 1 && r.matches[0].confidence === 'dur');
+  r = matchSessionsToActivities([S('s1', D, 99, '0:42:48')], [A('a1', D, 5.0, 2568)]);
+  chk('legacy H:MM:SS varighet → dur', r.matches.length === 1 && r.matches[0].confidence === 'dur');
+  r = matchSessionsToActivities([S('s1', D, 20.0, 3600)], [A('a1', D, 20.0, 3600, null, false, 'Ride')]);
+  chk('Ride excluded → none', r.matches.length === 0 && r.unmatched[0].reason === 'none');
+  r = matchSessionsToActivities([S('s1', D, 5.0, 1000)], [A('a1', D, 5.30, 5000)]);
+  chk('dist just outside → not dist-confirmed', r.matches.length === 1 && r.matches[0].confidence === 'date');
+  r = matchSessionsToActivities([S('s1', D, 7.0, 2400)], [A('a1', D, 5.0, 1500)]);
+  chk('sole run, numbers off → date', r.matches.length === 1 && r.matches[0].confidence === 'date');
+  r = matchSessionsToActivities([S('s1', D, 7.0, 2400)], [A('a1', D, 1.0, 300), A('a2', D, 5.0, 1500), A('a3', D, 1.0, 300)]);
+  chk('split into 3 runs → ambiguous', r.matches.length === 0 && r.unmatched[0].reason === 'ambiguous');
+  r = matchSessionsToActivities([S('s1', D, 5.0, 1500)], [A('a1', D, 5.0, 1500), A('a2', D, 1.0, 300)]);
+  chk('split, main confirms → both', r.matches.length === 1 && r.matches[0].confidence === 'both');
+  r = matchSessionsToActivities([S('s1', D, 7.0, 2400)], [A('a1', D, 5.0, 1500), A('a2', D, 4.0, 1200)]);
+  chk('two runs none confirm → ambiguous', r.matches.length === 0 && r.unmatched[0].reason === 'ambiguous');
+  r = matchSessionsToActivities([S('s1', D, 7.0, 2400), S('s2', D, 8.0, 2600)], [A('a1', D, 5.0, 1500)]);
+  chk('date-only collision → both unmatched', r.matches.length === 0 && r.unmatched.length === 2);
+  console.log(`_testSessionMatching: ${pass}/${pass + fail} passed`);
+  return fail === 0;
+};
+
+// ─── Strava backfill: link old sessions (logged before the stravaId field) to their activity ───
+// One-time job in Innstillinger. Pages Strava history (bounded by the oldest un-linked date),
+// proposes unique date+venue+dist/dur matches, and links only what the user approves in a review
+// list — because a wrong link silently attaches another run's streams. Linked sessions then get
+// their metrics via the existing Continuity.analyzeAll() (they become _needsAnalysis).
+const StravaBackfill = {
+  proposed: [],
+  unmatchedCount: 0,
+  MAX_PAGES: 25,   // safety cap (~5000 activities) in case the date-bound never trips
+
+  _show()  { document.getElementById('backfillModal').classList.add('open'); },
+  close()  { document.getElementById('backfillModal').classList.remove('open'); },
+  _error(msg) {
+    document.getElementById('backfillBody').innerHTML = `<p style="color:#e74c3c">${escapeHtml(msg)}</p>`;
+    document.getElementById('backfillApplyBtn').style.display = 'none';
+  },
+
+  async open() {
+    if (!StravaIO.isSignedIn()) { showToast('Logg inn på Strava først (Innstillinger)', 'error'); return; }
+    const unlinked = Store.data.sessions.filter(s => !s.stravaId);
+    if (!unlinked.length) { showToast('Alle økter er allerede koblet til Strava', 'success'); return; }
+
+    this._show();
+    document.getElementById('backfillBody').innerHTML = '<p style="color:var(--muted)">Henter Strava-historikk…</p>';
+    document.getElementById('backfillApplyBtn').style.display = 'none';
+
+    // The oldest un-linked session bounds the paging — no older activity can match anything.
+    const oldest = unlinked.reduce((m, s) => (s.dato && s.dato < m ? s.dato : m), '9999-99-99');
+    let activities = [];
+    try {
+      let before, pages = 0;
+      while (pages < this.MAX_PAGES) {
+        const page = await StravaIO.fetchActivitiesPage({ before, perPage: 200 });
+        pages++;
+        if (page && page.error === 429) { this._error('Nådd Strava-grense — prøv igjen om ~15 min.'); return; }
+        if (!page) { this._error('Kunne ikke hente aktiviteter fra Strava.'); return; }
+        if (!page.length) break;
+        activities = activities.concat(page);
+        const oldestInPage = page[page.length - 1];                       // list is newest → oldest
+        before = Math.floor(new Date(oldestInPage.start_date).getTime() / 1000);   // next (older) page
+        if (!Number.isFinite(before)) break;                              // bad/missing start_date — stop, don't loop
+        const oldestDate = (oldestInPage.start_date_local || '').slice(0, 10);
+        if (oldestDate && oldestDate < oldest) break;                     // paged back past the oldest un-linked run
+        if (page.length < 200) break;                                     // last page
+      }
+    } catch (e) { this._error('Noe gikk galt: ' + (e.message || 'ukjent feil')); return; }
+
+    // Dedupe by id (a boundary activity can repeat across page cursors) before matching.
+    const seen = new Set();
+    activities = activities.filter(a => a && a.id != null && !seen.has(a.id) && seen.add(a.id));
+
+    const { matches, unmatched } = matchSessionsToActivities(unlinked, activities);
+    this.proposed = matches;
+    this.unmatchedCount = unmatched.length;
+    this._render(unlinked.length);
+  },
+
+  _render(unlinkedTotal) {
+    const body = document.getElementById('backfillBody');
+    const applyBtn = document.getElementById('backfillApplyBtn');
+    if (!this.proposed.length) {
+      body.innerHTML = `<p style="color:var(--muted)">Fant ingen sikre treff blant ${unlinkedTotal} ukoblede økter. ` +
+        `Match krever samme dato + underlag og at distanse eller varighet stemmer — de som ikke traff er utelatt.</p>`;
+      applyBtn.style.display = 'none';
+      return;
+    }
+    const byId = {};
+    Store.data.sessions.forEach(s => byId[s.id] = s);
+    const tagOf = c => c === 'both' ? '<span style="color:var(--green)">dist+tid ✓✓</span>'
+                     : c === 'dist' ? '<span style="color:var(--yellow)">kun dist</span>'
+                     : c === 'dur'  ? '<span style="color:var(--yellow)">kun tid</span>'
+                                    : '<span style="color:var(--muted)">kun dato</span>';
+    const rows = this.proposed.map((m, i) => {
+      const s = byId[m.sessionId];
+      // Pre-check only the high-confidence both-agree matches; single-signal ones (the interval case)
+      // stay unchecked so linking them is a deliberate opt-in (there's no un-link once approved).
+      const checked = m.confidence === 'both' ? 'checked' : '';
+      return `<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
+        <input type="checkbox" data-i="${i}" ${checked} style="margin-top:3px">
+        <div style="flex:1;font-size:12px;min-width:0">
+          <div><b>${fmtDate(s.dato)}</b> · ${escapeHtml(s.oktnavn || s.okttype || '–')} · ${(s.distanse||0).toFixed(2)} km · ${secsToHms(sessionDurationSeconds(s) || 0)}</div>
+          <div style="color:var(--muted)">↔ ${escapeHtml(m.activityName || 'Strava-økt')} · ${m.activityDistKm.toFixed(2)} km · ${secsToHms(m.activityMovSec)} · ${tagOf(m.confidence)}</div>
+        </div>
+      </label>`;
+    }).join('');
+    const bothN = this.proposed.filter(m => m.confidence === 'both').length;
+    const rest = this.proposed.length - bothN;
+    body.innerHTML =
+      `<p style="font-size:12px;color:var(--muted);margin-bottom:10px">${this.proposed.length} forslag` +
+      (rest ? ` · ${bothN} sikre ✓✓ (forhåndsvalgt), ${rest} å se over (huk av det som stemmer)` : ` · alle sikre ✓✓`) +
+      (this.unmatchedCount ? ` · ${this.unmatchedCount} uten sikkert treff er utelatt` : '') + `.</p>` + rows;
+    applyBtn.style.display = '';
+    body.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', () => this._updateApplyLabel()));
+    this._updateApplyLabel();
+  },
+
+  _updateApplyLabel() {
+    const n = document.querySelectorAll('#backfillBody input[type=checkbox]:checked').length;
+    const btn = document.getElementById('backfillApplyBtn');
+    btn.textContent = `Godkjenn og koble (${n})`;
+    btn.disabled = n === 0;
+  },
+
+  async apply() {
+    const chosen = [...document.querySelectorAll('#backfillBody input[type=checkbox]:checked')]
+      .map(cb => this.proposed[+cb.dataset.i]).filter(Boolean);
+    if (!chosen.length) return;
+    const byId = {};
+    Store.data.sessions.forEach(s => byId[s.id] = s);
+    let linked = 0;
+    chosen.forEach(m => { const s = byId[m.sessionId]; if (s && !s.stravaId) { s.stravaId = String(m.activityId); linked++; } });
+    await FileIO.save();
+    this.close();
+    showToast(`Koblet ${linked} økter til Strava — henter pulsdata…`, 'success');
+    refreshAll();
+    if (typeof Settings !== 'undefined' && Settings.loadContinuityFields) Settings.loadContinuityFields();
+    Continuity.analyzeAll();   // newly-linked runs are now _needsAnalysis → metrics + trends fill in
+  },
+};
 
 // Session-level orchestration: fetch → analyze → persist a COMPACT summary (segments stripped)
 // on the session → save → re-render. Re-fetch is skipped when a stored result already matches
@@ -7757,6 +8020,12 @@ const Settings = {
     if (contBtn) contBtn.addEventListener('click', () => this.saveContinuity());
     const contBackfillBtn = document.getElementById('contBackfillBtn');
     if (contBackfillBtn) contBackfillBtn.addEventListener('click', () => Continuity.analyzeAll());
+    const backfillOldBtn = document.getElementById('backfillOldBtn');
+    if (backfillOldBtn) backfillOldBtn.addEventListener('click', () => StravaBackfill.open());
+    const btnBackfillClose = document.getElementById('btnBackfillClose');
+    if (btnBackfillClose) btnBackfillClose.addEventListener('click', () => StravaBackfill.close());
+    const backfillApplyBtn = document.getElementById('backfillApplyBtn');
+    if (backfillApplyBtn) backfillApplyBtn.addEventListener('click', () => StravaBackfill.apply());
 
     // Custom økttyper / treningsplan
     document.getElementById('btnAddCustomOkttype').addEventListener('click', () => CustomLists.add('okttype'));
@@ -8452,6 +8721,10 @@ const Settings = {
       else if (!n)               { cb.textContent = 'Alle Strava-økter er analysert ✓'; cb.disabled = true; }
       else                       { cb.textContent = `Analyser alle Strava-økter (${n})`; cb.disabled = false; }
     }
+    // The one-time "link old sessions" job only shows while signed in AND some session lacks a stravaId.
+    const bfSection = document.getElementById('backfillOldSection');
+    if (bfSection) bfSection.style.display =
+      (StravaIO.isSignedIn() && Store.data.sessions.some(s => !s.stravaId)) ? '' : 'none';
   },
 
   saveContinuity() {
