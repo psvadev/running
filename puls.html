@@ -5,7 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Puls</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏃</text></svg>">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- Pinned version + Subresource Integrity: the browser refuses the file unless it hashes to exactly
+     the bytes verified on 2026-07-30 (confirmed Chart.js v4.4.0 UMD, byte-stable across fetches).
+     Without this, a CDN compromise would run arbitrary JS in this origin — which can read the
+     Strava/Drive tokens in localStorage. If the charts ever stop loading after a CDN-side change,
+     re-compute: curl the URL and sha384/base64 it. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+        integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -668,7 +675,7 @@
     <div class="card span2" id="rhythmCard">
       <div class="card-title">Treningsrytme — siste 12 uker</div>
       <div id="consistencyContent" style="margin-top:12px"></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:16px">Aktive uker per måned · siste 12 måneder</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:16px">Aktive uker per måned · siste 12 måneder med data</div>
       <div class="chart-wrap" style="height:110px;margin-top:4px"><canvas id="chartConsistency"></canvas></div>
     </div>
     <div class="card span2" id="blocksCard" style="display:none"></div>
@@ -749,7 +756,7 @@
           <span class="year-pill" id="venueToggleMaaned">Måned</span>
         </div>
       </div>
-      <div id="venueSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 26 uker. 🏃 Utendørs · ⚙️ Tredemølle</div>
+      <div id="venueSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 26 uker med data. 🏃 Utendørs · ⚙️ Tredemølle</div>
       <div class="chart-wrap"><canvas id="chartVenue"></canvas></div>
     </div>
     <div class="card span2" id="elevCard">
@@ -760,7 +767,7 @@
           <span class="year-pill" id="elevToggleMaaned">Måned</span>
         </div>
       </div>
-      <div id="elevSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 26 uker · kun utendørsløp 🏃</div>
+      <div id="elevSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 26 uker med data · kun utendørsløp 🏃</div>
       <div class="chart-wrap"><canvas id="chartElev"></canvas></div>
     </div>
     <div class="card span2" id="contTrendCard">
@@ -772,7 +779,7 @@
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
-        <div id="contTrendSubtitle" style="font-size:11px;color:var(--muted)">Andel løping · siste 26 uker · kun utendørsløp med Strava-data 🏃 · estimert</div>
+        <div id="contTrendSubtitle" style="font-size:11px;color:var(--muted)">Andel løping · siste 26 uker med data · kun utendørsløp med Strava-data 🏃 · estimert</div>
         <div style="display:flex;gap:6px">
           <span class="year-pill active" id="contTrendToggleWeek">Uke</span>
           <span class="year-pill" id="contTrendToggleMaaned">Måned</span>
@@ -789,7 +796,7 @@
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
-        <div id="aeroTrendSubtitle" style="font-size:11px;color:var(--muted)">HR-drift (aerob decoupling) · siste 26 uker · alle Strava-løp 🏃 · estimert</div>
+        <div id="aeroTrendSubtitle" style="font-size:11px;color:var(--muted)">HR-drift (aerob decoupling) · siste 26 uker med data · alle Strava-løp 🏃 · estimert</div>
         <div style="display:flex;gap:6px">
           <span class="year-pill active" id="aeroTrendToggleWeek">Uke</span>
           <span class="year-pill" id="aeroTrendToggleMaaned">Måned</span>
@@ -6168,8 +6175,8 @@ function renderVenueChart(sessions) {
   const fmtKey = k => venueGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
   const subtitle = document.getElementById('venueSubtitle');
   if (subtitle) subtitle.textContent = venueGroupBy === 'week'
-    ? 'Siste 26 uker. 🏃 Utendørs · ⚙️ Tredemølle'
-    : 'Siste 12 måneder. 🏃 Utendørs · ⚙️ Tredemølle';
+    ? 'Siste 26 uker med data. 🏃 Utendørs · ⚙️ Tredemølle'
+    : 'Siste 12 måneder med data. 🏃 Utendørs · ⚙️ Tredemølle';
 
   if (!keys.length) return;
 
@@ -6215,7 +6222,7 @@ function renderElevChart(sessions) {
   const title = document.getElementById('elevTitle');
   if (title) title.textContent = elevGroupBy === 'week' ? 'Høydemeter per uke' : 'Høydemeter per måned';
   const subtitle = document.getElementById('elevSubtitle');
-  if (subtitle) subtitle.textContent = (elevGroupBy === 'week' ? 'Siste 26 uker' : 'Siste 12 måneder') + ' · kun utendørsløp 🏃';
+  if (subtitle) subtitle.textContent = (elevGroupBy === 'week' ? 'Siste 26 uker med data' : 'Siste 12 måneder med data') + ' · kun utendørsløp 🏃';
 
   showChartEmpty('chartElev', !keys.length, 'Ingen høydemeter registrert i perioden');
   if (!keys.length) return;
@@ -6278,7 +6285,7 @@ function renderContinuityTrend(sessions) {
   if (title) title.textContent = 'Run/walk ratio';
   const subtitle = document.getElementById('contTrendSubtitle');
   if (subtitle) subtitle.textContent = (isRunning ? 'Andel løping' : 'Lengste sammenhengende løp') + ' · '
-    + (contTrendGroupBy === 'week' ? 'siste 26 uker' : 'siste 12 måneder') + ' · kun utendørsløp med Strava-data 🏃 · estimert';
+    + (contTrendGroupBy === 'week' ? 'siste 26 uker med data' : 'siste 12 måneder med data') + ' · kun utendørsløp med Strava-data 🏃 · estimert';
 
   showChartEmpty('chartContTrend', !keys.length, 'Ingen analyserte utendørsløp i perioden');
   if (!keys.length) return;
@@ -6356,7 +6363,7 @@ function renderAeroTrend(sessions) {
   // level across runs, HR-drift is the within-run first-vs-second-half fade. Matches the wording
   // the detail-view ⓘ explainer already uses.
   if (subtitle) subtitle.textContent = (isDrift ? 'HR-drift (aerob decoupling)' : 'Kadens (steg/min)') + ' · '
-    + (aeroTrendGroupBy === 'week' ? 'siste 26 uker' : 'siste 12 måneder') + ' · alle Strava-løp 🏃 · estimert';
+    + (aeroTrendGroupBy === 'week' ? 'siste 26 uker med data' : 'siste 12 måneder med data') + ' · alle Strava-løp 🏃 · estimert';
 
   // The card is shown when ANY run has drift OR cadence, but each metric is plotted on its own —
   // so the selected one can legitimately be empty while the other has data (HR-drift needs a pulse

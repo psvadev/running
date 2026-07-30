@@ -136,7 +136,7 @@ Opening `puls.html` directly as a local file still works fully for offline use �
    - **Fra Strava** appears next to the zone auto-calc button in Profil & Puls
    - **Synkroniser fra Strava** appears in Beste innsats to pull your all-time best efforts
 
-The Client Secret never leaves the Worker — only the Client ID and Worker URL are stored (in localStorage, same as Google Drive's credentials).
+**Strava's** Client Secret never leaves the Worker — only the Client ID and Worker URL are stored in localStorage. Note this differs from **Google Drive**, whose flow runs entirely in the browser: its Client Secret *is* stored in localStorage alongside the refresh token (the flow is actually secured by PKCE; the secret is only there because the Google client is registered as a "Web application" type). Drive access is scoped to `drive.file`, so it only ever reaches files this app created.
 
 ---
 
