@@ -39,7 +39,9 @@ A trailing **`?`** on a type marks an **optional** field — the key may be abse
 ## Belt vs GPS — never merge these
 
 - **Treadmill PRs** are belt-measured. **Strava best efforts** are GPS-measured, outdoor-only (Strava computes no best efforts for treadmill runs).
-- Outdoor pace at the same HR reads consistently faster than treadmill — likely belt calibration, GPS error, and indoor heat/airflow, **not** gradient (the 1 % convention covers that). Treat the surfaces as separate populations; do not combine belt and GPS times in one ranking.
+- Outdoor pace at the same HR reads consistently faster than treadmill — likely belt calibration, GPS error, and indoor heat/airflow. Treat the surfaces as separate populations; do not combine belt and GPS times in one ranking.
+- **The 1 % convention covers still air, not terrain.** It compensates for the missing wind resistance indoors; it does nothing for hills. Outdoor runs carry real elevation while a treadmill is flat by definition, so that is an uncompensated outdoor penalty on top of everything above.
+- **The two effects pull in opposite directions, and the net is not measurable from this dataset.** Ideal indoor conditions (flat, still, climate-controlled) should make belt times faster; the observed same-HR data says outdoor is faster. Any apparent gap between a belt PR and a GPS PR here is mostly **effort**, not surface — e.g. a maximal treadmill 10K test vs a 10 km stretch inside an easy outdoor run. Until there is a maximal effort in *both* venues, a belt↔GPS offset cannot be derived, only guessed. This is the real reason the two are never merged: not "one is faster", but "these are not commensurable and nothing logged says by how much or which way".
 - **This rule is now enforced in the UI** (2026-07-31). Distanse-PR renders one row per distance with two independent columns — 🏃 **Ute** (Strava best effort) and ⚙️ **Inne** (treadmill) — and nothing merges them. The previous blended value (whichever of belt/GPS was faster, under a venue-neutral "Faktisk tid" label) is gone; because belt reads faster it had silently become the treadmill number for most distances.
 
 ## Distance PRs (`computeDistancePRs`)
@@ -51,6 +53,16 @@ Single source of truth for the Rekorder card **and** the "Ny …-PR!" insight, s
 - **The ±2 % window is what keeps the label honest.** The old ±10 % bracket accepted 4.5–5.5 km as "5 km", picked by best *pace*, then printed the run's *total duration* — so a 5.41 km run displayed as `5 km · 0:34:17`. An **empty cell is the correct answer** when nothing qualifies; a wrong number is not.
 - `utenforAnalyse` sessions are excluded (consistent with all other quality records).
 - **Asymmetry is inherent, not a bug:** Ute is segment-based, Inne is whole-run-based, because that's the data each venue can produce. The two columns are separate populations and are not meant to be compared to each other.
+
+## Prognose (`computePerfCurve`)
+
+Riegel projections **only** for distances with no actual time in *either* column — anything real lives in Distanse-PR, so the two sections can never show competing numbers for the same distance.
+
+- **Two independent columns, each anchored in its own venue.** 🏃 Ute answers "what could I race?", ⚙️ Inne answers "what am I capable of on the belt?". Each prefers a **maximal** effort (`Test`/`Race` ≥3 km) in that venue and falls back to the measured PR there. Never blended.
+- **Why Inne exists at all:** roughly half the year every run is indoors. An outdoor-only projection sits frozen on last season's efforts through the whole winter while the actual fitness change happens on a treadmill — least informative exactly when it's most wanted.
+- **`INNE_MAX_PROGNOSE_KM = 21.1`** — no indoor projection beyond a half marathon; a treadmill marathon estimate has no use. That cell renders **blank**, not `–` (a dash means "not run yet" in Distanse-PR; this is "not applicable").
+- **Riegel degrades past ~3× the anchor distance.** From a 10 km anchor, 15 km (1.5×) and half (2.1×) are sound; the marathon (4.2×) is not, and when its anchor is also non-maximal it is the softest number on the card. The section caption carries this caveat — **deliberately no per-cell confidence badge**.
+- **Anchors are named once per section, not per row** (`fra 10 km inne (11.07.2026)`). In winter this is what makes a months-old outdoor anchor obvious next to a current indoor one. If a column ends up using more than one anchor it says "nærmeste distanse" instead.
 
 ## Events (`Store.data.events`)
 
