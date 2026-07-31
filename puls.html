@@ -249,12 +249,16 @@
   .top3-row .t3-effort { color: var(--muted); }
   .top3-row .t3-effort.t3-first { color: var(--text); }
   .top3-row .t3-date { font-size: 11px; color: var(--muted); }
+  /* Distanse-PR: fixed venue column so Ute/Inne line up down the list */
+  .top3-row .t3-venue { min-width: 200px; }
+  .top3-row .t3-venue.t3-empty { color: var(--muted); }
   /* Mobile: stack each distance (label on its own line, medals below). Placed after
      the base rules above so these equal-specificity overrides win on source order. */
   @media (max-width: 600px) {
     .top3-list { gap: 14px; }
     .top3-row { flex-direction: column; flex-wrap: nowrap; gap: 3px; }
     .top3-row .t3-label { min-width: 0; margin-bottom: 1px; }
+    .top3-row .t3-venue { min-width: 0; }
   }
 
   /* ── Table ── */
@@ -662,11 +666,14 @@
       <div class="records-grid" id="recordsGrid"></div>
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Pace</div>
       <div class="records-grid" id="paceRecordsGrid"></div>
-      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Distanse-PR</div>
-      <div class="records-grid" id="distPRGrid"></div>
-      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Ytelseskurve</div>
-      <div class="records-grid" id="perfCurveGrid"></div>
-      <div id="top3Efforts"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Distanse-PR</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">🏃 Ute = beste innsats fra Strava (også inne i lengre løp) · ⚙️ Inne = tredemølle</div>
+      <div id="distPRList"></div>
+      <div id="prognoseSection" style="display:none">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Prognose</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Riegel-estimat fra utendørs tider — distanser du ennå ikke har løpt.</div>
+        <div class="records-grid" id="perfCurveGrid"></div>
+      </div>
       <div id="formkurveSection" style="display:none">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Formkurve · testløp (5K-ekvivalent)</div>
         <div style="height:180px"><canvas id="chartFormkurve"></canvas></div>
@@ -1109,18 +1116,18 @@
     </div>
   </div>
 
-  <!-- Beste innsats -->
+  <!-- Tredemølle-PR -->
   <div class="card" style="margin-bottom:16px">
-    <div class="card-title">Beste innsats</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Synkroniser fra Strava henter utendørs GPS-tider automatisk, men foreslår kun tider som er raskere enn det du har lagret (dine tredemølle-PR-er blir stående). Fyll inn manuelt for tredemølle-PR-er eller løp Strava ikke har. Format: mm:ss eller h:mm:ss. Faktiske tider overskriver Riegel-estimatene i Ytelseskurven.</p>
+    <div class="card-title">Tredemølle-PR</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Dine beste tider <b>på tredemølle</b> — Strava måler bare utendørs GPS og regner aldri ut beste innsats for innetrening, så disse må du fylle inn selv. Format: mm:ss eller h:mm:ss. Vises i ⚙️ Inne-kolonnen under Distanse-PR, og en logget tredemølle-økt på (nær) samme distanse teller automatisk hvis den er raskere.<br><b>Utendørs kommer av seg selv</b> fra Strava — legg <i>ikke</i> inn GPS-tider her.</p>
     <div id="bestEffortsForm"></div>
     <button class="btn" style="margin-top:10px" onclick="Settings.saveBestEfforts()">Lagre</button>
     <span id="bestEffortsMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
     <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Utendørs (🏃 Ute) hentes fra Strava — skanner historikken og bygger Topp 3 per distanse.</div>
       <button class="btn-secondary btn-sm" id="btnSyncBestEfforts">🔄 Synkroniser fra Strava</button>
       <span id="bestEffortsSyncMsg" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
       <div style="margin-top:6px"><a href="#" id="btnForceRescanBE" style="font-size:11px;color:var(--muted);text-decoration:underline;cursor:pointer">Skann hele historikken på nytt (bygg opp Topp 3 igjen)</a></div>
-      <div id="bestEffortsReview"></div>
     </div>
   </div>
 
@@ -4915,6 +4922,7 @@ let aeroTrendMetric = 'drift';    // 'drift' (HR-drift %) | 'cadence' (kadens sp
 let aeVenueFilter = 'all';
 let aeZ2Filter = 'all';
 let aeTypeFilter = 'both';   // 'both' (Easy+Long) | 'Easy' | 'Long' — rolige-økter type filter
+let prTop3Open = false;      // Distanse-PR → "Topp 3 utendørs" expander, kept across re-renders
 let paceUnit = 'pace';     // 'pace' | 'kmh' — global unit for all pace charts
 let cachedBlocks = [];
 
@@ -5741,14 +5749,17 @@ function renderInsights(sessions) {
       sub: `denne uken${reached ? ' — ukesmål nådd' : ''} · ${activePlan.title}`, priority: 3 });
   }
 
-  // Fresh distance-PR: a bracket PR set within the last 14 days deserves a headline
+  // Fresh distance-PR: one set within the last 14 days deserves a headline. Reads the same
+  // computeDistancePRs the Rekorder card renders, so the two can never disagree, and names
+  // the venue — Ute (GPS) and Inne (belt) are separate populations (DATA.md "Belt vs GPS").
+  // A manual treadmill entry carries no date, so it never fires this.
   const fortnightAgo = localISODaysAgo(14);
-  PR_BRACKETS.forEach(b => {
-    const prCands = qualitySessions.filter(s => s.distanse >= b.min && s.distanse <= b.max && s.tempo > 0);
-    if (!prCands.length) return;
-    const pr = prCands.reduce((a, s) => s.tempo < a.tempo ? s : a);
-    if (pr.dato >= fortnightAgo) candidates.push({ icon: '🏆', val: `Ny ${b.label}-PR!`,
-      sub: `${pr.varighet ? secsToHmsShort(pr.varighet) + ' · ' : ''}${secsToMmSs(pr.tempo)} /km (${fmtDate(pr.dato)})`, priority: 5 });
+  computeDistancePRs(qualitySessions).forEach(r => {
+    [['🏃 ute', r.ute], ['⚙️ inne', r.inne && !r.inne.manual ? r.inne : null]].forEach(([venue, e]) => {
+      if (!e || !e.d || e.d < fortnightAgo) return;
+      candidates.push({ icon: '🏆', val: `Ny ${r.label}-PR ${venue}!`,
+        sub: `${secsToHmsShort(e.t)} · ${secsToMmSs(Math.round(e.t / r.km))} /km (${fmtDate(e.d)})`, priority: 5 });
+    });
   });
 
   // Ramp-rate (ACWR-lite): last 7 days' zone-weighted load vs the prior 28 days' weekly
@@ -7170,35 +7181,50 @@ function renderDashboard() {
     { label:'Beste Race pace', value: recs.bestRacePace ? secsToMmSs(recs.bestRacePace.tempo)+' /km' : '–', sub: recs.bestRacePace ? fmtDate(recs.bestRacePace.dato) : '' },
   ].map(recCardHtml).join('');
 
-  document.getElementById('distPRGrid').innerHTML = recs.distPRs.map(({ label, session: s }) => {
-    const value = s ? secsToHms(s.varighet) : '–';
-    const sub = s ? `${secsToMmSs(s.tempo)} /km · ${fmtDate(s.dato)}` : '';
-    return `<div class="record-card"><div class="record-label">${label}</div><div class="record-value">${value}</div><div class="record-sub">${sub}</div></div>`;
-  }).join('');
+  // Distanse-PR: one row per distance, Ute (Strava best effort) beside Inne (treadmill).
+  // Two populations, never merged — see DATA.md "Belt vs GPS". The outdoor runners-up
+  // fold into the expander below rather than a second always-on list, so the same 🥇
+  // isn't printed twice on one card.
+  const distPRs = computeDistancePRs(Store.data.sessions);
+  const prRows = distPRs.filter(r => r.ute || r.inne);
+  const venueCell = (icon, entry, extra) => !entry
+    ? `<span class="t3-effort t3-venue t3-empty">${icon} –</span>`
+    : `<span class="t3-effort t3-venue t3-first">${icon} <b>${secsToHms(entry.t)}</b> <span class="t3-date">(${extra})</span></span>`;
 
-  document.getElementById('perfCurveGrid').innerHTML = computePerfCurve(Store.data.sessions).map(r =>
+  document.getElementById('distPRList').innerHTML = !prRows.length
+    ? '<div style="font-size:12px;color:var(--muted)">Ingen distanse-PR ennå — synkroniser fra Strava eller legg inn tredemølle-tider i Innstillinger.</div>'
+    : `<div class="top3-list">
+        ${prRows.map(r => `
+          <div class="top3-row">
+            <span class="t3-label">${r.label}</span>
+            ${venueCell('🏃', r.ute, r.ute ? fmtDate(r.ute.d) : '')}
+            ${venueCell('⚙️', r.inne, r.inne ? (r.inne.manual ? 'manuell' : `${fmtDate(r.inne.d)} · ${(+r.inne.dist).toFixed(2)} km`) : '')}
+          </div>`).join('')}
+      </div>
+      ${!distPRs.some(r => r.top3.length > 1) ? '' : `
+      <details style="margin-top:12px"${prTop3Open ? ' open' : ''} ontoggle="prTop3Open = this.open">
+        <summary style="cursor:pointer;font-size:11px;color:var(--muted)">Topp 3 utendørs (Strava)</summary>
+        <div class="top3-list" style="margin-top:10px">
+          ${distPRs.filter(r => r.top3.length).map(r => `
+            <div class="top3-row">
+              <span class="t3-label">${r.label}</span>
+              ${r.top3.map((e, i) => `
+                <span class="t3-effort${i === 0 ? ' t3-first' : ''}">
+                  ${['🥇','🥈','🥉'][i]} ${i === 0 ? '<b>' : ''}${secsToHms(e.t)}${i === 0 ? '</b>' : ''}
+                  <span class="t3-date">(${fmtDate(e.d)})</span>
+                </span>`).join('')}
+            </div>`).join('')}
+        </div>
+      </details>`}`;
+
+  // Prognose: Riegel projections only for distances with no actual time in either column.
+  const prognose = computePerfCurve(Store.data.sessions, distPRs);
+  document.getElementById('prognoseSection').style.display = prognose.length ? '' : 'none';
+  document.getElementById('perfCurveGrid').innerHTML = prognose.map(r =>
     `<div class="record-card"><div class="record-label">${r.label}</div><div class="record-value${r.estimated ? ' estimated' : ''}">${r.value}</div><div class="record-sub">${r.sub}</div></div>`
   ).join('');
 
   renderFormkurve();
-
-  // Top-3 recorded Strava efforts per distance (outdoor GPS runs only — Strava doesn't
-  // compute best efforts for treadmill/manual activities; treadmill PRs live in Distanse-PR)
-  const top3 = Store.data.bestEffortsTop3 || {};
-  const top3Rows = BEST_EFFORT_DISTS.filter(({ key }) => (top3[key] || []).length);
-  document.getElementById('top3Efforts').innerHTML = !top3Rows.length ? '' : `
-    <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Topp 3 · Strava (utendørs)</div>
-    <div class="top3-list">
-      ${top3Rows.map(({ label, key }) => `
-        <div class="top3-row">
-          <span class="t3-label">${label}</span>
-          ${top3[key].map((e, i) => `
-            <span class="t3-effort${i === 0 ? ' t3-first' : ''}">
-              ${['🥇','🥈','🥉'][i]} ${i === 0 ? '<b>' : ''}${secsToHms(e.t)}${i === 0 ? '</b>' : ''}
-              <span class="t3-date">(${fmtDate(e.d)})</span>
-            </span>`).join('')}
-        </div>`).join('')}
-    </div>`;
 
   // Training load per week (zone minutes × zone weight, summed per week)
   const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
@@ -7558,13 +7584,6 @@ function renderWeeklyOverviewTable(sessions) {
   if (totH) foot.querySelectorAll('.wk-avg td').forEach(td => td.style.bottom = totH + 'px');
 }
 
-const PR_BRACKETS = [
-  { label:'5 km',        min:4.5,  max:5.5  },
-  { label:'10 km',       min:9.0,  max:11.0 },
-  { label:'Halvmaraton', min:19.5, max:22.0 },
-  { label:'Maraton',     min:40.0, max:43.5 },
-];
-
 function computeRecords(sessions) {
   let bestePace=null, longestDist=null, longestTime=null, bestKmh=null;
   let bestEasyPace=null, bestLongPace=null, bestTempoPace=null, bestTestPace=null, bestRacePace=null, bestAerobEff=null, lavPuls=null;
@@ -7635,12 +7654,9 @@ function computeRecords(sessions) {
     if (absWeekSet.has(w)) currentStreak++;
     else break;
   }
-  const distPRs = PR_BRACKETS.map(b => {
-    const candidates = sessions.filter(s => !s.utenforAnalyse && s.distanse >= b.min && s.distanse <= b.max && s.tempo);
-    if (!candidates.length) return { label: b.label, session: null };
-    return { label: b.label, session: candidates.reduce((a, s) => s.tempo < a.tempo ? s : a) };
-  });
-  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, totalHoyde, totalOutdoorKm:+totalOutdoorKm.toFixed(1), totalIndoorKm:+totalIndoorKm.toFixed(1), besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLongPace, bestTempoPace, bestTestPace, bestRacePace, bestHoyde, bestAerobEff, lavPuls, distPRs };
+  // NB: distance PRs are no longer computed here — see computeDistancePRs(), which splits
+  // them by venue instead of bracketing whole runs (a 5.41 km run is not a 5 km time).
+  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, totalHoyde, totalOutdoorKm:+totalOutdoorKm.toFixed(1), totalIndoorKm:+totalIndoorKm.toFixed(1), besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLongPace, bestTempoPace, bestTestPace, bestRacePace, bestHoyde, bestAerobEff, lavPuls };
 }
 
 // Formkurve: every Test/Race normalized to a Riegel 5K-equivalent time so tests at
@@ -7696,45 +7712,27 @@ function renderFormkurve() {
   });
 }
 
-function computePerfCurve(sessions) {
-  const DISTS = [
-    { label:'400 m',       km:0.4,  key:'400m'     },
-    { label:'1 km',        km:1.0,  key:'1k'       },
-    { label:'5 km',        km:5.0,  key:'5k'       },
-    { label:'10 km',       km:10.0, key:'10k'      },
-    { label:'15 km',       km:15.0, key:'15k'      },
-    { label:'Halvmaraton', km:21.1, key:'half'     },
-    { label:'Maraton',     km:42.2, key:'marathon' },
-  ];
-  const TOL = 0.10;
-  const testSessions = sessions.filter(s =>
-    !s.utenforAnalyse && (s.okttype === 'Test' || s.okttype === 'Race') && s.distanse >= 1 && s.varighet > 0 && s.tempo);
+// Prognose: Riegel projection for the distances you have NOT actually run — anything with
+// a real time lives in Distanse-PR instead, so the two can never show competing numbers.
+// Anchored on OUTDOOR efforts only: belt times read systematically faster (DATA.md "Belt
+// vs GPS"), so a treadmill anchor would over-predict a road race. Prefers a maximal effort
+// (Test/Race) and falls back to the measured outdoor best effort at the nearest distance.
+function computePerfCurve(sessions, distPRs) {
+  const anchors = sessions
+    .filter(s => !s.utenforAnalyse && (s.okttype === 'Test' || s.okttype === 'Race') &&
+                 (s.løpetype || 'utendors') === 'utendors' && s.distanse >= 3 && s.varighet > 0)
+    .map(s => ({ km: s.distanse, t: s.varighet }));
 
-  return DISTS.map(({ label, km, key }) => {
-    // 1. Manual override (highest priority)
-    const manual = Store.data.bestEfforts?.[key];
-    if (manual) {
-      const pace = Math.round(manual / km);
-      return { label, value: secsToHms(manual), sub: `${secsToMmSs(pace)} /km · Faktisk tid`, estimated: false };
-    }
-    // 2. Actual Test session in ±10% range
-    const actual = testSessions
-      .filter(s => s.distanse >= km*(1-TOL) && s.distanse <= km*(1+TOL))
-      .reduce((best, s) => !best || s.tempo < best.tempo ? s : best, null);
-    if (actual) {
-      return { label, value: secsToHms(actual.varighet), sub: `${secsToMmSs(actual.tempo)} /km · ${fmtDate(actual.dato)}`, estimated: false };
-    }
-    // 3. Riegel estimate from closest Test anchor (min 1k; skip for 400m)
-    if (km < 1) return { label, value: '–', sub: 'Legg inn manuelt', estimated: false };
-    const anchor = testSessions
-      .filter(s => s.distanse >= 3)
-      .reduce((best, s) => !best || Math.abs(s.distanse - km) < Math.abs(best.distanse - km) ? s : best, null);
-    if (anchor) {
-      const t2 = Math.round(anchor.varighet * Math.pow(km / anchor.distanse, 1.06));
-      const pace = Math.round(t2 / km);
-      return { label, value: secsToHms(t2), sub: `${secsToMmSs(pace)} /km · Riegel-estimat`, estimated: true };
-    }
-    return { label, value: '–', sub: '', estimated: false };
+  if (!anchors.length) {
+    distPRs.forEach(r => { if (r.ute && r.km >= 3) anchors.push({ km: r.km, t: r.ute.t }); });
+  }
+  if (!anchors.length) return [];
+
+  return distPRs.filter(r => !r.ute && !r.inne && r.km >= 1).map(({ label, km }) => {
+    const a = anchors.reduce((best, x) =>
+      !best || Math.abs(x.km - km) < Math.abs(best.km - km) ? x : best, null);
+    const t2 = Math.round(a.t * Math.pow(km / a.km, 1.06));
+    return { label, value: secsToHms(t2), sub: `${secsToMmSs(Math.round(t2 / km))} /km · Riegel-estimat`, estimated: true };
   });
 }
 
@@ -7919,24 +7917,56 @@ const StravaImport = {
 };
 
 const BEST_EFFORT_DISTS = [
-  { label:'400 m', key:'400m' }, { label:'1 km', key:'1k' },
-  { label:'5 km', key:'5k' }, { label:'10 km', key:'10k' },
-  { label:'15 km', key:'15k' }, { label:'Halvmaraton', key:'half' },
-  { label:'Maraton', key:'marathon' },
+  { label:'400 m', key:'400m', km:0.4 }, { label:'1 km', key:'1k', km:1 },
+  { label:'5 km', key:'5k', km:5 }, { label:'10 km', key:'10k', km:10 },
+  { label:'15 km', key:'15k', km:15 }, { label:'Halvmaraton', key:'half', km:21.1 },
+  { label:'Maraton', key:'marathon', km:42.2 },
 ];
+
+// Distance PRs, split by venue — the two populations DATA.md says never to merge.
+//   Ute  = Strava's best effort: the fastest stretch at that distance inside ANY outdoor
+//          run (segments count). Already dated and outdoor-only; we just read the top of
+//          the ranked list.
+//   Inne = treadmill, which Strava never measures (no best_efforts for indoor). Either a
+//          logged belt run at the distance, or a manually entered PR.
+// The ±2 % window is what keeps the label honest: a 5.4 km run is not a 5 km time. An
+// empty cell is the correct answer when nothing qualifies.
+const PR_DIST_TOL = 0.02;
+
+function computeDistancePRs(sessions) {
+  const allTop3 = Store.data.bestEffortsTop3 || {};
+  const manual  = Store.data.bestEfforts || {};
+
+  return BEST_EFFORT_DISTS.map(({ label, key, km }) => {
+    const top3 = allTop3[key] || [];
+    const ute = top3.length ? { t: top3[0].t, d: top3[0].d } : null;
+
+    const lo = km * (1 - PR_DIST_TOL), hi = km * (1 + PR_DIST_TOL);
+    const belt = sessions.reduce((best, s) => {
+      if (s.utenforAnalyse || (s.løpetype || 'utendors') !== 'treadmill') return best;
+      if (!(s.varighet > 0) || !(s.distanse >= lo && s.distanse <= hi)) return best;
+      return !best || s.varighet < best.varighet ? s : best;
+    }, null);
+
+    let inne = belt ? { t: belt.varighet, d: belt.dato, dist: belt.distanse, manual: false } : null;
+    const m = manual[key];
+    if (m > 0 && (!inne || m < inne.t)) inne = { t: m, d: null, dist: null, manual: true };
+
+    return { label, key, km, ute, inne, top3 };
+  });
+}
 
 const StravaBestEfforts = {
   MAX_CALLS_PER_BATCH: 80,
   _nameMap: { '400m':'400m', '1k':'1k', '5k':'5k', '10k':'10k', '15k':'15k', 'half-marathon':'half', 'marathon':'marathon' },
-  _dists: BEST_EFFORT_DISTS,
 
   _found() { try { return JSON.parse(localStorage.getItem('pulsStravaBEFound') || '{}'); } catch { return {}; } },
   _saveFound(f) { localStorage.setItem('pulsStravaBEFound', JSON.stringify(f)); },
 
   // Top-3 recorded efforts per distance ({ t: seconds, d: 'YYYY-MM-DD' }, fastest first).
-  // Collected during the same scan; localStorage is the scan-progress buffer, the result
-  // is committed to Store.data.bestEffortsTop3 (pure display — Ytelseskurve/manual entry
-  // keep using the single-best bestEfforts values untouched).
+  // Collected during the same scan; localStorage is the scan-progress buffer, the result is
+  // committed to Store.data.bestEffortsTop3 — which since 2026-07-31 IS the 🏃 Ute column in
+  // Distanse-PR (its #1), with the runners-up behind the "Topp 3 utendørs" expander.
   _top3() { try { return JSON.parse(localStorage.getItem('pulsStravaBETop3') || '{}'); } catch { return {}; } },
   _saveTop3(t) { localStorage.setItem('pulsStravaBETop3', JSON.stringify(t)); },
   // Union two top-3 maps: dedupe on (t,d), fastest first, keep 3 per distance. Used so a
@@ -8042,7 +8072,6 @@ const StravaBestEfforts = {
             setMsg('Ingen nye aktiviteter siden sist.');
           }
           this._commitTop3();
-          this.showReview();
           return;
         }
 
@@ -8088,61 +8117,17 @@ const StravaBestEfforts = {
       }
       setMsg(`Pause for å holde meg under Strava sin grense (${scanned} skannet) — klikk igjen for å fortsette.`);
       this._commitTop3();
-      this.showReview();
     } catch (e) {
       setMsg('Noe gikk galt: ' + (e.message || 'ukjent feil'));
     }
   },
 
-  // Distances where Strava's outdoor time is a genuine improvement — faster than
-  // the stored value, or filling an empty slot. bestEfforts holds the *fastest*
-  // time per distance; Strava has only outdoor GPS efforts, which are
-  // systematically slower than treadmill (belt) PRs (DATA.md belt-vs-GPS), so a
-  // slower Strava time is noise, not a record. Outdoor times still show in Topp 3.
-  _improvements() {
-    const found = this._found();
-    const current = Store.data.bestEfforts || {};
-    return this._dists.filter(({ key }) => found[key] && (!current[key] || found[key] < current[key]));
-  },
-
-  showReview() {
-    const found = this._found();
-    const current = Store.data.bestEfforts || {};
-    const diffRows = this._improvements();
-    const el = document.getElementById('bestEffortsReview');
-    if (!el) return;
-    if (!diffRows.length) { el.innerHTML = ''; return; }
-    el.innerHTML = `
-      <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-        ${diffRows.map(({ label, key }) => `
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-            <span style="width:100px;font-size:13px">${label}</span>
-            <span style="font-size:12px;color:var(--muted)">${current[key] ? secsToHmsShort(current[key]) : '–'} → <b style="color:var(--text)">${secsToHmsShort(found[key])}</b></span>
-            <button class="btn-secondary btn-sm" onclick="StravaBestEfforts.applyOne('${key}')">Bruk</button>
-          </div>`).join('')}
-        <button class="btn-primary btn-sm" style="margin-top:4px" onclick="StravaBestEfforts.applyAll()">Bruk alle</button>
-      </div>`;
-  },
-
-  applyOne(key) {
-    const found = this._found();
-    if (!found[key]) return;
-    document.getElementById(`be_${key}`).value = secsToHmsShort(found[key]);
-    Settings.saveBestEfforts();
-    Settings.renderBestEfforts();
-    this.showReview();
-  },
-
-  applyAll() {
-    const found = this._found();
-    this._improvements().forEach(({ key }) => {
-      const input = document.getElementById(`be_${key}`);
-      if (input) input.value = secsToHmsShort(found[key]);
-    });
-    Settings.saveBestEfforts();
-    Settings.renderBestEfforts();
-    this.showReview();
-  }
+  // NB: the old "Bruk / Bruk alle" review that copied Strava's outdoor times INTO
+  // Store.data.bestEfforts is gone (2026-07-31). That merge put GPS and belt times in one
+  // number — exactly what DATA.md "Belt vs GPS" forbids — and produced a third, venue-less
+  // figure per distance. Outdoor now flows straight to the Ute column via bestEffortsTop3;
+  // bestEfforts is the treadmill/manual store only. `_found`/`pulsStravaBEFound` is kept as
+  // the scan's single-best buffer (harmless, and cheap to keep the scan loop unchanged).
 };
 
 // ═══════════════════════════════════════════════════════
@@ -8233,7 +8218,6 @@ const Settings = {
     this.renderRaceHistory();
     this.renderPlannedList();
     this.renderBestEfforts();
-    StravaBestEfforts.showReview();
     this.renderBackupList();
     // Pre-fill goal year with current year if empty
     const yr = document.getElementById('newGoalYear');
