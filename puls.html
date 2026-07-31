@@ -3701,7 +3701,7 @@ function analyzeAerobicMetrics(streams, options = {}) {
 // plan's headline number), so scaling would compress a genuinely longer run and make every split come
 // out artificially fast — the exact false-PR failure the guard was meant to prevent. The logged
 // distance is used only to *reject* a run outright (see loggedKm below), never to rescale one.
-const SPLITS_ANALYSIS_VERSION = 2;
+const SPLITS_ANALYSIS_VERSION = 3;
 // A stream that disagrees with the logged distance by more than this is measuring the run with a
 // different ruler, and any split cut from it is fast in the wrong units. Runna-era runs are imported
 // from Strava, so the two agree to rounding; 3 % is far looser than that and far tighter than the
@@ -3741,6 +3741,32 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
     return {
       version: SPLITS_ANALYSIS_VERSION, best: {}, totalMeters, distanceMismatch: true,
       warnings: [`Strøm ${(totalMeters / 1000).toFixed(2)} km mot logget ${cfg.loggedKm.toFixed(2)} km — for stort avvik til å hente splitter`],
+      insufficientData: false,
+    };
+  }
+
+  // Recording-source gate. The distance check above only catches a run that disagrees with *itself*,
+  // and that turned out to be one run in the entire history: 51 of 52 treadmill runs agree to ±0.7 %,
+  // because the logged distance was imported from the same watch that recorded the stream. Agreement
+  // proves consistency, not correctness — the pre-Runna Apple Workouts runs measured the wrist, so
+  // both numbers are wrong together and nothing internal can detect it. What that era does NOT carry
+  // is cadence: 24 consecutive runs (2025-10-02 → 2026-03-12) have no cadence stream, matching the
+  // user's own "maybe 20-25 runs that used apple workout app only", and every run from 2026-03-16 has
+  // one. Gate on the evidence rather than a cutoff date, so a stray day logged without Runna (there is
+  // one, 2026-04-17) is excluded on its own merits. Same moving-aware test as analyzeAerobicMetrics,
+  // deliberately duplicated rather than shared so the two can never drift apart on what "has cadence"
+  // means. Runna-era distance is integrated from the belt speed the user types in, which is the only
+  // reason a split cut from it is a measurement at all.
+  const cad = arr('cadence'), moving = arr('moving');
+  const movingAt = i => moving ? moving[i] !== false : true;
+  let hasCadence = false;
+  for (let i = 0; cad && i < n && !hasCadence; i++) {
+    if (movingAt(i) && typeof cad[i] === 'number' && cad[i] > 0) hasCadence = true;
+  }
+  if (!hasCadence) {
+    return {
+      version: SPLITS_ANALYSIS_VERSION, best: {}, totalMeters, noCadence: true,
+      warnings: ['Ingen kadens — tatt opp uten Runna, så distansen er klokkemålt og ikke fra beltet'],
       insufficientData: false,
     };
   }
@@ -4108,7 +4134,7 @@ const Continuity = {
     return {
       version: SPLITS_ANALYSIS_VERSION, analyzedAt: new Date().toISOString(), sourceActivityId,
       best: r.best, totalMeters: r.totalMeters, warnings: r.warnings,
-      distanceMismatch: !!r.distanceMismatch,
+      distanceMismatch: !!r.distanceMismatch, noCadence: !!r.noCadence,
     };
   },
   // Analyze one Strava-linked session in place from ONE stream fetch: run/walk (outdoor only) +
@@ -6634,9 +6660,12 @@ const DetailPanel = {
     const rows = BEST_EFFORT_DISTS.filter(d => sp.best[d.key] && sp.best[d.key].t > 0);
     // Say why rather than render nothing: a rejected run is indistinguishable from an un-analyzed
     // one otherwise, and this is the one absence a user would reasonably question.
-    if (!rows.length && sp.distanceMismatch) {
+    if (!rows.length && (sp.distanceMismatch || sp.noCadence)) {
+      const why = sp.distanceMismatch
+        ? `Strava-strømmen måler ${(sp.totalMeters / 1000).toFixed(2)} km mot ${(+s.distanse || 0).toFixed(2)} km logget.`
+        : 'Økta har ingen kadens, altså tatt opp uten Runna — da er distansen målt av klokka og ikke av beltet.';
       return '<div class="dp-section-label">Beste splitter i denne økta</div>'
-        + `<div style="font-size:11px;color:var(--muted)">Ikke hentet — Strava-strømmen måler ${(sp.totalMeters / 1000).toFixed(2)} km mot ${(+s.distanse || 0).toFixed(2)} km logget. Vanlig på gamle økter tatt opp med klokka i stedet for beltet; en split herfra ville blitt for rask.</div>`;
+        + `<div style="font-size:11px;color:var(--muted)">Ikke hentet — ${why} En split herfra ville blitt for rask og kunne tatt PR-plassen under Distanse-PR.</div>`;
     }
     if (!rows.length) return '';
     const label = '<div class="dp-section-label">Beste splitter i denne økta</div>';
