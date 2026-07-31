@@ -3699,8 +3699,14 @@ function analyzeAerobicMetrics(streams, options = {}) {
 // Deliberately NOT scaled to the session's logged distance. That was considered and rejected: on an
 // interval session the logged distance is *lower* than what was run (recovery jogs sit outside the
 // plan's headline number), so scaling would compress a genuinely longer run and make every split come
-// out artificially fast — the exact false-PR failure the guard was meant to prevent.
-const SPLITS_ANALYSIS_VERSION = 1;
+// out artificially fast — the exact false-PR failure the guard was meant to prevent. The logged
+// distance is used only to *reject* a run outright (see loggedKm below), never to rescale one.
+const SPLITS_ANALYSIS_VERSION = 2;
+// A stream that disagrees with the logged distance by more than this is measuring the run with a
+// different ruler, and any split cut from it is fast in the wrong units. Runna-era runs are imported
+// from Strava, so the two agree to rounding; 3 % is far looser than that and far tighter than the
+// ~18 % the pre-Runna runs miss by.
+const SPLITS_MAX_DIST_MISMATCH = 0.03;
 function analyzeTreadmillSplits(streams, targets, options = {}) {
   // Distance streams are accumulated floats, so a run the treadmill calls exactly 5.00 km can land
   // at 4999.9999 m and would otherwise report no 5 km split at all. One metre of slack absorbs that
@@ -3722,6 +3728,22 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
   const n = time.length;
   const totalMeters = dist[n - 1] - dist[0];
   const best = {}, warnings = [];
+
+  // The stream and the logged distance must be the same ruler. The ~20-25 pre-Runna Apple Workouts
+  // treadmill runs recorded wrist distance, not belt distance, and over-measure by up to ~18 % — and
+  // the "link old runs to Strava" backfill is what made exactly those runs analyzable. Cutting a
+  // 5 km window out of an inflated stream yields a time that is fast in the wrong units: the 5K test
+  // of 28.11.2025 (belt 5.00 km in 33:46) produced a "5 km split" of 28:41, five minutes faster than
+  // the entire run it came from, and it took the ⚙️ Inne PR. Rejected as a *valid empty* result, not
+  // as insufficientData, so it still persists and stamps current — one fetch, never retried.
+  const loggedM = cfg.loggedKm > 0 ? cfg.loggedKm * 1000 : null;
+  if (loggedM && Math.abs(totalMeters - loggedM) > loggedM * SPLITS_MAX_DIST_MISMATCH) {
+    return {
+      version: SPLITS_ANALYSIS_VERSION, best: {}, totalMeters, distanceMismatch: true,
+      warnings: [`Strøm ${(totalMeters / 1000).toFixed(2)} km mot logget ${cfg.loggedKm.toFixed(2)} km — for stort avvik til å hente splitter`],
+      insufficientData: false,
+    };
+  }
 
   for (const { key, km } of targets) {
     const need = km * 1000 - EPS_M;
@@ -4086,6 +4108,7 @@ const Continuity = {
     return {
       version: SPLITS_ANALYSIS_VERSION, analyzedAt: new Date().toISOString(), sourceActivityId,
       best: r.best, totalMeters: r.totalMeters, warnings: r.warnings,
+      distanceMismatch: !!r.distanceMismatch,
     };
   },
   // Analyze one Strava-linked session in place from ONE stream fetch: run/walk (outdoor only) +
@@ -4113,7 +4136,7 @@ const Continuity = {
     // so this is the one venue where the fastest 5 km *inside* a run has to be derived here; doing it
     // outdoors too would just duplicate what the best-efforts scan already stores authoritatively.
     if (s.løpetype === 'treadmill') {
-      const sp = analyzeTreadmillSplits(streams, BEST_EFFORT_DISTS);
+      const sp = analyzeTreadmillSplits(streams, BEST_EFFORT_DISTS, { loggedKm: s.distanse });
       if (!sp.insufficientData) { s.stravaAnalysis.splits = this._toPersistedSplits(sp, s.stravaId); any = true; }
     }
     return any ? 'ok' : 'nodata';
@@ -6609,6 +6632,12 @@ const DetailPanel = {
     const sp = s.stravaAnalysis && s.stravaAnalysis.splits;
     if (!Continuity._isSplitsCurrent(sp) || !sp.best) return '';
     const rows = BEST_EFFORT_DISTS.filter(d => sp.best[d.key] && sp.best[d.key].t > 0);
+    // Say why rather than render nothing: a rejected run is indistinguishable from an un-analyzed
+    // one otherwise, and this is the one absence a user would reasonably question.
+    if (!rows.length && sp.distanceMismatch) {
+      return '<div class="dp-section-label">Beste splitter i denne økta</div>'
+        + `<div style="font-size:11px;color:var(--muted)">Ikke hentet — Strava-strømmen måler ${(sp.totalMeters / 1000).toFixed(2)} km mot ${(+s.distanse || 0).toFixed(2)} km logget. Vanlig på gamle økter tatt opp med klokka i stedet for beltet; en split herfra ville blitt for rask.</div>`;
+    }
     if (!rows.length) return '';
     const label = '<div class="dp-section-label">Beste splitter i denne økta</div>';
     const list = rows.map(({ label: l, key, km }) => {
@@ -8127,8 +8156,12 @@ function computeDistancePRs(sessions) {
 
     sessions.forEach(s => {
       if (s.utenforAnalyse || (s.løpetype || 'utendors') !== 'treadmill') return;
-      const e = s.stravaAnalysis && s.stravaAnalysis.splits && s.stravaAnalysis.splits.best
-        ? s.stravaAnalysis.splits.best[key] : null;
+      // Version-gated, like the detail block: a superseded analysis may hold a value a later version
+      // would reject outright (v1 had no stream-vs-logged distance guard and let an over-measuring
+      // pre-Runna run take the 5 km PR). Better an empty cell until the backfill reruns than a
+      // number the current rules would refuse to produce.
+      const sp = s.stravaAnalysis && s.stravaAnalysis.splits;
+      const e = Continuity._isSplitsCurrent(sp) && sp.best ? sp.best[key] : null;
       if (e) better({ t: e.t, d: s.dato, dist: null, source: 'split', startSec: e.startSec });
     });
 
