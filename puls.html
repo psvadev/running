@@ -3635,7 +3635,7 @@ function analyzeRunningContinuity(streams, options = {}) {
 // meaningful on steady/long runs. Cadence = mean steps/min over moving samples (Strava's running
 // cadence stream is often per-leg ~85–95 → doubled below a threshold to read as true spm). Never
 // fabricates — a missing HR or cadence stream just leaves that metric absent (has*=false), not invented.
-const AEROBIC_ANALYSIS_VERSION = 1;
+const AEROBIC_ANALYSIS_VERSION = 2;
 function analyzeAerobicMetrics(streams, options = {}) {
   const cfg = { minMovingSecondsForDrift: 600, minDriftSamples: 20, cadenceLegDoubleBelow: 120, ...options };
   const arr = k => (streams && streams[k] && Array.isArray(streams[k].data)) ? streams[k].data : null;
@@ -3661,7 +3661,13 @@ function analyzeAerobicMetrics(streams, options = {}) {
     for (let i = 0; i < n; i++) {
       if (!isMoving(i)) continue;
       const h = hr[i], v = vel[i];
-      if (!(h > 0) || !(v >= 0)) continue;
+      // v > 0, not v >= 0. Efficiency here is speed÷HR, which is meaningless while stopped: a
+      // zero-speed sample adds nothing to the speed sum but its full weight to the HR sum, so it
+      // drags down whichever half it lands in and reads as drift that never happened. The 31.07
+      // tempo session showed +24 % with ~4 minutes of stopped belt in it (its Pulssoner sum to
+      // 43:30 against a 39:13 moving duration). This also covers streams with no `moving` array,
+      // where nothing else would exclude a pause — same reasoning as `stoppedAt` in the splits.
+      if (!(h > 0) || !(v > 0)) continue;
       const dt = i > 0 ? Math.max(0, time[i] - time[i - 1]) : 1;
       samples.push({ v, h, dt });
       movingTimeSeconds += dt;
@@ -4479,6 +4485,12 @@ window._testAerobicMetrics = function () {
   check('speed fades 2nd half → +drift', r.hasDecoupling && r.decouplingPercent > 9 && r.decouplingPercent < 11, 'd=' + r.decouplingPercent);
   r = analyzeAerobicMetrics(mk(N, { vel: 3.0, hr: half(160, 150) }));
   check('HR drops 2nd half → −drift', r.hasDecoupling && r.decouplingPercent < 0, 'd=' + r.decouplingPercent);
+  // A stop in the middle of an otherwise identical effort. HR stays high while standing, so counting
+  // those samples would add HR weight with no speed and invent drift that never happened — this is
+  // what put +24 % on the 31.07.2026 tempo session. No `moving` array, so `v > 0` is the only guard.
+  { const stop = (a, s, b) => [...Array(a).fill(3.0), ...Array(s).fill(0), ...Array(b).fill(3.0)];
+    r = analyzeAerobicMetrics(mk(N + 250, { vel: stop(600, 250, 600), hr: stop(155, 250, 155).map((v, i) => i >= 600 && i < 850 ? 150 : 155) }));
+    check('stopped samples → no invented drift', r.hasDecoupling && Math.abs(r.decouplingPercent) < 1, 'd=' + r.decouplingPercent); }
   r = analyzeAerobicMetrics(mk(N, { cad: 90 }));
   check('cadence per-leg → ×2 (180)', r.hasCadence && r.avgCadenceSpm === 180, 'c=' + r.avgCadenceSpm);
   r = analyzeAerobicMetrics(mk(N, { cad: 176 }));
@@ -6714,7 +6726,7 @@ const DetailPanel = {
         + `<b>${secsToHms(e.t)}</b>`
         + `<span style="color:var(--muted)">${secsToMmSs(Math.round(e.t / km))} /km</span>${at}</div>`;
     }).join('');
-    const caption = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Raskeste sammenhengende strekning på hver distanse inne i økta — målt fra Strava-data, ikke estimert. Mater ⚙️ Inne under Distanse-PR.</div>`;
+    const caption = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Raskeste strekning på hver distanse inne i økta — målt fra Strava-data, ikke estimert. Tiden teller <b>aktiv tid</b>, akkurat som varigheten ellers i appen: står beltet stille midt i, trekkes pausen fra. Mater ⚙️ Inne under Distanse-PR.</div>`;
     return `${label}${list}${caption}`;
   },
 
