@@ -217,7 +217,9 @@
     .tabs::-webkit-scrollbar { display: none; }
     .tab { padding: 10px 12px; font-size: 13px; }
     .panel { padding: 16px 12px; }
-    .dash-filter-bar { padding: 10px 12px; gap: 8px; }
+    /* Not sticky on mobile: the bar wraps to ~5 rows here, so pinning it would
+       eat a quarter of the viewport for the whole scroll. Scroll-to-top covers it. */
+    .dash-filter-bar { position: static; padding: 10px 12px; gap: 8px; }
     .dash-grid > * { min-width: 0; }
     .cs-stat { min-width: 0; flex: 1 1 75px; }
     .form-grid-4 { grid-template-columns: repeat(2, 1fr); }
