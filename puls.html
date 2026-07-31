@@ -8003,8 +8003,9 @@ const StravaBestEfforts = {
 
   // Top-3 recorded efforts per distance ({ t: seconds, d: 'YYYY-MM-DD' }, fastest first).
   // Collected during the same scan; localStorage is the scan-progress buffer, the result is
-  // committed to Store.data.bestEffortsTop3 — which since 2026-07-31 IS the 🏃 Ute column in
-  // Distanse-PR (its #1), with the runners-up behind the "Topp 3 utendørs" expander.
+  // committed to Store.data.bestEffortsTop3 — whose #1 IS the 🏃 Ute column in Distanse-PR.
+  // The runners-up are stored but no longer rendered anywhere (Strava already ranks them);
+  // they are kept because the parked "how much did I beat my old PB by" work needs history.
   _top3() { try { return JSON.parse(localStorage.getItem('pulsStravaBETop3') || '{}'); } catch { return {}; } },
   _saveTop3(t) { localStorage.setItem('pulsStravaBETop3', JSON.stringify(t)); },
   // Union two top-3 maps: dedupe on (t,d), fastest first, keep 3 per distance. Used so a
