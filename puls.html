@@ -3687,6 +3687,69 @@ function analyzeAerobicMetrics(streams, options = {}) {
   return { version: AEROBIC_ANALYSIS_VERSION, hasDecoupling, decouplingPercent, hasCadence, avgCadenceRaw, avgCadenceSpm, movingTimeSeconds, warnings, insufficientData: false };
 }
 
+// ── Treadmill splits — the fastest continuous 5 km (etc.) INSIDE a run, from the same streams the
+// other two analyses already fetch. This is what Strava gives outdoor runs for free as `best_efforts`
+// and never computes indoors, so without it the ⚙️ Inne column can only ever offer whole runs while
+// 🏃 Ute gets true segments.
+//
+// Measurement, not estimate: no classification (unlike run/walk) and no smoothing. Since Runna records
+// treadmill runs from the belt speed the user types in, the distance stream matches the treadmill by
+// construction and the speed profile is piecewise-constant — there is nothing to filter out.
+//
+// Deliberately NOT scaled to the session's logged distance. That was considered and rejected: on an
+// interval session the logged distance is *lower* than what was run (recovery jogs sit outside the
+// plan's headline number), so scaling would compress a genuinely longer run and make every split come
+// out artificially fast — the exact false-PR failure the guard was meant to prevent.
+const SPLITS_ANALYSIS_VERSION = 1;
+function analyzeTreadmillSplits(streams, targets, options = {}) {
+  // Distance streams are accumulated floats, so a run the treadmill calls exactly 5.00 km can land
+  // at 4999.9999 m and would otherwise report no 5 km split at all. One metre of slack absorbs that
+  // (and sub-metre sampling truncation) while still refusing a run that genuinely fell short — the
+  // error it admits is ~0.02 %, well under a second on a 30-minute 5 km.
+  const EPS_M = 1;
+  const cfg = { minSamples: 5, ...options };
+  const arr = k => (streams && streams[k] && Array.isArray(streams[k].data)) ? streams[k].data : null;
+  const time = arr('time'), dist = arr('distance');
+  if (!time || !dist || time.length !== dist.length || time.length < cfg.minSamples) {
+    const warnings = [];
+    if (!time) warnings.push('Mangler tid-strøm');
+    if (!dist) warnings.push('Mangler distanse-strøm');
+    if (time && dist && time.length !== dist.length) warnings.push('Tid og distanse har ulik lengde');
+    if (time && dist && time.length < cfg.minSamples) warnings.push('For få datapunkter');
+    return { version: SPLITS_ANALYSIS_VERSION, best: {}, warnings, insufficientData: true };
+  }
+
+  const n = time.length;
+  const totalMeters = dist[n - 1] - dist[0];
+  const best = {}, warnings = [];
+
+  for (const { key, km } of targets) {
+    const need = km * 1000 - EPS_M;
+    if (!(totalMeters >= need)) continue;   // never reached this distance — absent, not zero
+    let bestT = null, bestStart = null, start = 0;
+    for (let end = 0; end < n; end++) {
+      // Pull `start` forward while the window still covers the target, so each end index is
+      // measured from the latest legal start — that's what makes this a true sliding window
+      // rather than "the first 5 km".
+      while (start < end && dist[end] - dist[start + 1] >= need) start++;
+      if (dist[end] - dist[start] < need) continue;
+      // Interpolate inside the final sample so the window is EXACTLY the target distance.
+      // Without this every split reads ~1 s slow, because the last sample overshoots.
+      let t = time[end] - time[start];
+      if (end > 0) {
+        const segM = dist[end] - dist[end - 1];
+        const over = (dist[end] - dist[start]) - need;
+        if (segM > 0 && over > 0) t -= (time[end] - time[end - 1]) * (over / segM);
+      }
+      if (t > 0 && (bestT === null || t < bestT)) { bestT = t; bestStart = time[start] - time[0]; }
+    }
+    if (bestT !== null) best[key] = { t: Math.round(bestT), startSec: Math.round(bestStart) };
+  }
+
+  if (!Object.keys(best).length) warnings.push('Ingen distanse nådd');
+  return { version: SPLITS_ANALYSIS_VERSION, best, totalMeters, warnings, insufficientData: false };
+}
+
 // Read a session's duration in seconds. Stored as numeric seconds today (Form.save → hmsToSecs),
 // but legacy rows may hold a "H:MM:SS" string — handle both, like the run/walk reference check.
 function sessionDurationSeconds(s) {
@@ -3972,13 +4035,15 @@ const Continuity = {
   // (HR drift + cadence) read the HR sensor + accelerometer, so they apply to indoor runs too.
   _analyzable(s) { return !!s && !!s.stravaId && StravaIO.isSignedIn(); },
   _isAerobicCurrent(a) { return !!a && a.version === AEROBIC_ANALYSIS_VERSION; },
+  _isSplitsCurrent(sp) { return !!sp && sp.version === SPLITS_ANALYSIS_VERSION; },
   // A run needs (re)analysis if its run/walk is stale (outdoor only) OR its aerobic metrics are.
   // Drives the auto-on-save guard, the backfill filter, and the detail-view button.
   _needsAnalysis(s) {
     if (!this._analyzable(s)) return false;
     const sa = s.stravaAnalysis || {};
-    const contStale = s.løpetype === 'utendors' && !this._isCurrent(sa.continuity);
-    return contStale || !this._isAerobicCurrent(sa.aerobic);
+    const contStale   = s.løpetype === 'utendors'  && !this._isCurrent(sa.continuity);
+    const splitsStale = s.løpetype === 'treadmill' && !this._isSplitsCurrent(sa.splits);
+    return contStale || splitsStale || !this._isAerobicCurrent(sa.aerobic);
   },
   // Effective walk/run speed thresholds: per-user override (Innstillinger → Løpekontinuitet) or defaults.
   thresholds() {
@@ -4017,6 +4082,12 @@ const Continuity = {
       movingTimeSeconds: a.movingTimeSeconds, warnings: a.warnings,
     };
   },
+  _toPersistedSplits(r, sourceActivityId) {
+    return {
+      version: SPLITS_ANALYSIS_VERSION, analyzedAt: new Date().toISOString(), sourceActivityId,
+      best: r.best, totalMeters: r.totalMeters, warnings: r.warnings,
+    };
+  },
   // Analyze one Strava-linked session in place from ONE stream fetch: run/walk (outdoor only) +
   // aerobic HR-drift/cadence (all venues). Stores whatever the data supports on the object (segments
   // stripped by the _toPersisted shapes). No save, no render — the caller owns those, so it's safe to
@@ -4038,6 +4109,13 @@ const Continuity = {
     // stamped current and won't re-fetch (one fetch per run).
     const aero = analyzeAerobicMetrics(streams);
     if (!aero.insufficientData) { s.stravaAnalysis.aerobic = this._toPersistedAerobic(aero, s.stravaId); any = true; }
+    // Splits — treadmill only. Strava computes best_efforts for outdoor GPS runs and never indoors,
+    // so this is the one venue where the fastest 5 km *inside* a run has to be derived here; doing it
+    // outdoors too would just duplicate what the best-efforts scan already stores authoritatively.
+    if (s.løpetype === 'treadmill') {
+      const sp = analyzeTreadmillSplits(streams, BEST_EFFORT_DISTS);
+      if (!sp.insufficientData) { s.stravaAnalysis.splits = this._toPersistedSplits(sp, s.stravaId); any = true; }
+    }
     return any ? 'ok' : 'nodata';
   },
   async analyzeSession(id, opts = {}) {
@@ -4068,8 +4146,9 @@ const Continuity = {
     return Store.data.sessions.filter(s => {
       if (!s || !s.stravaId) return false;
       const sa = s.stravaAnalysis || {};
-      const contStale = s.løpetype === 'utendors' && !this._isCurrent(sa.continuity);
-      return contStale || !this._isAerobicCurrent(sa.aerobic);
+      const contStale   = s.løpetype === 'utendors'  && !this._isCurrent(sa.continuity);
+      const splitsStale = s.løpetype === 'treadmill' && !this._isSplitsCurrent(sa.splits);
+      return contStale || splitsStale || !this._isAerobicCurrent(sa.aerobic);
     }).length;
   },
 
@@ -5755,7 +5834,7 @@ function renderInsights(sessions) {
   // A manual treadmill entry carries no date, so it never fires this.
   const fortnightAgo = localISODaysAgo(14);
   computeDistancePRs(qualitySessions).forEach(r => {
-    [['🏃 ute', r.ute], ['⚙️ inne', r.inne && !r.inne.manual ? r.inne : null]].forEach(([venue, e]) => {
+    [['🏃 ute', r.ute], ['⚙️ inne', r.inne && r.inne.source !== 'manual' ? r.inne : null]].forEach(([venue, e]) => {
       if (!e || !e.d || e.d < fortnightAgo) return;
       candidates.push({ icon: '🏆', val: `Ny ${r.label}-PR ${venue}!`,
         sub: `${secsToHmsShort(e.t)} · ${secsToMmSs(Math.round(e.t / r.km))} /km (${fmtDate(e.d)})`, priority: 5 });
@@ -6503,18 +6582,45 @@ const DetailPanel = {
     if (!Continuity._analyzable(s)) return '';
     const cont = this._continuityBlockHtml(s);   // run/walk block (outdoor + current) or ''
     const aero = this._aerobicBlockHtml(s);       // HR-drift + cadence block (current) or ''
+    const spl  = this._splitsBlockHtml(s);        // fastest splits inside the run (treadmill) or ''
     const msg = `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>`;
-    if (!(cont || aero)) {
+    if (!(cont || aero || spl)) {
       // Nothing current yet — first-time prompt (or everything went stale after a version/threshold bump).
-      const had = s.stravaAnalysis && (s.stravaAnalysis.continuity || s.stravaAnalysis.aerobic);
+      const had = s.stravaAnalysis && (s.stravaAnalysis.continuity || s.stravaAnalysis.aerobic || s.stravaAnalysis.splits);
       const label = '<div class="dp-section-label">Strava-analyse <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
       const stale = had ? ' <span style="color:var(--muted)">· utdatert, kjør på nytt</span>' : '';
       return `${label}<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Estimer løping vs. gange (utendørs) + HR-drift &amp; kadens fra Strava-data (eksperimentelt).${stale}</div>`
         + `<button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}')">🔬 Analyser Strava-data</button>${msg}`;
     }
     const staleNote = Continuity._needsAnalysis(s) ? ` <span style="color:var(--muted);font-size:11px">· noen mål er utdatert</span>` : '';
-    return cont + aero
+    return cont + aero + spl
       + `<div style="margin-top:10px"><button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}', {force:true})">↻ Analyser på nytt</button>${msg}${staleNote}</div>`;
+  },
+
+  // Splits block (no button — the parent owns it). Treadmill only: Strava computes best_efforts for
+  // outdoor GPS runs and never indoors, so this is the one venue where the fastest stretch at each
+  // distance has to be derived here. Unlike the two blocks above this is a MEASUREMENT, not an
+  // estimate — no classification, no smoothing — so it carries no "estimert" tag.
+  _splitsBlockHtml(s) {
+    // Venue guard, not redundant: splits are only ever written for treadmill runs, but nothing
+    // deletes them if the venue is later edited to outdoor — without this they'd linger on a run
+    // that now gets its efforts from Strava instead.
+    if ((s.løpetype || 'utendors') !== 'treadmill') return '';
+    const sp = s.stravaAnalysis && s.stravaAnalysis.splits;
+    if (!Continuity._isSplitsCurrent(sp) || !sp.best) return '';
+    const rows = BEST_EFFORT_DISTS.filter(d => sp.best[d.key] && sp.best[d.key].t > 0);
+    if (!rows.length) return '';
+    const label = '<div class="dp-section-label">Beste splitter i denne økta</div>';
+    const list = rows.map(({ label: l, key, km }) => {
+      const e = sp.best[key];
+      const at = e.startSec > 0 ? `<span style="color:var(--muted);font-size:11px">fra ${secsToHmsShort(e.startSec)}</span>` : '';
+      return `<div style="display:flex;gap:12px;align-items:baseline;padding:4px 0;font-size:12px">`
+        + `<span style="min-width:90px;color:var(--muted)">${l}</span>`
+        + `<b>${secsToHms(e.t)}</b>`
+        + `<span style="color:var(--muted)">${secsToMmSs(Math.round(e.t / km))} /km</span>${at}</div>`;
+    }).join('');
+    const caption = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Raskeste sammenhengende strekning på hver distanse inne i økta — målt fra Strava-data, ikke estimert. Mater ⚙️ Inne under Distanse-PR.</div>`;
+    return `${label}${list}${caption}`;
   },
 
   // Run/walk block (no button — the parent owns it). '' unless outdoor + signed-in + a current result;
@@ -7190,6 +7296,12 @@ function renderDashboard() {
   const venueCell = (icon, entry, extra) => !entry
     ? `<span class="t3-effort t3-venue t3-empty">${icon} –</span>`
     : `<span class="t3-effort t3-venue t3-first">${icon} <b>${secsToHms(entry.t)}</b> <span class="t3-date">(${extra})</span></span>`;
+  // Say how exact the indoor number is: a derived split covers the distance exactly (date alone,
+  // same as the Ute segment column), a whole run only approximately (so show its real distance),
+  // a typed value has no date at all.
+  const inneSourceLabel = e => e.source === 'manual' ? 'manuell'
+    : e.source === 'split' ? fmtDate(e.d)
+    : `${fmtDate(e.d)} · ${(+e.dist).toFixed(2)} km`;
 
   document.getElementById('distPRList').innerHTML = !prRows.length
     ? '<div style="font-size:12px;color:var(--muted)">Ingen distanse-PR ennå — synkroniser fra Strava eller legg inn tredemølle-tider i Innstillinger.</div>'
@@ -7198,7 +7310,7 @@ function renderDashboard() {
           <div class="top3-row">
             <span class="t3-label">${r.label}</span>
             ${venueCell('🏃', r.ute, r.ute ? fmtDate(r.ute.d) : '')}
-            ${venueCell('⚙️', r.inne, r.inne ? (r.inne.manual ? 'manuell' : `${fmtDate(r.inne.d)} · ${(+r.inne.dist).toFixed(2)} km`) : '')}
+            ${venueCell('⚙️', r.inne, r.inne ? inneSourceLabel(r.inne) : '')}
           </div>`).join('')}
       </div>`;
 
@@ -8001,16 +8113,34 @@ function computeDistancePRs(sessions) {
     const top3 = allTop3[key] || [];
     const ute = top3.length ? { t: top3[0].t, d: top3[0].d } : null;
 
+    // Inne has three possible sources, in descending precision. Whichever is FASTEST wins, and the
+    // source is carried through so the cell can say how exact it is.
+    //   'split'  — the fastest continuous stretch at this distance inside any treadmill run, derived
+    //              from the Strava streams. Exact distance, so this is the indoor equivalent of what
+    //              Strava's best_efforts give the Ute column.
+    //   'run'    — a whole treadmill run within ±2 % of the distance. Approximate, hence the cell
+    //              shows the run's real distance alongside the date.
+    //   'manual' — hand-entered in Innstillinger. Carries no date, so it never fires the fresh-PR
+    //              insight and can't anchor Prognose.
+    let inne = null;
+    const better = c => { if (c && c.t > 0 && (!inne || c.t < inne.t)) inne = c; };
+
+    sessions.forEach(s => {
+      if (s.utenforAnalyse || (s.løpetype || 'utendors') !== 'treadmill') return;
+      const e = s.stravaAnalysis && s.stravaAnalysis.splits && s.stravaAnalysis.splits.best
+        ? s.stravaAnalysis.splits.best[key] : null;
+      if (e) better({ t: e.t, d: s.dato, dist: null, source: 'split', startSec: e.startSec });
+    });
+
     const lo = km * (1 - PR_DIST_TOL), hi = km * (1 + PR_DIST_TOL);
     const belt = sessions.reduce((best, s) => {
       if (s.utenforAnalyse || (s.løpetype || 'utendors') !== 'treadmill') return best;
       if (!(s.varighet > 0) || !(s.distanse >= lo && s.distanse <= hi)) return best;
       return !best || s.varighet < best.varighet ? s : best;
     }, null);
+    if (belt) better({ t: belt.varighet, d: belt.dato, dist: belt.distanse, source: 'run' });
 
-    let inne = belt ? { t: belt.varighet, d: belt.dato, dist: belt.distanse, manual: false } : null;
-    const m = manual[key];
-    if (m > 0 && (!inne || m < inne.t)) inne = { t: m, d: null, dist: null, manual: true };
+    better(manual[key] > 0 ? { t: manual[key], d: null, dist: null, source: 'manual' } : null);
 
     return { label, key, km, ute, inne };
   });
