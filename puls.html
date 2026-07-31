@@ -671,7 +671,7 @@
       <div id="distPRList"></div>
       <div id="prognoseSection" style="display:none">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Prognose</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Riegel-estimat for distanser du ennå ikke har løpt — 🏃 Ute og ⚙️ Inne beregnes hver for seg.</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Riegel-estimat for hva du sannsynligvis kan løpe — 🏃 Ute og ⚙️ Inne beregnes hver for seg. En distanse du alt har løpt dukker kun opp her hvis et testløp tilsier at du kan gå raskere.</div>
         <div id="prognoseList"></div>
         <div id="prognoseAnchors" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
       </div>
@@ -7739,24 +7739,46 @@ function renderFormkurve() {
 const INNE_MAX_PROGNOSE_KM = 21.1;
 
 function computePerfCurve(sessions, distPRs) {
+  // `maximal` marks a real all-out effort (a Test/Race) as opposed to a best-effort PR,
+  // which is typically a fast stretch inside an easier run. Only maximal anchors are
+  // trusted to over-rule a distance you have already covered — see `project`.
   const anchorsFor = venue => {
+    const kmLabel = km => `${+(+km).toFixed(1)} km`;   // 10.0 -> "10 km", 10.5 -> "10.5 km"
     const tests = sessions
       .filter(s => !s.utenforAnalyse && (s.okttype === 'Test' || s.okttype === 'Race') &&
                    (s.løpetype || 'utendors') === venue && s.distanse >= 3 && s.varighet > 0)
-      .map(s => ({ km: s.distanse, t: s.varighet, label: `${(+s.distanse).toFixed(1)} km`, d: s.dato }));
+      .map(s => ({ km: s.distanse, t: s.varighet, label: kmLabel(s.distanse), d: s.dato, maximal: true }));
     if (tests.length) return tests;
     // Fall back to the measured PR in the same venue.
     const key = venue === 'treadmill' ? 'inne' : 'ute';
     return distPRs
       .filter(r => r[key] && r.km >= 3)
-      .map(r => ({ km: r.km, t: r[key].t, label: r.label, d: r[key].d }));
+      .map(r => ({ km: r.km, t: r[key].t, label: r.label, d: r[key].d, maximal: false }));
   };
 
-  const project = (anchors, km) => {
-    if (!anchors.length) return null;
-    const a = anchors.reduce((best, x) =>
+  // `measured` = the time already recorded at this distance in this venue, if any.
+  // With none, project freely — that's the "never run it" case where any estimate helps.
+  // With one, a projection is only worth showing when it says something the measurement
+  // cannot: it must come from an all-out effort at a DIFFERENT distance, and it must be
+  // faster. That covers e.g. a 5 km split taken from a run paced for 10 km — the split is
+  // real but sub-maximal, so a 10K test legitimately predicts a quicker standalone 5 km.
+  // Extrapolating from another best-effort instead would be exactly the false precision
+  // the old race-predictor idea was dropped for.
+  const project = (anchors, km, measured) => {
+    let usable = measured
+      ? anchors.filter(a => a.maximal && Math.abs(a.km - km) > 0.01)
+      : anchors;
+    // Riegel extrapolates UP reasonably (10K→marathon is rough but standard) and DOWN
+    // badly: a short race is limited by anaerobic power, not endurance, so projecting
+    // 1 km from a 10K test produced a confident 5:15 that means nothing. Bound the
+    // downward direction at half the anchor distance — 10K→5K is the classic use and
+    // sits exactly on that line.
+    usable = usable.filter(a => km >= a.km * 0.5);
+    if (!usable.length) return null;
+    const a = usable.reduce((best, x) =>
       !best || Math.abs(x.km - km) < Math.abs(best.km - km) ? x : best, null);
     const t = Math.round(a.t * Math.pow(km / a.km, 1.06));
+    if (measured && t >= measured.t) return null;
     return { t, pace: Math.round(t / km), anchorLabel: a.label, anchorDate: a.d };
   };
 
@@ -7765,11 +7787,11 @@ function computePerfCurve(sessions, distPRs) {
   if (!uteAnchors.length && !inneAnchors.length) return [];
 
   return distPRs
-    .filter(r => !r.ute && !r.inne && r.km >= 1)
-    .map(({ label, km }) => ({
+    .filter(r => r.km >= 1)
+    .map(({ label, km, ute, inne }) => ({
       label, km,
-      ute:  project(uteAnchors, km),
-      inne: km <= INNE_MAX_PROGNOSE_KM ? project(inneAnchors, km) : null,
+      ute:  project(uteAnchors, km, ute),
+      inne: km <= INNE_MAX_PROGNOSE_KM ? project(inneAnchors, km, inne) : null,
     }))
     .filter(r => r.ute || r.inne);
 }
