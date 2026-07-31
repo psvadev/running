@@ -3701,7 +3701,7 @@ function analyzeAerobicMetrics(streams, options = {}) {
 // plan's headline number), so scaling would compress a genuinely longer run and make every split come
 // out artificially fast — the exact false-PR failure the guard was meant to prevent. The logged
 // distance is used only to *reject* a run outright (see loggedKm below), never to rescale one.
-const SPLITS_ANALYSIS_VERSION = 3;
+const SPLITS_ANALYSIS_VERSION = 4;
 // A stream that disagrees with the logged distance by more than this is measuring the run with a
 // different ruler, and any split cut from it is fast in the wrong units. Runna-era runs are imported
 // from Strava, so the two agree to rounding; 3 % is far looser than that and far tighter than the
@@ -3781,15 +3781,27 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
       // rather than "the first 5 km".
       while (start < end && dist[end] - dist[start + 1] >= need) start++;
       if (dist[end] - dist[start] < need) continue;
-      // Interpolate inside the final sample so the window is EXACTLY the target distance.
-      // Without this every split reads ~1 s slow, because the last sample overshoots.
+      // Trim the overshoot so the window is EXACTLY the target distance — without it every split
+      // reads ~1 s slow from sample overshoot.
+      //
+      // The overshoot must come off the START of the window, not the end. The loop above advanced
+      // `start` as far as it legally could, so the excess distance sits in the *first* segment, and
+      // the exit condition proves it: dist[end]-dist[start+1] < need gives over < firstSeg, so the
+      // fraction below is always under 1. Converting it at the *last* segment's pace instead — which
+      // is what v1-v3 did — silently costs time whenever the window starts fast and ends slow, i.e.
+      // on every interval session. It reported a 400 m of 1:29 on a belt that never went quicker than
+      // ~13 km/h (floor 1:51), because it charged ~40 m of rep-pace overshoot at walking pace.
+      // Constant pace hides the bug completely (both segments share one pace), which is exactly why
+      // 51 synthetic tests passed over it.
       let t = time[end] - time[start];
-      if (end > 0) {
-        const segM = dist[end] - dist[end - 1];
-        const over = (dist[end] - dist[start]) - need;
-        if (segM > 0 && over > 0) t -= (time[end] - time[end - 1]) * (over / segM);
+      const firstSeg = dist[start + 1] - dist[start];
+      const over = (dist[end] - dist[start]) - need;
+      let startAt = time[start];
+      if (firstSeg > 0 && over > 0) {
+        const frac = (time[start + 1] - time[start]) * (over / firstSeg);
+        t -= frac; startAt += frac;
       }
-      if (t > 0 && (bestT === null || t < bestT)) { bestT = t; bestStart = time[start] - time[0]; }
+      if (t > 0 && (bestT === null || t < bestT)) { bestT = t; bestStart = startAt - time[0]; }
     }
     if (bestT !== null) best[key] = { t: Math.round(bestT), startSec: Math.round(bestStart) };
   }
