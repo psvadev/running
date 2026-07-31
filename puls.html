@@ -240,16 +240,16 @@
   .record-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
   .record-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
   .record-value { font-size: 22px; font-weight: 700; color: var(--accent); }
-  .record-value.estimated { color: var(--muted); }
   .record-sub { font-size: 11px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* Topp 3 · Strava — compact one-line-per-distance on desktop, stacked on mobile */
+  /* Shared row layout for Distanse-PR and Prognose — one compact line per distance on
+     desktop, stacked on mobile. (Named top3-* from the retired Topp 3 list it began as.) */
   .top3-list { display: flex; flex-direction: column; gap: 6px; }
   .top3-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 13px; }
   .top3-row .t3-label { min-width: 90px; font-weight: 600; }
   .top3-row .t3-effort { color: var(--muted); }
   .top3-row .t3-effort.t3-first { color: var(--text); }
   .top3-row .t3-date { font-size: 11px; color: var(--muted); }
-  /* Distanse-PR: fixed venue column so Ute/Inne line up down the list */
+  /* Fixed venue column so Ute/Inne line up down both lists */
   .top3-row .t3-venue { min-width: 200px; }
   .top3-row .t3-venue.t3-empty { color: var(--muted); }
   /* Mobile: stack each distance (label on its own line, medals below). Placed after
@@ -671,8 +671,9 @@
       <div id="distPRList"></div>
       <div id="prognoseSection" style="display:none">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Prognose</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Riegel-estimat fra utendørs tider — distanser du ennå ikke har løpt.</div>
-        <div class="records-grid" id="perfCurveGrid"></div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Riegel-estimat for distanser du ennå ikke har løpt — 🏃 Ute og ⚙️ Inne beregnes hver for seg.</div>
+        <div id="prognoseList"></div>
+        <div id="prognoseAnchors" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
       </div>
       <div id="formkurveSection" style="display:none">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Formkurve · testløp (5K-ekvivalent)</div>
@@ -4922,7 +4923,6 @@ let aeroTrendMetric = 'drift';    // 'drift' (HR-drift %) | 'cadence' (kadens sp
 let aeVenueFilter = 'all';
 let aeZ2Filter = 'all';
 let aeTypeFilter = 'both';   // 'both' (Easy+Long) | 'Easy' | 'Long' — rolige-økter type filter
-let prTop3Open = false;      // Distanse-PR → "Topp 3 utendørs" expander, kept across re-renders
 let paceUnit = 'pace';     // 'pace' | 'kmh' — global unit for all pace charts
 let cachedBlocks = [];
 
@@ -7183,8 +7183,8 @@ function renderDashboard() {
 
   // Distanse-PR: one row per distance, Ute (Strava best effort) beside Inne (treadmill).
   // Two populations, never merged — see DATA.md "Belt vs GPS". The outdoor runners-up
-  // fold into the expander below rather than a second always-on list, so the same 🥇
-  // isn't printed twice on one card.
+  // (🥈🥉) are deliberately NOT shown: #1 already IS this column, and the full ranking is
+  // always a click away in Strava, so mirroring it here was pure duplication.
   const distPRs = computeDistancePRs(Store.data.sessions);
   const prRows = distPRs.filter(r => r.ute || r.inne);
   const venueCell = (icon, entry, extra) => !entry
@@ -7200,29 +7200,39 @@ function renderDashboard() {
             ${venueCell('🏃', r.ute, r.ute ? fmtDate(r.ute.d) : '')}
             ${venueCell('⚙️', r.inne, r.inne ? (r.inne.manual ? 'manuell' : `${fmtDate(r.inne.d)} · ${(+r.inne.dist).toFixed(2)} km`) : '')}
           </div>`).join('')}
-      </div>
-      ${!distPRs.some(r => r.top3.length > 1) ? '' : `
-      <details style="margin-top:12px"${prTop3Open ? ' open' : ''} ontoggle="prTop3Open = this.open">
-        <summary style="cursor:pointer;font-size:11px;color:var(--muted)">Topp 3 utendørs (Strava)</summary>
-        <div class="top3-list" style="margin-top:10px">
-          ${distPRs.filter(r => r.top3.length).map(r => `
-            <div class="top3-row">
-              <span class="t3-label">${r.label}</span>
-              ${r.top3.map((e, i) => `
-                <span class="t3-effort${i === 0 ? ' t3-first' : ''}">
-                  ${['🥇','🥈','🥉'][i]} ${i === 0 ? '<b>' : ''}${secsToHms(e.t)}${i === 0 ? '</b>' : ''}
-                  <span class="t3-date">(${fmtDate(e.d)})</span>
-                </span>`).join('')}
-            </div>`).join('')}
-        </div>
-      </details>`}`;
+      </div>`;
 
-  // Prognose: Riegel projections only for distances with no actual time in either column.
+  // Prognose: same row layout as Distanse-PR, two venue columns projected independently.
+  // An empty cell is blank rather than "–": in Distanse-PR a dash means "not run yet",
+  // whereas an indoor marathon estimate is simply not applicable.
   const prognose = computePerfCurve(Store.data.sessions, distPRs);
   document.getElementById('prognoseSection').style.display = prognose.length ? '' : 'none';
-  document.getElementById('perfCurveGrid').innerHTML = prognose.map(r =>
-    `<div class="record-card"><div class="record-label">${r.label}</div><div class="record-value${r.estimated ? ' estimated' : ''}">${r.value}</div><div class="record-sub">${r.sub}</div></div>`
-  ).join('');
+  const progCell = (icon, e) => !e
+    ? '<span class="t3-effort t3-venue"></span>'
+    : `<span class="t3-effort t3-venue t3-first">${icon} <b>${secsToHms(e.t)}</b> <span class="t3-date">${secsToMmSs(e.pace)} /km</span></span>`;
+
+  document.getElementById('prognoseList').innerHTML = `<div class="top3-list">
+      ${prognose.map(r => `
+        <div class="top3-row">
+          <span class="t3-label">${r.label}</span>
+          ${progCell('🏃', r.ute)}
+          ${progCell('⚙️', r.inne)}
+        </div>`).join('')}
+    </div>`;
+
+  // Anchors once per section, not per row: in winter this is what makes a months-old outdoor
+  // anchor obvious next to a current indoor one, without repeating the same text every line.
+  const anchorNote = (key, venueLabel) => {
+    const used = prognose.map(r => r[key]).filter(Boolean);
+    if (!used.length) return '';
+    const uniq = [...new Set(used.map(e => `${e.anchorLabel}|${e.anchorDate || ''}`))];
+    if (uniq.length > 1) return `${venueLabel} fra nærmeste distanse`;
+    const [lbl, d] = uniq[0].split('|');
+    return `${venueLabel} fra ${lbl}${d ? ` (${fmtDate(d)})` : ''}`;
+  };
+  const anchorParts = [anchorNote('ute', '🏃 Ute'), anchorNote('inne', '⚙️ Inne')].filter(Boolean);
+  document.getElementById('prognoseAnchors').textContent = !anchorParts.length ? ''
+    : `${anchorParts.join(' · ')}. Usikkerheten øker jo lenger unna ankeret distansen ligger.`;
 
   renderFormkurve();
 
@@ -7712,28 +7722,56 @@ function renderFormkurve() {
   });
 }
 
-// Prognose: Riegel projection for the distances you have NOT actually run — anything with
-// a real time lives in Distanse-PR instead, so the two can never show competing numbers.
-// Anchored on OUTDOOR efforts only: belt times read systematically faster (DATA.md "Belt
-// vs GPS"), so a treadmill anchor would over-predict a road race. Prefers a maximal effort
-// (Test/Race) and falls back to the measured outdoor best effort at the nearest distance.
+// Prognose: Riegel projection for the distances you have NOT actually run — anything with a
+// real time lives in Distanse-PR instead, so the two can never show competing numbers.
+//
+// Two independent columns, each anchored in its OWN venue — never blended (DATA.md "Belt vs
+// GPS"). Ute answers "what could I race?", Inne answers "what am I capable of on the belt?",
+// and the latter matters because roughly half the year every run is indoors: an outdoor-only
+// projection sits frozen on last season's efforts through the whole winter while all the
+// actual fitness change is happening on a treadmill.
+//
+// Each column prefers a MAXIMAL effort (Test/Race) in that venue and falls back to the
+// measured best time there. Inne stops at a half marathon — a treadmill marathon projection
+// has no possible use (user's call). Riegel degrades past ~3× the anchor, so 15 km (1.5×) and
+// half (2.1×) are sound while the Ute marathon (4.2×, from a non-maximal anchor) is the
+// softest number on the card; the section caption carries that caveat rather than a badge.
+const INNE_MAX_PROGNOSE_KM = 21.1;
+
 function computePerfCurve(sessions, distPRs) {
-  const anchors = sessions
-    .filter(s => !s.utenforAnalyse && (s.okttype === 'Test' || s.okttype === 'Race') &&
-                 (s.løpetype || 'utendors') === 'utendors' && s.distanse >= 3 && s.varighet > 0)
-    .map(s => ({ km: s.distanse, t: s.varighet }));
+  const anchorsFor = venue => {
+    const tests = sessions
+      .filter(s => !s.utenforAnalyse && (s.okttype === 'Test' || s.okttype === 'Race') &&
+                   (s.løpetype || 'utendors') === venue && s.distanse >= 3 && s.varighet > 0)
+      .map(s => ({ km: s.distanse, t: s.varighet, label: `${(+s.distanse).toFixed(1)} km`, d: s.dato }));
+    if (tests.length) return tests;
+    // Fall back to the measured PR in the same venue.
+    const key = venue === 'treadmill' ? 'inne' : 'ute';
+    return distPRs
+      .filter(r => r[key] && r.km >= 3)
+      .map(r => ({ km: r.km, t: r[key].t, label: r.label, d: r[key].d }));
+  };
 
-  if (!anchors.length) {
-    distPRs.forEach(r => { if (r.ute && r.km >= 3) anchors.push({ km: r.km, t: r.ute.t }); });
-  }
-  if (!anchors.length) return [];
-
-  return distPRs.filter(r => !r.ute && !r.inne && r.km >= 1).map(({ label, km }) => {
+  const project = (anchors, km) => {
+    if (!anchors.length) return null;
     const a = anchors.reduce((best, x) =>
       !best || Math.abs(x.km - km) < Math.abs(best.km - km) ? x : best, null);
-    const t2 = Math.round(a.t * Math.pow(km / a.km, 1.06));
-    return { label, value: secsToHms(t2), sub: `${secsToMmSs(Math.round(t2 / km))} /km · Riegel-estimat`, estimated: true };
-  });
+    const t = Math.round(a.t * Math.pow(km / a.km, 1.06));
+    return { t, pace: Math.round(t / km), anchorLabel: a.label, anchorDate: a.d };
+  };
+
+  const uteAnchors  = anchorsFor('utendors');
+  const inneAnchors = anchorsFor('treadmill');
+  if (!uteAnchors.length && !inneAnchors.length) return [];
+
+  return distPRs
+    .filter(r => !r.ute && !r.inne && r.km >= 1)
+    .map(({ label, km }) => ({
+      label, km,
+      ute:  project(uteAnchors, km),
+      inne: km <= INNE_MAX_PROGNOSE_KM ? project(inneAnchors, km) : null,
+    }))
+    .filter(r => r.ute || r.inne);
 }
 
 function updateStravaFetchVisibility() {
@@ -7952,7 +7990,7 @@ function computeDistancePRs(sessions) {
     const m = manual[key];
     if (m > 0 && (!inne || m < inne.t)) inne = { t: m, d: null, dist: null, manual: true };
 
-    return { label, key, km, ute, inne, top3 };
+    return { label, key, km, ute, inne };
   });
 }
 
