@@ -3701,7 +3701,7 @@ function analyzeAerobicMetrics(streams, options = {}) {
 // plan's headline number), so scaling would compress a genuinely longer run and make every split come
 // out artificially fast — the exact false-PR failure the guard was meant to prevent. The logged
 // distance is used only to *reject* a run outright (see loggedKm below), never to rescale one.
-const SPLITS_ANALYSIS_VERSION = 4;
+const SPLITS_ANALYSIS_VERSION = 5;
 // A stream that disagrees with the logged distance by more than this is measuring the run with a
 // different ruler, and any split cut from it is fast in the wrong units. Runna-era runs are imported
 // from Strava, so the two agree to rounding; 3 % is far looser than that and far tighter than the
@@ -3771,6 +3771,28 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
     };
   }
 
+  // Cumulative MOVING time. Splits have to run on the same clock as everything they sit next to:
+  // a session's `varighet` is Strava's `moving_time` (see the import at #fVarighet), and the ⚙️ Inne
+  // column shows split times and whole-run times in one table. Measuring splits on elapsed time made
+  // the 10K test report a best 5 km of 6:07/km inside a run averaging 6:02/km — the better half
+  // reading slower than the whole, purely because ~50 s of stopped belt landed inside the window and
+  // nothing else on the card counts stopped time. Falls back to elapsed when Strava sends no `moving`
+  // stream. A 5.61 km tempo session logged at 39:13 reported a best 5 km of 38:38, which leaves the
+  // remaining 0.61 km covered in 35 s — 63 km/h, and proof by itself that the two clocks differ.
+  //
+  // Stopped means Strava's `moving` stream says so, OR the belt covered no ground. Either alone is
+  // enough — an interval with zero distance progress is a stopped belt whatever the flag claims, and
+  // indoors that reading is unambiguous: there is no GPS drift to mistake for movement, and even a
+  // slow walk advances ~1 m per sample. Requiring an *exactly* flat interval keeps it conservative,
+  // and it means the analysis still works when Strava sends no `moving` stream at all. Walking is not
+  // stopped and still counts, which is right: a walk break is part of the effort, a paused belt isn't.
+  const stoppedAt = i => (moving ? !movingAt(i) : false) || dist[i] === dist[i - 1];
+  const mtime = new Array(n);
+  mtime[0] = 0;
+  for (let i = 1; i < n; i++) {
+    mtime[i] = mtime[i - 1] + (stoppedAt(i) ? 0 : time[i] - time[i - 1]);
+  }
+
   for (const { key, km } of targets) {
     const need = km * 1000 - EPS_M;
     if (!(totalMeters >= need)) continue;   // never reached this distance — absent, not zero
@@ -3793,13 +3815,16 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
       // ~13 km/h (floor 1:51), because it charged ~40 m of rep-pace overshoot at walking pace.
       // Constant pace hides the bug completely (both segments share one pace), which is exactly why
       // 51 synthetic tests passed over it.
-      let t = time[end] - time[start];
+      // Duration on the moving clock; `startAt` stays on the elapsed clock, because it answers a
+      // different question — where to scrub to in Strava to find this stretch, not how long it took.
+      let t = mtime[end] - mtime[start];
       const firstSeg = dist[start + 1] - dist[start];
       const over = (dist[end] - dist[start]) - need;
       let startAt = time[start];
       if (firstSeg > 0 && over > 0) {
-        const frac = (time[start + 1] - time[start]) * (over / firstSeg);
-        t -= frac; startAt += frac;
+        const frac = over / firstSeg;
+        t -= (mtime[start + 1] - mtime[start]) * frac;
+        startAt += (time[start + 1] - time[start]) * frac;
       }
       if (t > 0 && (bestT === null || t < bestT)) { bestT = t; bestStart = startAt - time[0]; }
     }
