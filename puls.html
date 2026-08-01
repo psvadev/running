@@ -3421,6 +3421,16 @@ const StravaIO = (() => {
 // walking, the longest unbroken running stretch, and how often the runner dropped to a
 // walk — all from GPS-derived speed, never manual entry. Thresholds live here in code
 // (no UI settings) until validated on real activities. Everything is labelled "estimert".
+// Read one stream out of a Strava `key_by_type=true` response. Shared by all three analyses, which
+// each used to define their own copy of this. Tolerates an already-unwrapped array so a caller (or a
+// test harness) can pass bare arrays — that was continuity's local behaviour and is the superset, so
+// adopting it everywhere only widens what is accepted, never rejects anything that worked before.
+function streamArr(streams, k) {
+  if (streams && streams[k] && Array.isArray(streams[k].data)) return streams[k].data;
+  if (streams && Array.isArray(streams[k])) return streams[k];
+  return null;
+}
+
 const CONTINUITY_ANALYSIS_VERSION  = 1;   // bump when the algorithm / output shape changes
 const CONTINUITY_THRESHOLD_VERSION = 2;   // bump when the numeric threshold DEFAULTS below change (v2: 7.0/7.5, calibrated on 4 real runs)
 // Defaults calibrated 2026-07-29 against 4 real outdoor runs: this runner walks ~6–7 km/h
@@ -3456,8 +3466,7 @@ function analyzeRunningContinuity(streams, options = {}) {
   }, extra || {});
 
   // 1. Extract arrays (key_by_type → .data; tolerate an already-unwrapped array).
-  const pick = k => (streams && streams[k] && Array.isArray(streams[k].data)) ? streams[k].data
-                  : (streams && Array.isArray(streams[k]) ? streams[k] : null);
+  const pick = k => streamArr(streams, k);
   const time = pick('time'), distance = pick('distance'), velocity = pick('velocity_smooth');
 
   // 2. Require the three core streams.
@@ -3638,9 +3647,16 @@ function analyzeRunningContinuity(streams, options = {}) {
 const AEROBIC_ANALYSIS_VERSION = 3;
 function analyzeAerobicMetrics(streams, options = {}) {
   const cfg = { minMovingSecondsForDrift: 600, minDriftSamples: 20, cadenceLegDoubleBelow: 120, ...options };
-  const arr = k => (streams && streams[k] && Array.isArray(streams[k].data)) ? streams[k].data : null;
+  const arr = k => streamArr(streams, k);
+  // One shape for both exits, like the sibling analyses. The early return used to carry only two
+  // fields — no `version` above all, and a persisted object without one reads as permanently stale.
+  const result = extra => Object.assign({
+    version: AEROBIC_ANALYSIS_VERSION, hasDecoupling: false, decouplingPercent: null,
+    hasCadence: false, avgCadenceRaw: null, avgCadenceSpm: null,
+    movingTimeSeconds: 0, warnings: [], insufficientData: false,
+  }, extra || {});
   const time = arr('time'), vel = arr('velocity_smooth'), hr = arr('heartrate'), cad = arr('cadence'), moving = arr('moving'), dist = arr('distance');
-  if (!time || !time.length) return { insufficientData: true, warnings: ['Mangler tid-strøm'] };
+  if (!time || !time.length) return result({ insufficientData: true, warnings: ['Mangler tid-strøm'] });
   const n = time.length;
   const warnings = [];
   const isMoving = i => moving ? moving[i] !== false : true;
@@ -3695,7 +3711,7 @@ function analyzeAerobicMetrics(streams, options = {}) {
     if (!vel) warnings.push('Mangler fart-strøm');
   }
 
-  return { version: AEROBIC_ANALYSIS_VERSION, hasDecoupling, decouplingPercent, hasCadence, avgCadenceRaw, avgCadenceSpm, movingTimeSeconds, warnings, insufficientData: false };
+  return result({ hasDecoupling, decouplingPercent, hasCadence, avgCadenceRaw, avgCadenceSpm, movingTimeSeconds, warnings });
 }
 
 // ── Moving-time accounting, shared by the splits and aerobic analyses so they cannot disagree about
@@ -3753,7 +3769,15 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
   // error it admits is ~0.02 %, well under a second on a 30-minute 5 km.
   const EPS_M = 1;
   const cfg = { minSamples: 5, ...options };
-  const arr = k => (streams && streams[k] && Array.isArray(streams[k].data)) ? streams[k].data : null;
+  const arr = k => streamArr(streams, k);
+  // One shape for every exit, like analyzeRunningContinuity's zeroResult above. Three hand-written
+  // object literals were the likeliest place for the next divergence in a function that has been
+  // rewritten six times — and the insufficient-data branch had already lost `totalMeters`, so a caller
+  // reading it without checking insufficientData first got undefined instead of 0.
+  const emptyResult = extra => Object.assign({
+    version: SPLITS_ANALYSIS_VERSION, best: {}, totalMeters: 0,
+    distanceMismatch: false, noCadence: false, warnings: [], insufficientData: false,
+  }, extra || {});
   const time = arr('time'), dist = arr('distance');
   if (!time || !dist || time.length !== dist.length || time.length < cfg.minSamples) {
     const warnings = [];
@@ -3761,7 +3785,7 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
     if (!dist) warnings.push('Mangler distanse-strøm');
     if (time && dist && time.length !== dist.length) warnings.push('Tid og distanse har ulik lengde');
     if (time && dist && time.length < cfg.minSamples) warnings.push('For få datapunkter');
-    return { version: SPLITS_ANALYSIS_VERSION, best: {}, warnings, insufficientData: true };
+    return emptyResult({ warnings, insufficientData: true });
   }
 
   const n = time.length;
@@ -3777,11 +3801,10 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
   // as insufficientData, so it still persists and stamps current — one fetch, never retried.
   const loggedM = cfg.loggedKm > 0 ? cfg.loggedKm * 1000 : null;
   if (loggedM && Math.abs(totalMeters - loggedM) > loggedM * SPLITS_MAX_DIST_MISMATCH) {
-    return {
-      version: SPLITS_ANALYSIS_VERSION, best: {}, totalMeters, distanceMismatch: true,
+    return emptyResult({
+      totalMeters, distanceMismatch: true,
       warnings: [`Strøm ${(totalMeters / 1000).toFixed(2)} km mot logget ${cfg.loggedKm.toFixed(2)} km — for stort avvik til å hente splitter`],
-      insufficientData: false,
-    };
+    });
   }
 
   // Recording-source gate. The distance check above only catches a run that disagrees with *itself*,
@@ -3803,11 +3826,10 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
     if (movingAt(i) && typeof cad[i] === 'number' && cad[i] > 0) hasCadence = true;
   }
   if (!hasCadence) {
-    return {
-      version: SPLITS_ANALYSIS_VERSION, best: {}, totalMeters, noCadence: true,
+    return emptyResult({
+      totalMeters, noCadence: true,
       warnings: ['Ingen kadens — tatt opp uten Runna, så distansen er klokkemålt og ikke fra beltet'],
-      insufficientData: false,
-    };
+    });
   }
 
   // Cumulative MOVING time. Splits have to run on the same clock as everything they sit next to:
@@ -3866,14 +3888,14 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
   }
 
   if (!Object.keys(best).length) warnings.push('Ingen distanse nådd');
-  return { version: SPLITS_ANALYSIS_VERSION, best, totalMeters, warnings, insufficientData: false };
+  return emptyResult({ best, totalMeters, warnings });
 }
 
 // Read a session's duration in seconds. Stored as numeric seconds today (Form.save → hmsToSecs),
 // but legacy rows may hold a "H:MM:SS" string — handle both, like the run/walk reference check.
 function sessionDurationSeconds(s) {
   const v = s && s.varighet;
-  if (typeof v === 'number') return v > 0 ? v : null;
+  if (typeof v === 'number') return isFinite(v) && v > 0 ? v : null;
   if (typeof v === 'string' && v.trim()) { const p = hmsToSecs(v); return p > 0 ? p : null; }
   return null;
 }
@@ -4157,12 +4179,17 @@ const Continuity = {
   _isSplitsCurrent(sp) { return !!sp && sp.version === SPLITS_ANALYSIS_VERSION; },
   // A run needs (re)analysis if its run/walk is stale (outdoor only) OR its aerobic metrics are.
   // Drives the auto-on-save guard, the backfill filter, and the detail-view button.
-  _needsAnalysis(s) {
-    if (!this._analyzable(s)) return false;
+  // What "stale" means, in one place. _needsAnalysis and _pendingCount held identical copies of this,
+  // and splits had to be remembered in both when it was added — with nothing to catch a miss. The two
+  // callers still differ in their OUTER gate (see _pendingCount), which is deliberate.
+  _isStale(s) {
     const sa = s.stravaAnalysis || {};
     const contStale   = s.løpetype === 'utendors'  && !this._isCurrent(sa.continuity);
     const splitsStale = s.løpetype === 'treadmill' && !this._isSplitsCurrent(sa.splits);
     return contStale || splitsStale || !this._isAerobicCurrent(sa.aerobic);
+  },
+  _needsAnalysis(s) {
+    return this._analyzable(s) && this._isStale(s);
   },
   // Effective walk/run speed thresholds: per-user override (Innstillinger → Løpekontinuitet) or defaults.
   thresholds() {
@@ -4173,12 +4200,10 @@ const Continuity = {
     if (run <= walk) run = walk + 0.1;   // run threshold must sit above walk
     return { definiteWalkMaxKmh: walk, definiteRunMinKmh: run };
   },
-  _referenceMovingTime(s) {
-    const v = s && s.varighet;
-    if (typeof v === 'number' && isFinite(v) && v > 0) return v;
-    if (typeof v === 'string' && v.trim()) { const p = hmsToSecs(v); return p > 0 ? p : null; }
-    return null;
-  },
+  // Same question as sessionDurationSeconds, so it asks it there rather than re-deriving. The two had
+  // already drifted (only this one guarded against a non-finite value); that guard now lives in the
+  // shared function, so both agree by construction.
+  _referenceMovingTime(s) { return sessionDurationSeconds(s); },
   _toPersisted(r, sourceActivityId, thr) {
     return {
       version: CONTINUITY_ANALYSIS_VERSION, thresholdVersion: CONTINUITY_THRESHOLD_VERSION,
@@ -4263,13 +4288,7 @@ const Continuity = {
   // How many Strava-linked runs still need analysing — run/walk (outdoor) or aerobic (any venue)
   // (drives the backfill button's label; ignores sign-in so the count is honest even while signed out).
   _pendingCount() {
-    return Store.data.sessions.filter(s => {
-      if (!s || !s.stravaId) return false;
-      const sa = s.stravaAnalysis || {};
-      const contStale   = s.løpetype === 'utendors'  && !this._isCurrent(sa.continuity);
-      const splitsStale = s.løpetype === 'treadmill' && !this._isSplitsCurrent(sa.splits);
-      return contStale || splitsStale || !this._isAerobicCurrent(sa.aerobic);
-    }).length;
+    return Store.data.sessions.filter(s => s && s.stravaId && this._isStale(s)).length;
   },
 
   // One-time backfill: analyse every Strava-linked run that still needs it (run/walk on outdoor +
@@ -8280,7 +8299,7 @@ function computeDistancePRs(sessions) {
       // number the current rules would refuse to produce.
       const sp = s.stravaAnalysis && s.stravaAnalysis.splits;
       const e = Continuity._isSplitsCurrent(sp) && sp.best ? sp.best[key] : null;
-      if (e) better({ t: e.t, d: s.dato, dist: null, source: 'split', startSec: e.startSec });
+      if (e) better({ t: e.t, d: s.dato, dist: null, source: 'split' });
     });
 
     const lo = km * (1 - PR_DIST_TOL), hi = km * (1 + PR_DIST_TOL);
