@@ -4720,6 +4720,13 @@ const Form = {
 
   autoCalcVarighet() {
     if (document.getElementById('fUtenPuls').checked) return;
+    // Strava's moving_time outranks a zone resum. The zone buckets Strava returns are computed over
+    // the WHOLE recording, so summing them silently re-adds the pause that moving_time excludes — on
+    // the 31.07.2026 run that is 39:13 → 43:30, a 4:17 jump, taking tempo and snittkmh with it. And
+    // it needed no edit: this fires on BLUR of a zone field, so tabbing through the form was enough.
+    // The zone sum is a fallback for sessions Strava never filled, never an override for one it did.
+    const fVar = document.getElementById('fVarighet'), sid = document.getElementById('fStravaId');
+    if (sid && sid.value && hmsToSecs(fVar.value) > 0) return;
     const zones = ['fSone1','fSone2','fSone3','fSone4','fSone5'];
     const total = zones.reduce((sum, id) => sum + hmsToSecs(document.getElementById(id).value), 0);
     if (total > 0) {
