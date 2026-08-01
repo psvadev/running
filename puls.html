@@ -3431,7 +3431,7 @@ function streamArr(streams, k) {
   return null;
 }
 
-const CONTINUITY_ANALYSIS_VERSION  = 1;   // bump when the algorithm / output shape changes
+const CONTINUITY_ANALYSIS_VERSION  = 2;   // bump when the algorithm / output shape changes (v2: recording gaps count as stopped)
 const CONTINUITY_THRESHOLD_VERSION = 2;   // bump when the numeric threshold DEFAULTS below change (v2: 7.0/7.5, calibrated on 4 real runs)
 // Defaults calibrated 2026-07-29 against 4 real outdoor runs: this runner walks ~6–7 km/h
 // (brisk) and runs ~8+, so 5.5/6.5 hid the walking. 7.0/7.5 gave a stable ~25–35% walk across
@@ -3512,6 +3512,10 @@ function analyzeRunningContinuity(streams, options = {}) {
     const kmh = smoothAt(i) * 3.6;
     let cls;
     if (movingPresent && moving[i] === false) cls = STOP;
+    // A recording gap: the clock jumps while no ground is covered. Strava's `moving` flag does not
+    // mark these, and `smoothAt` would hand the interval the speed of the samples either side — so
+    // without this test a three-minute stop at a crossing counts as RUN. Must precede the speed test.
+    else if (dt > GAP_MIN_SECONDS && isStoppedInterval(dt, dd)) cls = STOP;
     else if (kmh < cfg.definiteWalkMaxKmh) cls = WALK;
     else if (kmh > cfg.definiteRunMinKmh) cls = RUN;
     else cls = UNCL;
@@ -3714,8 +3718,8 @@ function analyzeAerobicMetrics(streams, options = {}) {
   return result({ hasDecoupling, decouplingPercent, hasCadence, avgCadenceRaw, avgCadenceSpm, movingTimeSeconds, warnings });
 }
 
-// ── Moving-time accounting, shared by the splits and aerobic analyses so they cannot disagree about
-// what counts as running time.
+// ── Standstill detection + moving-time accounting, shared by all three analyses so they cannot
+// disagree about what counts as running time.
 //
 // A recording gap does NOT look like a run of stopped samples. It is a single ordinary sample pair
 // with a big time jump: the clock advances while almost no ground is covered, and no sample exists
@@ -3731,14 +3735,27 @@ function analyzeAerobicMetrics(streams, options = {}) {
 // (3688−69 = 3619 vs 3620 logged; 2610−257 = 2353 vs 2353 logged) — a ground truth computed by
 // someone else's code from the same data.
 const MIN_MOVING_SPEED_MS = 0.5;
+// How long an interval must be before a low-speed reading is read as a recording GAP rather than
+// ordinary sampling. Only the run/walk classifier uses it — see the two callers below.
+const GAP_MIN_SECONDS = 5;
+
+// Did this interval cover essentially no ground for its duration? The bare predicate, so the
+// analyses cannot drift on what "not moving" means. The two callers apply it differently ON PURPOSE:
+// moving-time accounting drops EVERY such interval (that is what reproduces Strava's own
+// moving_time), while the run/walk classifier first requires `dt > GAP_MIN_SECONDS`, because there a
+// false positive is expensive — a stopped segment is never cleaned up as noise, so a single flat GPS
+// second would chop a continuous run in two. Legitimate sparse sampling (Strava smart recording, 10 s
+// apart) survives the conjunction because the speed across it is normal running speed.
+function isStoppedInterval(dt, dm) {
+  if (!(dt > 0)) return true;
+  return !(dm / dt >= MIN_MOVING_SPEED_MS);
+}
+
 function movingSeconds(time, dist, moving, i) {
   const dt = time[i] - time[i - 1];
   if (!(dt > 0)) return 0;
   if (moving && moving[i] === false) return 0;           // trust an explicit flag when there is one
-  if (dist) {                                            // …and the ground covered when there isn't
-    const dm = dist[i] - dist[i - 1];
-    if (!(dm / dt >= MIN_MOVING_SPEED_MS)) return 0;
-  }
+  if (dist && isStoppedInterval(dt, dist[i] - dist[i - 1])) return 0;   // …and the ground covered when there isn't
   return dt;
 }
 
@@ -4432,10 +4449,13 @@ window._testRunningContinuity = function () {
   // (the default is user-tunable / was bumped to 7.0/7.5). Exact-threshold tests override these.
   const sharp = { smoothingWindowSeconds: 0, definiteWalkMaxKmh: 5.5, definiteRunMinKmh: 6.5 };
   // Build key_by_type streams at `hz` from phases [{ kmh, seconds, moving?, grade? }].
+  // A phase of the form { gap: seconds } emits NO samples: the clock jumps and the distance creeps a
+  // couple of metres, which is the shape a real recording gap takes (see isStoppedInterval).
   const synth = (phases, opt = {}) => {
     const hz = opt.hz || 1, dt = 1 / hz; const time = [], distance = [], velocity = [], moving = [], grade = [];
     let t = 0, d = 0;
-    phases.forEach(p => { const v = (p.kmh || 0) / 3.6; const steps = Math.max(1, Math.round(p.seconds * hz));
+    phases.forEach(p => { if (p.gap) { t += p.gap; d += (p.gapMeters != null ? p.gapMeters : 2); return; }
+      const v = (p.kmh || 0) / 3.6; const steps = Math.max(1, Math.round(p.seconds * hz));
       for (let k = 0; k < steps; k++) { time.push(+t.toFixed(3)); distance.push(d); velocity.push(v); moving.push(p.moving === false ? false : true); grade.push(p.grade != null ? p.grade : 0); t += dt; d += v * dt; } });
     time.push(+t.toFixed(3)); distance.push(d); velocity.push(velocity[velocity.length - 1] || 0); moving.push(moving[moving.length - 1] !== false); grade.push(grade[grade.length - 1] || 0);
     const wrap = a => ({ data: a }); const out = { time: wrap(time), distance: wrap(distance), velocity_smooth: wrap(velocity) };
@@ -4479,6 +4499,21 @@ window._testRunningContinuity = function () {
   check('adjacent-short diff-class: 0 transitions', r.runToWalkTransitions === 0, 't=' + r.runToWalkTransitions);
   check('adjacent-short diff-class: walking≈0', r.walkingTimeSeconds === 0, 'w=' + r.walkingTimeSeconds);
   check('adjacent-short diff-class: bridged longest≈128', approx(r.longestContinuousRunSeconds, 128, 3), 'lr=' + r.longestContinuousRunSeconds);
+  // Recording gaps (v2). Strava's `moving` flag never marks these and the smoothed speed either side
+  // is full running speed, so before v2 the whole gap was counted as RUN.
+  r = A(synth([{ kmh: 11, seconds: 60 }, { gap: 180 }, { kmh: 11, seconds: 60 }]), sharp);
+  check('gap: counted as stopped (≈181s)', approx(r.stoppedTimeSeconds, 181, 2), 's=' + r.stoppedTimeSeconds);
+  check('gap: excluded from moving (≈119s)', approx(r.movingTimeSeconds, 119, 2), 'm=' + r.movingTimeSeconds);
+  check('gap: does not inflate running time', approx(r.runningTimeSeconds, 119, 2), 'run=' + r.runningTimeSeconds);
+  check('gap: breaks longest run (≈60s)', approx(r.longestContinuousRunSeconds, 60, 2), 'lr=' + r.longestContinuousRunSeconds);
+  check('gap: 0 run→walk transitions (a pause is not a walk)', r.runToWalkTransitions === 0, 't=' + r.runToWalkTransitions);
+  // …and the two shapes the gap test must NOT misfire on.
+  r = A(synth([{ kmh: 11, seconds: 300 }], { hz: 0.1 }), sharp);
+  check('sparse-but-moving: 10s samples at speed are not stopped', r.stoppedTimeSeconds === 0, 's=' + r.stoppedTimeSeconds);
+  { const fl = synth([{ kmh: 11, seconds: 120 }]); fl.distance.data[60] = fl.distance.data[59];
+    r = A(fl, sharp);
+    check('one flat GPS second: not stopped', r.stoppedTimeSeconds === 0, 's=' + r.stoppedTimeSeconds);
+    check('one flat GPS second: run stays continuous', approx(r.longestContinuousRunSeconds, r.movingTimeSeconds, 2), 'lr=' + r.longestContinuousRunSeconds + ' m=' + r.movingTimeSeconds); }
   r = A(synth([{ kmh: 11, seconds: 150 }], { noMoving: true }), sharp);
   check('no-moving: warns', r.warnings.some(w => /moving/i.test(w)), r.warnings.join('|'));
   check('no-moving: not høy', r.datakvalitet !== 'høy');
