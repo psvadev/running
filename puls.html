@@ -4240,7 +4240,11 @@ const Continuity = {
       walkMaxKmh: thr.definiteWalkMaxKmh, runMinKmh: thr.definiteRunMinKmh,
       movingTimeSeconds: r.movingTimeSeconds, runningTimeSeconds: r.runningTimeSeconds, walkingTimeSeconds: r.walkingTimeSeconds, unclassifiedTimeSeconds: r.unclassifiedTimeSeconds,
       runningRatio: r.runningRatio, walkingRatio: r.walkingRatio, unclassifiedRatio: r.unclassifiedRatio,
-      runningDistanceMeters: r.runningDistanceMeters, walkingDistanceMeters: r.walkingDistanceMeters,
+      // All three distances, to match all three times above. `unclassifiedDistanceMeters` was the one
+      // field the analysis computed and this dropped, which made the stored object unable to answer
+      // "do the classified distances add up to the run?" — the invariant that caught the v3 bug. Read
+      // back as `undefined`, it looked like 16 % of every outdoor run had gone missing.
+      runningDistanceMeters: r.runningDistanceMeters, walkingDistanceMeters: r.walkingDistanceMeters, unclassifiedDistanceMeters: r.unclassifiedDistanceMeters,
       longestContinuousRunSeconds: r.longestContinuousRunSeconds, longestContinuousRunMeters: r.longestContinuousRunMeters,
       runToWalkTransitions: r.runToWalkTransitions,
       uphillWalkingTimeSeconds: r.uphillWalkingTimeSeconds, uphillWalkingDistanceMeters: r.uphillWalkingDistanceMeters,
