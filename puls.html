@@ -6839,11 +6839,11 @@ const DetailPanel = {
       const why = sp.distanceMismatch
         ? `Strava-strømmen måler ${(sp.totalMeters / 1000).toFixed(2)} km mot ${(+s.distanse || 0).toFixed(2)} km logget.`
         : 'Økta har ingen kadens, altså tatt opp uten Runna — da er distansen målt av klokka og ikke av beltet.';
-      return '<div class="dp-section-label">Beste splitter i denne økten</div>'
+      return '<div class="dp-section-label">Beste splits</div>'
         + `<div style="font-size:11px;color:var(--muted)">Ikke hentet — ${why} En split herfra ville blitt for rask og kunne tatt PR-plassen under Distanse-PR.</div>`;
     }
     if (!rows.length) return '';
-    const label = '<div class="dp-section-label">Beste splitter i denne økten</div>';
+    const label = '<div class="dp-section-label">Beste splits</div>';
     const list = rows.map(({ label: l, key, km }) => {
       const e = sp.best[key];
       const at = e.startSec > 0 ? `<span style="color:var(--muted);font-size:11px">fra ${secsToHmsShort(e.startSec)}</span>` : '';
