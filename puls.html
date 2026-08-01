@@ -3892,7 +3892,9 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
 }
 
 // Read a session's duration in seconds. Stored as numeric seconds today (Form.save → hmsToSecs),
-// but legacy rows may hold a "H:MM:SS" string — handle both, like the run/walk reference check.
+// but legacy rows may hold a "H:MM:SS" string — handle both. The single source for this question:
+// Continuity._referenceMovingTime used to re-derive it and had drifted (only that copy rejected a
+// non-finite value), so the guard lives here now and that method delegates.
 function sessionDurationSeconds(s) {
   const v = s && s.varighet;
   if (typeof v === 'number') return isFinite(v) && v > 0 ? v : null;
