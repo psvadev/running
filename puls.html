@@ -3431,7 +3431,7 @@ function streamArr(streams, k) {
   return null;
 }
 
-const CONTINUITY_ANALYSIS_VERSION  = 2;   // bump when the algorithm / output shape changes (v2: recording gaps count as stopped)
+const CONTINUITY_ANALYSIS_VERSION  = 3;   // bump when the algorithm / output shape changes (v2: recording gaps count as stopped · v3: a stop must also have covered no ground)
 const CONTINUITY_THRESHOLD_VERSION = 2;   // bump when the numeric threshold DEFAULTS below change (v2: 7.0/7.5, calibrated on 4 real runs)
 // Defaults calibrated 2026-07-29 against 4 real outdoor runs: this runner walks ~6–7 km/h
 // (brisk) and runs ~8+, so 5.5/6.5 hid the walking. 7.0/7.5 gave a stable ~25–35% walk across
@@ -3510,12 +3510,22 @@ function analyzeRunningContinuity(streams, options = {}) {
     let dd = distance[i + 1] - distance[i];
     if (!(dd >= 0) || !isFinite(dd)) dd = 0;              // GPS jitter can go backwards
     const kmh = smoothAt(i) * 3.6;
+    // v3: a stop must actually have covered no ground. Two independent signals say "stopped" and
+    // they disagree, so neither is trusted alone:
+    //   · Strava's `moving` flag over-reports. On a 32-minute outdoor run it marks 450 s as stopped
+    //     while Strava's OWN `moving_time` for the same activity excludes only 118 s. Trusting it
+    //     dropped 7–25 % of every outdoor run's distance into stopped segments (whose distance is
+    //     discarded in step 7) — 1176 m "covered while standing still" on the worst run. Real walking
+    //     was being counted as a pause, which shrinks the moving-time denominator and inflates Løping%.
+    //   · The flag also UNDER-reports: it never marks a recording gap, where the clock jumps while
+    //     no ground is covered and `smoothAt` would hand the interval the running speed of the
+    //     samples either side — so a three-minute stop at a crossing used to count as RUN.
+    // Ground covered is therefore necessary in both cases; the flag (or gap length) only says which
+    // kind of standstill it is. Must precede the speed test either way.
+    const noGround = isStoppedInterval(dt, dd);
+    const flagged  = movingPresent && moving[i] === false;
     let cls;
-    if (movingPresent && moving[i] === false) cls = STOP;
-    // A recording gap: the clock jumps while no ground is covered. Strava's `moving` flag does not
-    // mark these, and `smoothAt` would hand the interval the speed of the samples either side — so
-    // without this test a three-minute stop at a crossing counts as RUN. Must precede the speed test.
-    else if (dt > GAP_MIN_SECONDS && isStoppedInterval(dt, dd)) cls = STOP;
+    if (noGround && (flagged || dt > GAP_MIN_SECONDS)) cls = STOP;
     else if (kmh < cfg.definiteWalkMaxKmh) cls = WALK;
     else if (kmh > cfg.definiteRunMinKmh) cls = RUN;
     else cls = UNCL;
@@ -4507,6 +4517,22 @@ window._testRunningContinuity = function () {
   check('gap: does not inflate running time', approx(r.runningTimeSeconds, 119, 2), 'run=' + r.runningTimeSeconds);
   check('gap: breaks longest run (≈60s)', approx(r.longestContinuousRunSeconds, 60, 2), 'lr=' + r.longestContinuousRunSeconds);
   check('gap: 0 run→walk transitions (a pause is not a walk)', r.runToWalkTransitions === 0, 't=' + r.runToWalkTransitions);
+  // v3: Strava's `moving` flag marks real movement as stopped (450 s on a 32-min run vs the 118 s its
+  // own moving_time excludes). A flagged interval that COVERED GROUND is not a stop — before v3 the
+  // walking below vanished into a stopped segment, taking its distance with it.
+  r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 4, seconds: 40, moving: false }, { kmh: 11, seconds: 60 }]), sharp);
+  check('flagged-but-moving: not stopped', r.stoppedTimeSeconds === 0, 's=' + r.stoppedTimeSeconds);
+  check('flagged-but-moving: counted as walking (≈40s)', approx(r.walkingTimeSeconds, 40, 2), 'w=' + r.walkingTimeSeconds);
+  check('flagged-but-moving: 1 run→walk transition', r.runToWalkTransitions === 1, 't=' + r.runToWalkTransitions);
+  // THE invariant that exposed this on real data: you cannot cover ground while stopped, so the
+  // classified distances must add up to the whole run. Stopped segments' distance is discarded.
+  { const dist = synth([{ kmh: 11, seconds: 60 }, { kmh: 4, seconds: 40, moving: false }, { kmh: 11, seconds: 60 }]).distance.data;
+    const total = dist[dist.length - 1] - dist[0];
+    const klass = r.runningDistanceMeters + r.walkingDistanceMeters + r.unclassifiedDistanceMeters;
+    check('flagged-but-moving: no distance lost to stopped', approx(klass, total, 1), 'klass=' + klass + ' total=' + total); }
+  // A genuine standstill — flagged AND no ground covered — is still a stop, distance and all.
+  r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 0, seconds: 40, moving: false }, { kmh: 11, seconds: 60 }]), sharp);
+  check('flagged-and-still: stopped (≈40s)', approx(r.stoppedTimeSeconds, 40, 2), 's=' + r.stoppedTimeSeconds);
   // …and the two shapes the gap test must NOT misfire on.
   r = A(synth([{ kmh: 11, seconds: 300 }], { hz: 0.1 }), sharp);
   check('sparse-but-moving: 10s samples at speed are not stopped', r.stoppedTimeSeconds === 0, 's=' + r.stoppedTimeSeconds);
