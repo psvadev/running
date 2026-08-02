@@ -5425,8 +5425,14 @@ const eventLinesPlugin = {
         } else {
           ctx.save();
           ctx.globalAlpha = 0.3; ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
-          const lx = clamp(m.railX);
-          ctx.beginPath(); ctx.moveTo(lx, chartArea.top + 14); ctx.lineTo(lx, chartArea.bottom); ctx.stroke();
+          // A plan span is BOUNDED by two lines rather than shaded (see the fill branch: shading a
+          // plan tinted 17 weeks of every chart — `2f686b6`). Drawing only the start left "where
+          // does the block end?" unanswerable from the chart, which is the whole point of keeping
+          // the boundaries. No second icon: the rail stays uncluttered and the start icon's tooltip
+          // already carries the full range.
+          const lines = [clamp(m.railX)];
+          if (m.bandEnd != null && Math.abs(clamp(m.bandEnd) - clamp(m.railX)) > 1) lines.push(clamp(m.bandEnd));
+          lines.forEach(lx => { ctx.beginPath(); ctx.moveTo(lx, chartArea.top + 14); ctx.lineTo(lx, chartArea.bottom); ctx.stroke(); });
           ctx.restore();
         }
       });
