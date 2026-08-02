@@ -5314,7 +5314,7 @@ function evtTipShow(evts, clientX, clientY) {
       ? planEnds.filter(p => p.endDate === (e.endDate || e.date)).map(p => p.title || 'blokken')
       : [];
     const closesLine = closes.length
-      ? `<br><span style="color:var(--muted);font-size:10px">🏁 Siste økt i «${escapeHtml(closes[0])}»</span>`
+      ? `<br><span style="color:var(--muted);font-size:10px">${EVENT_ICONS.plan} Siste økt i «${escapeHtml(closes[0])}»</span>`
       : '';
     return `<div style="margin:3px 0"><span>${icon}</span> <b>${escapeHtml(e.title || '(uten navn)')}</b><br>` +
            `<span style="color:var(--muted);font-size:10px">${tl} · ${range}</span>${closesLine}</div>`;
