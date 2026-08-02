@@ -6801,7 +6801,12 @@ const DetailPanel = {
       ['Øktbeskrivelse', s.beskrivelse || null],
       ['Notater',        s.notater || null],
     ].filter(([,v]) => v);
-    const table = rows.map(([l,v,raw]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;color:var(--muted)">${l}</span><span>${raw ? v : escapeHtml(v)}</span></div>`).join('');
+    // `white-space:pre-wrap` on the value: Øktbeskrivelse and Notater are multi-line free text
+    // (Runna pushes a whole structured workout — warmup, a repeat block, cooldown), and HTML would
+    // otherwise collapse every newline into a space and run it together as one paragraph. Harmless
+    // on the single-line rows. `flex:1;min-width:0` lets long lines wrap instead of overflowing the
+    // row, which a flex item's default `min-width:auto` would allow.
+    const table = rows.map(([l,v,raw]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;flex:0 0 auto;color:var(--muted)">${l}</span><span style="flex:1;min-width:0;white-space:pre-wrap">${raw ? v : escapeHtml(v)}</span></div>`).join('');
     this.open(s.oktnavn || fmtDate(s.dato), table + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>` : '') + this.stravaAnalysisSectionHtml(s));
   },
 
