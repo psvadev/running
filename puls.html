@@ -5302,12 +5302,22 @@ const EVENT_TYPE_LABEL = {
 function evtTipShow(evts, clientX, clientY) {
   const tip = document.getElementById('evtTooltip');
   if (!tip) return;
+  // A plan's end usually falls on its goal race/test, so the two draw one line and the race icon is
+  // the only thing on the rail there — the boundary is visible but not identified. Name the block
+  // it closes, in the tooltip you'd already open, rather than adding a second icon to the rail.
+  const planEnds = (Store.data.events || []).filter(e => e.type === 'plan' && e.endDate);
   tip.innerHTML = evts.map(e => {
     const icon = EVENT_ICONS[e.type] || EVENT_ICONS.personal;
     const tl = EVENT_TYPE_LABEL[e.type] || 'Annet';
     const range = e.endDate ? `${fmtDate(e.date)} – ${fmtDate(e.endDate)}` : fmtDate(e.date);
+    const closes = e.type !== 'plan'
+      ? planEnds.filter(p => p.endDate === (e.endDate || e.date)).map(p => p.title || 'blokken')
+      : [];
+    const closesLine = closes.length
+      ? `<br><span style="color:var(--muted);font-size:10px">🏁 Siste økt i «${escapeHtml(closes[0])}»</span>`
+      : '';
     return `<div style="margin:3px 0"><span>${icon}</span> <b>${escapeHtml(e.title || '(uten navn)')}</b><br>` +
-           `<span style="color:var(--muted);font-size:10px">${tl} · ${range}</span></div>`;
+           `<span style="color:var(--muted);font-size:10px">${tl} · ${range}</span>${closesLine}</div>`;
   }).join('');
   tip.style.display = 'block';
   tip.style.left = Math.min(clientX + 12, window.innerWidth - 250) + 'px';
@@ -6856,7 +6866,7 @@ const DetailPanel = {
     if (!rows.length && (sp.distanceMismatch || sp.noCadence)) {
       const why = sp.distanceMismatch
         ? `Strava-strømmen måler ${(sp.totalMeters / 1000).toFixed(2)} km mot ${(+s.distanse || 0).toFixed(2)} km logget.`
-        : 'Økta har ingen kadens, altså tatt opp uten Runna — da er distansen målt av klokka og ikke av beltet.';
+        : 'Økten har ingen kadens, altså tatt opp uten Runna — da er distansen målt av klokken og ikke av beltet.';
       return '<div class="dp-section-label">Beste splits</div>'
         + `<div style="font-size:11px;color:var(--muted)">Ikke hentet — ${why} En split herfra ville blitt for rask og kunne tatt PR-plassen under Distanse-PR.</div>`;
     }
@@ -7059,7 +7069,7 @@ const DetailPanel = {
       ${metaBlock}
       ${badgesHtml}
       <div class="dp-section-label">Notat</div>
-      <textarea id="landNoteInput" rows="3" placeholder="Et minne, en rutetips eller en quirk — f.eks. «tredemølla viste mph, ikke km/t»" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
+      <textarea id="landNoteInput" rows="3" placeholder="Et minne, en rutetips eller en quirk — f.eks. «tredemøllen viste mph, ikke km/t»" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
       <div style="margin:6px 0 2px"><button class="btn-secondary btn-sm" id="landNoteSave">Lagre notat</button><span id="landNoteMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span></div>
       <div class="dp-section-label">Øktene</div>${rows || '<div style="color:var(--muted);font-size:12px">Ingen løp logget</div>'}`,
       flag
