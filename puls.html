@@ -5697,13 +5697,73 @@ function renderHeatmap(sessions) {
 }
 
 // Zone-weighted load (weighted minutes) per date — shared by the PMC chart and the
+// Zone-weighted training load for ONE session, in "poeng" (zone minutes × zone weight). Single
+// definition, read by three places that must never disagree about what a week cost: `computeDailyLoad`
+// (PMC curves + the ACWR ramp-rate insight), the weekly Treningsbelastning chart, and the week
+// drill-down. The formula used to be written out verbatim in the first two. Returns 0 for a session
+// with no zone data — HR-less sessions carry no load (documented in DATA.md).
+const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
+function sessionLoadPoints(s) {
+  if (!s || !s.soner || !s.soner.some(v => v > 0)) return 0;
+  return s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
+}
+
+// ── Period roll-ups of the Strava analyses. Each is the SINGLE definition, shared by its trend chart
+// and by the week drill-down, so a drill-down can never disagree with the point that was clicked.
+// Bucket sessions by an arbitrary key, then hand each bucket to a roll-up. Keeps the "how do I group
+// this?" ternary in the chart (which owns the Uke/Måned toggle) and the "what does a period mean?"
+// arithmetic in the roll-up.
+function groupSessionsBy(sessions, keyFn, fn) {
+  const groups = {};
+  sessions.forEach(s => { if (!s || !s.dato) return; const k = keyFn(s); (groups[k] || (groups[k] = [])).push(s); });
+  Object.keys(groups).forEach(k => fn(k, groups[k]));
+}
+
+// Run/walk roll-up. Løping% is derived from `runSec / moveSec` — TIME-WEIGHTED, not the mean of the
+// per-run percentages. Averaging percentages would give a plausible number that quietly differs from
+// the chart, since a 45-minute run and a 20-minute one would count equally. Outdoor-only and
+// version-gated, matching what the trend chart plots.
+function continuityAgg(sessions) {
+  const thr = Continuity.thresholds();
+  const a = { runSec: 0, moveSec: 0, longestM: 0, transitions: 0, n: 0 };
+  sessions.forEach(s => {
+    if (!s || !s.dato || s.løpetype !== 'utendors') return;
+    const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
+    if (!Continuity._isCurrent(c, thr)) return;
+    a.runSec  += c.runningTimeSeconds || 0;
+    a.moveSec += c.movingTimeSeconds || 0;
+    a.longestM = Math.max(a.longestM, c.longestContinuousRunMeters || 0);
+    a.transitions += c.runToWalkTransitions || 0;
+    a.n++;
+  });
+  return a;
+}
+
+// HR-drift / kadens roll-up, split by venue and never blended — treadmill drift sits near 0 while
+// outdoor drifts more, so one average would move with where you ran rather than how you ran.
+function aerobicAgg(sessions, metric) {
+  const isDrift = metric === 'drift';
+  const out = { ute: { sum: 0, n: 0 }, inne: { sum: 0, n: 0 } };
+  sessions.forEach(s => {
+    if (!s || !s.dato) return;
+    const a = s.stravaAnalysis && s.stravaAnalysis.aerobic;
+    if (!Continuity._isAerobicCurrent(a)) return;
+    const val = isDrift ? (a.hasDecoupling ? a.decouplingPercent : null)
+                        : (a.hasCadence   ? a.avgCadenceSpm    : null);
+    if (val == null) return;
+    const b = out[s.løpetype === 'treadmill' ? 'inne' : 'ute'];
+    b.sum += val; b.n++;
+  });
+  return out;
+}
+
 // ACWR ramp-rate insight. HR-less sessions contribute nothing (documented in DATA.md).
 function computeDailyLoad(sessions) {
-  const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
   const dailyLoad = {};
   sessions.forEach(s => {
-    if (!s.dato || !s.soner || !s.soner.some(v => v > 0)) return;
-    const load = s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
+    if (!s.dato) return;
+    const load = sessionLoadPoints(s);
+    if (!load) return;
     dailyLoad[s.dato] = (dailyLoad[s.dato] || 0) + load;
   });
   return dailyLoad;
@@ -6582,7 +6642,7 @@ function renderElevChart(sessions) {
         y: { beginAtZero: true, grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'høydemeter (m)', color: '#7880a0' } }
       },
       responsive: true, maintainAspectRatio: false,
-      onClick: (evt, elements) => { if (elements.length && elevGroupBy === 'week') DetailPanel.openWeek(keys[elements[0].index], Store.data.sessions); }
+      onClick: (evt, elements) => { if (elements.length && elevGroupBy === 'week') DetailPanel.openWeek(keys[elements[0].index], Store.data.sessions, 'elevation'); }
     }
   });
 }
@@ -6599,18 +6659,9 @@ function renderContinuityTrend(sessions) {
   if (!el) return;
 
   const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
-  const thr = Continuity.thresholds();
-  const agg = {};   // periodkey → { runSec, moveSec, longestM }
-  sessions.forEach(s => {
-    if (!s.dato || s.løpetype !== 'utendors') return;
-    const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
-    if (!Continuity._isCurrent(c, thr)) return;
-    const key = contTrendGroupBy === 'week' ? isoWeek(s.dato) : s.dato.slice(0, 7);
-    const a = agg[key] || (agg[key] = { runSec: 0, moveSec: 0, longestM: 0 });
-    a.runSec  += c.runningTimeSeconds || 0;
-    a.moveSec += c.movingTimeSeconds || 0;
-    a.longestM = Math.max(a.longestM, c.longestContinuousRunMeters || 0);
-  });
+  const agg = {};   // periodkey → continuityAgg()
+  groupSessionsBy(sessions, s => contTrendGroupBy === 'week' ? isoWeek(s.dato) : s.dato.slice(0, 7),
+    (key, group) => { const a = continuityAgg(group); if (a.n > 0) agg[key] = a; });
 
   const keys = Object.keys(agg).sort().slice(contTrendGroupBy === 'week' ? -26 : -12);
   const fmtKey = k => contTrendGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
@@ -6656,7 +6707,7 @@ function renderContinuityTrend(sessions) {
           : { beginAtZero: true, grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'km', color: '#7880a0' } }
       },
       responsive: true, maintainAspectRatio: false,
-      onClick: (evt, elements) => { if (elements.length && contTrendGroupBy === 'week') DetailPanel.openWeek(keys[elements[0].index], Store.data.sessions); }
+      onClick: (evt, elements) => { if (elements.length && contTrendGroupBy === 'week') DetailPanel.openWeek(keys[elements[0].index], Store.data.sessions, 'continuity'); }
     }
   });
 }
@@ -6674,20 +6725,9 @@ function renderAeroTrend(sessions) {
 
   const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
   const isDrift = aeroTrendMetric === 'drift';
-  const agg = {};   // periodkey → { ute:{sum,n}, inne:{sum,n} }
-  sessions.forEach(s => {
-    if (!s.dato) return;
-    const a = s.stravaAnalysis && s.stravaAnalysis.aerobic;
-    if (!Continuity._isAerobicCurrent(a)) return;
-    const val = isDrift ? (a.hasDecoupling ? a.decouplingPercent : null)
-                        : (a.hasCadence   ? a.avgCadenceSpm    : null);
-    if (val == null) return;
-    const key = aeroTrendGroupBy === 'week' ? isoWeek(s.dato) : s.dato.slice(0, 7);
-    const venue = s.løpetype === 'treadmill' ? 'inne' : 'ute';
-    const bucket = agg[key] || (agg[key] = { ute: { sum: 0, n: 0 }, inne: { sum: 0, n: 0 } });
-    bucket[venue].sum += val;
-    bucket[venue].n++;
-  });
+  const agg = {};   // periodkey → aerobicAgg()
+  groupSessionsBy(sessions, s => aeroTrendGroupBy === 'week' ? isoWeek(s.dato) : s.dato.slice(0, 7),
+    (key, group) => { const a = aerobicAgg(group, aeroTrendMetric); if (a.ute.n || a.inne.n) agg[key] = a; });
 
   const keys = Object.keys(agg).sort().slice(aeroTrendGroupBy === 'week' ? -26 : -12);
   const fmtKey = k => aeroTrendGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
@@ -6741,7 +6781,7 @@ function renderAeroTrend(sessions) {
           : { grid: { color: '#2e3248' }, ticks: { color: '#7880a0', callback: v => v + ' spm' }, title: { display: true, text: 'kadens (spm)', color: '#7880a0' } }
       },
       responsive: true, maintainAspectRatio: false,
-      onClick: (evt, elements) => { if (elements.length && aeroTrendGroupBy === 'week') DetailPanel.openWeek(keys[elements[0].index], Store.data.sessions); }
+      onClick: (evt, elements) => { if (elements.length && aeroTrendGroupBy === 'week') DetailPanel.openWeek(keys[elements[0].index], Store.data.sessions, 'aerobic'); }
     }
   });
 }
@@ -6749,6 +6789,100 @@ function renderAeroTrend(sessions) {
 // ═══════════════════════════════════════════════════════
 // DETAIL PANEL
 // ═══════════════════════════════════════════════════════
+// The Treningsbelastning chart's "4-ukers snitt" is the mean of this week plus the three previous
+// weeks THAT HAVE DATA, over the same last-26 window the chart plots, each week rounded before
+// averaging. Reproduced exactly here so the drill-down quotes the number the line actually shows.
+function load4WeekAvg(sessions, isoWk) {
+  const byWeek = {};
+  sessions.forEach(s => {
+    if (!s || !s.dato) return;
+    const p = sessionLoadPoints(s);
+    if (!p) return;
+    const wk = s.uke || isoWeek(s.dato);
+    byWeek[wk] = (byWeek[wk] || 0) + p;
+  });
+  const weeks = Object.keys(byWeek).sort().slice(-26);
+  const i = weeks.indexOf(isoWk);
+  if (i < 0) return null;
+  const slice = weeks.slice(Math.max(0, i - 3), i + 1).map(w => +byWeek[w].toFixed(0));
+  return slice.reduce((a, b) => a + b, 0) / slice.length;
+}
+
+// ── Contextual add-ons for the week drill-down, keyed by the chart the click came from. Without
+// these every chart opened the identical panel, so clicking a Run/walk point said nothing about
+// run/walk. Each entry reuses the SAME roll-up its chart plots (`continuityAgg`, `aerobicAgg`,
+// `sessionLoadPoints`) rather than re-deriving it — the panel must never contradict the point that
+// was clicked. A context with nothing for that week renders nothing at all, never a row of zeros.
+// `perRun` returns null for a session the metric doesn't apply to (a treadmill run under run/walk),
+// which shows as "–" so an absent value can't read as a real one.
+const WEEK_CONTEXTS = {
+  continuity: {
+    label: () => 'Run/walk denne uken',
+    stats(ws) {
+      const a = continuityAgg(ws);
+      if (!a.n || !a.moveSec) return null;
+      return [
+        { v: Math.round((a.runSec / a.moveSec) * 100) + '%', l: 'løping' },
+        { v: (a.longestM / 1000).toFixed(2) + ' km',         l: 'lengste løp' },
+        { v: a.transitions,                                  l: 'overganger' },
+        { v: a.n,                                            l: 'løp analysert' },
+      ];
+    },
+    perRun(s) {
+      const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
+      if (s.løpetype !== 'utendors' || !Continuity._isCurrent(c, Continuity.thresholds())) return null;
+      return Math.round((c.runningRatio || 0) * 100) + '% løping';
+    },
+  },
+  aerobic: {
+    label: () => aeroTrendMetric === 'drift' ? 'HR-drift denne uken' : 'Kadens denne uken',
+    stats(ws) {
+      const a = aerobicAgg(ws, aeroTrendMetric);
+      const isDrift = aeroTrendMetric === 'drift';
+      const fmt = b => { const m = b.sum / b.n; return isDrift ? (m > 0 ? '+' : '') + m.toFixed(1) + '%' : Math.round(m) + ' spm'; };
+      const out = [];
+      if (a.ute.n)  out.push({ v: fmt(a.ute),  l: `🏃 ute · ${a.ute.n} løp` });
+      if (a.inne.n) out.push({ v: fmt(a.inne), l: `⚙️ inne · ${a.inne.n} løp` });
+      return out.length ? out : null;
+    },
+    perRun(s) {
+      const a = s.stravaAnalysis && s.stravaAnalysis.aerobic;
+      if (!Continuity._isAerobicCurrent(a)) return null;
+      if (aeroTrendMetric === 'drift') return a.hasDecoupling ? (a.decouplingPercent > 0 ? '+' : '') + a.decouplingPercent.toFixed(1) + '%' : null;
+      return a.hasCadence ? Math.round(a.avgCadenceSpm) + ' spm' : null;
+    },
+  },
+  elevation: {
+    label: () => 'Høydemeter denne uken',
+    stats(ws) {
+      // Outdoor-only, matching the chart's own filter — a treadmill incline is not elevation gain.
+      const outdoor = ws.filter(s => (s.løpetype || 'utendors') !== 'treadmill' && s.hoydeMeter > 0);
+      if (!outdoor.length) return null;
+      const total = outdoor.reduce((sum, s) => sum + (s.hoydeMeter || 0), 0);
+      return [
+        { v: Math.round(total).toLocaleString('nb-NO') + ' m', l: 'stigning' },
+        { v: outdoor.length,                                   l: 'utendørsløp' },
+      ];
+    },
+    perRun(s) {
+      if ((s.løpetype || 'utendors') === 'treadmill' || !s.hoydeMeter) return null;
+      return Math.round(s.hoydeMeter) + ' m';
+    },
+  },
+  load: {
+    label: () => 'Belastning denne uken',
+    stats(ws, isoWk, all) {
+      const pts = ws.reduce((sum, s) => sum + sessionLoadPoints(s), 0);
+      if (!pts) return null;
+      const out = [{ v: Math.round(pts) + ' p', l: 'belastning' }];
+      const avg = load4WeekAvg(all, isoWk);
+      if (avg != null) out.push({ v: Math.round(avg) + ' p', l: '4-ukers snitt' });
+      return out;
+    },
+    perRun(s) { const p = sessionLoadPoints(s); return p ? Math.round(p) + ' p' : null; },
+  },
+};
+
 const DetailPanel = {
   open(title, html, flagUrl) {
     const t = document.getElementById('detailTitle');
@@ -6763,7 +6897,10 @@ const DetailPanel = {
     document.getElementById('detailModal').classList.remove('open');
   },
 
-  openWeek(isoWk, allSessions) {
+  // `ctx` (optional) names the chart the click came from — see WEEK_CONTEXTS. Callers that aren't a
+  // chart (heatmap, the Ukentlig oversikt row, the "Beste uke" link) pass nothing and get the plain
+  // panel exactly as before.
+  openWeek(isoWk, allSessions, ctx) {
     const weekSessions = allSessions.filter(s => (s.uke || isoWeek(s.dato)) === isoWk);
     const [yr, wn] = isoWk.split('-');
     const totalKm   = weekSessions.reduce((s,x) => s+(x.distanse||0), 0);
@@ -6777,18 +6914,32 @@ const DetailPanel = {
       ...(avgPace ? [{ v: secsToMmSs(avgPace)+' /km', l: 'snitt tempo' }] : []),
       ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
     ];
+    const statRow = rows => `<div class="dp-stat-row">${rows.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>`;
+
+    const c = ctx && WEEK_CONTEXTS[ctx];
+    const extra = c && c.stats(weekSessions, isoWk, allSessions);
+    const ctxBlock = (extra && extra.length)
+      ? `<div class="dp-section-label">${c.label()}</div>${statRow(extra)}` : '';
+
+    // The metric takes the shoe column's place rather than adding a sixth — the row has to stay
+    // within 402 px, and no information is lost since the week's shoes are listed just above.
+    const lastCol = c
+      ? (s => { const v = c.perRun(s); return `<span style="min-width:80px;color:var(--muted);text-align:right;font-size:11px">${v == null ? '–' : escapeHtml(String(v))}</span>`; })
+      : (s => s.sko ? `<span style="min-width:80px;color:var(--muted);text-align:right;font-size:11px">${escapeHtml(s.sko)}</span>` : '');
+
     const sessionRows = weekSessions.slice().sort((a,b)=>a.dato.localeCompare(b.dato)).map(s =>
       `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
         <span style="min-width:80px;color:var(--muted)">${fmtDate(s.dato)}</span>
         <span style="flex:1">${escapeHtml(s.oktnavn || s.okttype || '–')}</span>
         <span style="min-width:50px;text-align:right">${(s.distanse||0).toFixed(1)} km</span>
         <span style="min-width:54px;text-align:right;color:var(--muted)">${secsToHms(s.varighet)}</span>
-        ${s.sko ? `<span style="min-width:80px;color:var(--muted);text-align:right;font-size:11px">${escapeHtml(s.sko)}</span>` : ''}
+        ${lastCol(s)}
       </div>`
     ).join('');
     this.open(`Uke ${wn}, ${yr}`, `
-      <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      ${statRow(stats)}
       ${shoes.length ? `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sko: ${escapeHtml(shoes.join(', '))}</div>` : ''}
+      ${ctxBlock}
       <div class="dp-section-label">Øktene</div>
       ${sessionRows || '<div style="color:var(--muted);font-size:12px">Ingen løp</div>'}`
     );
@@ -7609,8 +7760,8 @@ function renderDashboard() {
 
   renderFormkurve();
 
-  // Training load per week (zone minutes × zone weight, summed per week)
-  const ZONE_WEIGHTS = [1, 2, 3, 4, 5];
+  // Training load per week — via the shared `sessionLoadPoints`, so this bar, the ACWR insight and
+  // the week drill-down can never disagree about what a week cost.
   const loadWeekMap = {};
   const loadWeekDetails = {};
   sessions.forEach(s => {
@@ -7619,8 +7770,9 @@ function renderDashboard() {
     loadWeekDetails[wk].km   += s.distanse||0;
     loadWeekDetails[wk].runs += 1;
     loadWeekDetails[wk].secs += s.varighet||0;
-    if (!s.soner || !s.soner.some(v => v > 0)) return;
-    loadWeekMap[wk] = (loadWeekMap[wk] || 0) + s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
+    const load = sessionLoadPoints(s);
+    if (!load) return;
+    loadWeekMap[wk] = (loadWeekMap[wk] || 0) + load;
   });
   const loadWeeks = Object.keys(loadWeekMap).sort().slice(-26);
   const loadValues = loadWeeks.map(w => +loadWeekMap[w].toFixed(0));
@@ -7669,7 +7821,7 @@ function renderDashboard() {
         x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
         y: { grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'poeng', color: '#7880a0' } }
       },
-      onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(loadWeeks[elements[0].index], Store.data.sessions); },
+      onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(loadWeeks[elements[0].index], Store.data.sessions, 'load'); },
       responsive: true, maintainAspectRatio: false
     }
   });
