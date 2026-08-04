@@ -6383,6 +6383,9 @@ function computeBlocks(allSessions) {
     const startAbs        = absWeekNum(startDate);
     const endAbs          = absWeekNum(metricEnd);   // to now for an active block — future weeks aren't missed
     const activeAbsWeeks  = new Set(blockSessions.filter(s=>s.dato).map(s=>absWeekNum(s.dato)));
+    // Calendar weeks the block touches, inclusive — the same clock `activeAbsWeeks` counts on, so the
+    // two are comparable. Not `round(days/7)`: a block starting mid-week touches one more calendar week
+    // than it spans 7-day periods, which read as "3/2 uker med løping" next to a 100% score.
     const blockSpanWeeks  = Math.max(endAbs - startAbs + 1, 1);
     const consistencyScore = Math.round((activeAbsWeeks.size / blockSpanWeeks) * 100);
 
@@ -6397,7 +6400,7 @@ function computeBlocks(allSessions) {
 
     return { id:evt.id, title:evt.title, startDate, endDate, endIsOpen, weeks, totalKm, totalSecs, runs,
              avgKmWeek: totalKm/elapsedWeeks, avgRunsWeek: runs/elapsedWeeks, avgPace, avgHR,
-             bestWeekKm, longestRun, consistencyScore, indoorKm, outdoorKm,
+             bestWeekKm, longestRun, consistencyScore, spanWeeks: blockSpanWeeks, indoorKm, outdoorKm,
              shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget,
              targetTotalKm: evt.targetTotalKm || null,
              weeklyKm: Object.keys(weekKm).sort().map(w => weekKm[w]) };
@@ -7285,7 +7288,7 @@ const DetailPanel = {
   openBlock(block) {
     const { id, title, startDate, endDate, endIsOpen, weeks, totalKm, totalSecs, runs,
             avgKmWeek, avgPace, avgHR,
-            consistencyScore, indoorKm, outdoorKm, shoes,
+            consistencyScore, spanWeeks, indoorKm, outdoorKm, shoes,
             targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget } = block;
     const isCurrent = endDate >= localISODate();
 
@@ -7376,10 +7379,8 @@ const DetailPanel = {
 
     const cm        = consistencyMeta(consistencyScore);
     const consPct   = Math.min(100, consistencyScore);
-    // Elapsed span for an active block (matches the elapsed-based consistencyScore) — future weeks
-    // aren't counted as missed; a completed block uses its full span (endDate == metricEnd).
-    const spanEnd   = isCurrent ? localISODate() : endDate;
-    const spanWeeks = Math.max(Math.round((new Date(spanEnd)-new Date(startDate))/(7*86400000)), 1);
+    // `spanWeeks` comes from the block itself so this line and the % above it share a denominator —
+    // calendar weeks touched, counted only up to *now* for an active block (future weeks aren't missed).
     const consLines = [
       `${activeAbsArr.length}/${spanWeeks} uker med løping`,
       maxStreak > 1 ? `Lengste streak: ${maxStreak} uker på rad` : null,
