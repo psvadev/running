@@ -6831,7 +6831,7 @@ const WEEK_CONTEXTS = {
     perRun(s) {
       const c = s.stravaAnalysis && s.stravaAnalysis.continuity;
       if (s.løpetype !== 'utendors' || !Continuity._isCurrent(c, Continuity.thresholds())) return null;
-      return Math.round((c.runningRatio || 0) * 100) + '% løping';
+      return Math.round((c.runningRatio || 0) * 100) + '%';   // the section label above supplies the noun
     },
   },
   aerobic: {
@@ -6923,14 +6923,18 @@ const DetailPanel = {
 
     // The metric takes the shoe column's place rather than adding a sixth — the row has to stay
     // within 402 px, and no information is lost since the week's shoes are listed just above.
+    // `flex:0 0 auto` + `nowrap` on the metric: it must never be clipped ("54% løpin" is worse than a
+    // truncated session name), so it wins the width fight against the name, which truncates with an
+    // ellipsis and keeps its full text in a tooltip. The shoe column may still shrink — it is
+    // redundant with the "Sko:" line above.
     const lastCol = c
-      ? (s => { const v = c.perRun(s); return `<span style="min-width:80px;color:var(--muted);text-align:right;font-size:11px">${v == null ? '–' : escapeHtml(String(v))}</span>`; })
+      ? (s => { const v = c.perRun(s); return `<span style="flex:0 0 auto;white-space:nowrap;color:var(--muted);text-align:right;font-size:11px">${v == null ? '–' : escapeHtml(String(v))}</span>`; })
       : (s => s.sko ? `<span style="min-width:80px;color:var(--muted);text-align:right;font-size:11px">${escapeHtml(s.sko)}</span>` : '');
 
     const sessionRows = weekSessions.slice().sort((a,b)=>a.dato.localeCompare(b.dato)).map(s =>
       `<div class="dp-session-row" onclick="DetailPanel.openSession('${s.id}')">
         <span style="min-width:80px;color:var(--muted)">${fmtDate(s.dato)}</span>
-        <span style="flex:1">${escapeHtml(s.oktnavn || s.okttype || '–')}</span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(s.oktnavn || s.okttype || '–')}">${escapeHtml(s.oktnavn || s.okttype || '–')}</span>
         <span style="min-width:50px;text-align:right">${(s.distanse||0).toFixed(1)} km</span>
         <span style="min-width:54px;text-align:right;color:var(--muted)">${secsToHms(s.varighet)}</span>
         ${lastCol(s)}
