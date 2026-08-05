@@ -8572,9 +8572,6 @@ const StravaBestEfforts = {
   MAX_CALLS_PER_BATCH: 80,
   _nameMap: { '400m':'400m', '1k':'1k', '5k':'5k', '10k':'10k', '15k':'15k', 'half-marathon':'half', 'marathon':'marathon' },
 
-  _found() { try { return JSON.parse(localStorage.getItem('pulsStravaBEFound') || '{}'); } catch { return {}; } },
-  _saveFound(f) { localStorage.setItem('pulsStravaBEFound', JSON.stringify(f)); },
-
   // Top-3 recorded efforts per distance ({ t: seconds, d: 'YYYY-MM-DD' }, fastest first).
   // Collected during the same scan; localStorage is the scan-progress buffer, the result is
   // committed to Store.data.bestEffortsTop3 — whose #1 IS the 🏃 Ute column in Distanse-PR.
@@ -8639,7 +8636,6 @@ const StravaBestEfforts = {
     const setMsg = t => { if (msgEl) msgEl.textContent = t; };
     if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava i Innstillinger først'); return; }
 
-    const found = this._found();
     // Seed the scan buffer from the committed (Drive-synced) set too, so a device whose
     // local buffer is empty/partial builds on the full history instead of a thin subset.
     const top3 = this._mergeTop3(Store.data.bestEffortsTop3 || {}, this._top3());
@@ -8648,7 +8644,7 @@ const StravaBestEfforts = {
 
     // One-time: top-3 collection was added after the original scan shipped — if a full
     // scan completed without it, restart the historical pass so every effort gets a date.
-    // (found/top3 dedupe re-seen efforts, so re-scanning is safe; the after-watermark stays.)
+    // (top3 dedupes re-seen efforts, so re-scanning is safe; the after-watermark stays.)
     if (complete && !Object.keys(top3).length && !Store.data.bestEffortsTop3) {
       complete = false;
       cursorBefore = undefined;
@@ -8694,7 +8690,6 @@ const StravaBestEfforts = {
           const detail = await StravaIO.fetchActivityDetail(act.id);
           calls++; scanned++;
           if (detail && detail.error === 429) {
-            this._saveFound(found);
             this._saveTop3(top3);
             this._commitTop3();
             setMsg(`Nådd Strava-grense — prøv igjen om ~15 min (${scanned} skannet)`);
@@ -8704,7 +8699,6 @@ const StravaBestEfforts = {
             detail.best_efforts.forEach(be => {
               const key = this._nameMap[(be.name || '').toLowerCase()];
               if (!key) return;
-              if (!found[key] || be.moving_time < found[key]) found[key] = be.moving_time;
               const date = (be.start_date_local || detail.start_date_local || '').slice(0, 10);
               const list = top3[key] || [];
               if (!list.some(e => e.t === be.moving_time && e.d === date)) {
@@ -8714,7 +8708,6 @@ const StravaBestEfforts = {
               }
             });
           }
-          this._saveFound(found);
           this._saveTop3(top3);
         }
 
@@ -8740,8 +8733,9 @@ const StravaBestEfforts = {
   // number — exactly what DATA.md "Belt vs GPS" forbids — and produced a third, venue-less
   // figure per distance. Outdoor now flows straight to the Ute column via bestEffortsTop3, and
   // the hand-entry store it used to write to was itself removed 2026-08-05, so this scan is the
-  // only writer of PR data left. `_found`/`pulsStravaBEFound` is kept as the scan's single-best
-  // buffer (harmless, and cheap to keep the scan loop unchanged).
+  // only writer of PR data left. The `_found`/`pulsStravaBEFound` buffer that fed that merge —
+  // one dateless best per distance — went the same day: `top3` holds the same times WITH dates,
+  // so nothing read it. Any leftover localStorage key is inert.
 };
 
 // ═══════════════════════════════════════════════════════
