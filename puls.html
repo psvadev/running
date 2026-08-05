@@ -6013,15 +6013,20 @@ function renderInsights(sessions) {
     }
   }
 
-  // Easy run compliance: % of Runna Easy runs with avg HR inside Zone 2
+  // Easy run compliance: % of Runna Easy runs with avg HR inside Zone 2, over the LAST 8 WEEKS
+  // (`w8ago`, the same window the pace/HR/RPE trends use). This was all-time until 2026-08-05,
+  // which made it useless for the thing it exists to answer: every past run diluted each new
+  // one, so improving control barely moved the number. A rolling window tracks what you are
+  // doing now. Below the 3-run minimum the card simply doesn't appear — too little recent data
+  // to judge is a real answer, and reaching further back to fill the card is what broke it.
   const z2 = (Store.data.settings?.zones || [])[1];
-  const easyWithHR = qualitySessions.filter(s => s.okttype === 'Easy' && s.treningsplan === 'Runna' && s.gjsnittspuls > 0);
+  const easyWithHR = qualitySessions.filter(s => s.okttype === 'Easy' && s.treningsplan === 'Runna' && s.gjsnittspuls > 0 && s.dato >= w8ago);
   if (easyWithHR.length >= 3 && z2?.min && z2?.max) {
     const inZ2  = easyWithHR.filter(s => s.gjsnittspuls >= z2.min && s.gjsnittspuls <= z2.max).length;
     const pct   = Math.round(inZ2 / easyWithHR.length * 100);
     const avgHR = Math.round(easyWithHR.reduce((sum, s) => sum + s.gjsnittspuls, 0) / easyWithHR.length);
     const label = pct >= 75 ? 'god kontroll' : pct >= 50 ? 'litt høy' : 'ofte for høy';
-    candidates.push({ icon:'🫀', val:`${pct}% Easy i sone 2`, sub:`${inZ2} av ${easyWithHR.length} Runna Easy-løp · snitt ${avgHR} bpm · ${label}`, priority: pct < 50 ? 3 : 2 });
+    candidates.push({ icon:'🫀', val:`${pct}% Easy i sone 2`, sub:`${inZ2} av ${easyWithHR.length} Runna Easy siste 8 uker · snitt ${avgHR} bpm · ${label}`, priority: pct < 50 ? 3 : 2 });
   }
 
   // Days since last run (show if >= 10 days)
