@@ -5982,25 +5982,20 @@ function renderInsights(sessions) {
       priority: km >= urgentAt ? 4 : 3 });
   });
 
-  // Heaviest 4-week training block
-  const loadByWeek = {};
-  sessions.forEach(s => {
-    if (!s.soner) return;
-    const w = s.uke || isoWeek(s.dato);
-    loadByWeek[w] = (loadByWeek[w] || 0) + s.soner.reduce((sum, secs, i) => sum + (secs || 0) * [1,2,3,4,5][i], 0) / 60;
-  });
-  const sortedWks = Object.keys(loadByWeek).sort();
-  let maxBlock = 0;
-  for (let i = 0; i + 3 < sortedWks.length; i++) {
-    const b4 = [0,1,2,3].reduce((s, j) => s + (loadByWeek[sortedWks[i+j]] || 0), 0);
-    if (b4 > maxBlock) maxBlock = b4;
-  }
+  // (The "heaviest 4-week block" computation that used to sit here was removed 2026-08-05: its
+  // card went in the 2026-07-17 declutter — an abstract points figure nobody could read at a
+  // glance — but the loop kept running on every dashboard render, producing a value nothing
+  // read. Deleted with the card is the rule; see the load chart for the surviving use.)
 
-  // Fastest Easy session
+  // Fastest Easy session — only while it's news. Same event gate as the km milestone: a pace
+  // record set months ago is a statistic, and Rekorder's "Beste Easy pace" tile already carries
+  // it permanently. Emitting it unconditionally at a low priority just padded the card.
   const easyWithPace = qualitySessions.filter(s => s.okttype === 'Easy' && s.tempo > 0);
   if (easyWithPace.length) {
     const fastest = easyWithPace.reduce((a, s) => s.tempo < a.tempo ? s : a);
-    candidates.push({ icon:'💨', val:secsToMmSs(fastest.tempo)+' /km', sub:`raskeste Easy (${fmtDate(fastest.dato)})`, priority: fastest.dato >= thirtyDaysAgo ? 4 : 2 });
+    if (fastest.dato >= thirtyDaysAgo) {
+      candidates.push({ icon:'💨', val:secsToMmSs(fastest.tempo)+' /km', sub:`raskeste Easy (${fmtDate(fastest.dato)})`, priority: 4 });
+    }
   }
 
   // Easy pace trend: last 8 weeks vs prior 8 weeks (show if >= 3% change)
