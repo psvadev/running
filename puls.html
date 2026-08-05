@@ -1117,15 +1117,12 @@
     </div>
   </div>
 
-  <!-- Tredemølle-PR -->
+  <!-- Distanse-PR -->
   <div class="card" style="margin-bottom:16px">
-    <div class="card-title">Tredemølle-PR</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><b>Reservefelt.</b> Tredemølle-tider regnes normalt ut automatisk: for hver tredemølle-økt som er koblet til Strava <i>og analysert</i> finner Puls den raskeste sammenhengende strekningen på hver distanse, akkurat som Strava gjør for utendørsløp. Du trenger bare fylle inn her for økter Puls ikke ser — treningsstudio-økter du ikke har lastet opp, eller løp uten Strava-kobling. Format: mm:ss eller h:mm:ss.<br>En raskere automatisk split — eller en logget tredemølle-økt på (nær) samme distanse — overtar <i>visningen</i>, men verdien her blir stående og dukker opp igjen hvis den automatiske forsvinner. Tøm den derfor når den er erstattet. Merk også at en verdi lagt inn her ikke har dato, og derfor verken gir PR-varsel eller kan brukes som anker i Prognose.<br><b>Utendørs kommer av seg selv</b> fra Strava — legg <i>ikke</i> inn GPS-tider her.</p>
-    <div id="bestEffortsForm"></div>
-    <button class="btn" style="margin-top:10px" onclick="Settings.saveBestEfforts()">Lagre</button>
-    <span id="bestEffortsMsg" style="font-size:12px;color:var(--green);margin-left:10px"></span>
+    <div class="card-title">Distanse-PR</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Begge kolonnene regnes ut automatisk fra løpene dine — ingenting skal fylles inn for hånd.<br><b>🏃 Ute</b> hentes fra Strava, som finner den raskeste strekningen på hver distanse inne i et utendørsløp.<br><b>⚙️ Inne</b> utledes av tredemølle-øktene: den raskeste sammenhengende strekningen i en analysert økt, eller en logget tredemølle-økt på (nær) samme distanse. Har du ingen økt som dekker distansen, står feltet tomt — det er det riktige svaret.</p>
     <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Utendørs (🏃 Ute) hentes fra Strava — skanner historikken og bygger Topp 3 per distanse.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Skanner Strava-historikken og bygger Topp 3 per distanse for 🏃 Ute.</div>
       <button class="btn-secondary btn-sm" id="btnSyncBestEfforts">🔄 Synkroniser fra Strava</button>
       <span id="bestEffortsSyncMsg" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
       <div style="margin-top:6px"><a href="#" id="btnForceRescanBE" style="font-size:11px;color:var(--muted);text-decoration:underline;cursor:pointer">Skann hele historikken på nytt (bygg opp Topp 3 igjen)</a></div>
@@ -2312,7 +2309,9 @@ const Store = {
   _migrate() {
     if (!this.data.goals) this.data.goals = {};
     if (!this.data.events) this.data.events = [];
-    if (!this.data.bestEfforts) this.data.bestEfforts = {};
+    // `bestEfforts` (hand-typed treadmill PRs) was removed 2026-08-05 — see computeDistancePRs.
+    // Deliberately NOT deleted here: Store.toJSON() serialises this.data wholesale, so an existing
+    // value keeps round-tripping untouched and a revert would get the numbers back. Nothing reads it.
     if (!this.data.customSessionTypes) this.data.customSessionTypes = [];
     if (!this.data.customPlans) this.data.customPlans = [];
     // Migrate shoes from string array to object array
@@ -6138,10 +6137,11 @@ function renderInsights(sessions) {
   // Fresh distance-PR: one set within the last 14 days deserves a headline. Reads the same
   // computeDistancePRs the Rekorder card renders, so the two can never disagree, and names
   // the venue — Ute (GPS) and Inne (belt) are separate populations (DATA.md "Belt vs GPS").
-  // A manual treadmill entry carries no date, so it never fires this.
+  // Every source is dated now, so the `!e.d` guard below is belt-and-braces rather than the
+  // load-bearing filter it was when hand-typed (dateless) entries could reach here.
   const fortnightAgo = localISODaysAgo(14);
   computeDistancePRs(qualitySessions).forEach(r => {
-    [['🏃 ute', r.ute], ['⚙️ inne', r.inne && r.inne.source !== 'manual' ? r.inne : null]].forEach(([venue, e]) => {
+    [['🏃 ute', r.ute], ['⚙️ inne', r.inne]].forEach(([venue, e]) => {
       if (!e || !e.d || e.d < fortnightAgo) return;
       candidates.push({ icon: '🏆', val: `Ny ${r.label}-PR ${venue}!`,
         sub: `${secsToHmsShort(e.t)} · ${secsToMmSs(Math.round(e.t / r.km))} /km (${fmtDate(e.d)})`, priority: 5 });
@@ -7714,14 +7714,12 @@ function renderDashboard() {
     ? `<span class="t3-effort t3-venue t3-empty">${icon} –</span>`
     : `<span class="t3-effort t3-venue t3-first">${icon} <b>${secsToHms(entry.t)}</b> <span class="t3-date">(${extra})</span></span>`;
   // Say how exact the indoor number is: a derived split covers the distance exactly (date alone,
-  // same as the Ute segment column), a whole run only approximately (so show its real distance),
-  // a typed value has no date at all.
-  const inneSourceLabel = e => e.source === 'manual' ? 'manuell'
-    : e.source === 'split' ? fmtDate(e.d)
+  // same as the Ute segment column), a whole run only approximately (so show its real distance).
+  const inneSourceLabel = e => e.source === 'split' ? fmtDate(e.d)
     : `${fmtDate(e.d)} · ${(+e.dist).toFixed(2)} km`;
 
   document.getElementById('distPRList').innerHTML = !prRows.length
-    ? '<div style="font-size:12px;color:var(--muted)">Ingen distanse-PR ennå — synkroniser fra Strava eller legg inn tredemølle-tider i Innstillinger.</div>'
+    ? '<div style="font-size:12px;color:var(--muted)">Ingen distanse-PR ennå — synkroniser fra Strava under Innstillinger. Tredemølle-tider kommer av seg selv fra analyserte økter.</div>'
     : `<div class="top3-list">
         ${prRows.map(r => `
           <div class="top3-row">
@@ -8517,29 +8515,33 @@ const BEST_EFFORT_DISTS = [
 //   Ute  = Strava's best effort: the fastest stretch at that distance inside ANY outdoor
 //          run (segments count). Already dated and outdoor-only; we just read the top of
 //          the ranked list.
-//   Inne = treadmill, which Strava never measures (no best_efforts for indoor). Either a
-//          logged belt run at the distance, or a manually entered PR.
+//   Inne = treadmill, which Strava never measures (no best_efforts for indoor). Derived from
+//          the belt runs themselves — a split inside one, or a whole run at the distance.
 // The ±2 % window is what keeps the label honest: a 5.4 km run is not a 5 km time. An
 // empty cell is the correct answer when nothing qualifies.
 const PR_DIST_TOL = 0.02;
 
 function computeDistancePRs(sessions) {
   const allTop3 = Store.data.bestEffortsTop3 || {};
-  const manual  = Store.data.bestEfforts || {};
 
   return BEST_EFFORT_DISTS.map(({ label, key, km }) => {
     const top3 = allTop3[key] || [];
     const ute = top3.length ? { t: top3[0].t, d: top3[0].d } : null;
 
-    // Inne has three possible sources, in descending precision. Whichever is FASTEST wins, and the
+    // Inne has two possible sources, in descending precision. Whichever is FASTEST wins, and the
     // source is carried through so the cell can say how exact it is.
     //   'split'  — the fastest continuous stretch at this distance inside any treadmill run, derived
     //              from the Strava streams. Exact distance, so this is the indoor equivalent of what
     //              Strava's best_efforts give the Ute column.
     //   'run'    — a whole treadmill run within ±2 % of the distance. Approximate, hence the cell
     //              shows the run's real distance alongside the date.
-    //   'manual' — hand-entered in Innstillinger. Carries no date, so it never fires the fresh-PR
-    //              insight and can't anchor Prognose.
+    // A third source — a hand-typed time in Innstillinger — was removed 2026-08-05. Both sources
+    // above are dated and derived from a real logged session; a typed number had no date (so it
+    // could neither anchor Prognose nor fire the fresh-PR insight) and, being kept in the store
+    // regardless, would silently resurface as the PR whenever a faster derived value dropped out
+    // (a SPLITS_ANALYSIS_VERSION bump, an unlink, a deleted run) — defeating the version gate
+    // below, whose whole point is to show an empty cell rather than a number the current rules
+    // would refuse to produce. Old values stay in `Store.data.bestEfforts`, unread.
     let inne = null;
     const better = c => { if (c && c.t > 0 && (!inne || c.t < inne.t)) inne = c; };
 
@@ -8561,8 +8563,6 @@ function computeDistancePRs(sessions) {
       return !best || s.varighet < best.varighet ? s : best;
     }, null);
     if (belt) better({ t: belt.varighet, d: belt.dato, dist: belt.distanse, source: 'run' });
-
-    better(manual[key] > 0 ? { t: manual[key], d: null, dist: null, source: 'manual' } : null);
 
     return { label, key, km, ute, inne };
   });
@@ -8738,9 +8738,10 @@ const StravaBestEfforts = {
   // NB: the old "Bruk / Bruk alle" review that copied Strava's outdoor times INTO
   // Store.data.bestEfforts is gone (2026-07-31). That merge put GPS and belt times in one
   // number — exactly what DATA.md "Belt vs GPS" forbids — and produced a third, venue-less
-  // figure per distance. Outdoor now flows straight to the Ute column via bestEffortsTop3;
-  // bestEfforts is the treadmill/manual store only. `_found`/`pulsStravaBEFound` is kept as
-  // the scan's single-best buffer (harmless, and cheap to keep the scan loop unchanged).
+  // figure per distance. Outdoor now flows straight to the Ute column via bestEffortsTop3, and
+  // the hand-entry store it used to write to was itself removed 2026-08-05, so this scan is the
+  // only writer of PR data left. `_found`/`pulsStravaBEFound` is kept as the scan's single-best
+  // buffer (harmless, and cheap to keep the scan loop unchanged).
 };
 
 // ═══════════════════════════════════════════════════════
@@ -8830,7 +8831,6 @@ const Settings = {
     this.renderEventList();
     this.renderRaceHistory();
     this.renderPlannedList();
-    this.renderBestEfforts();
     this.renderBackupList();
     // Pre-fill goal year with current year if empty
     const yr = document.getElementById('newGoalYear');
@@ -9363,39 +9363,6 @@ const Settings = {
     listEl.innerHTML = html;
     const tb = document.getElementById('btnTogglePlanned');
     if (tb) tb.addEventListener('click', () => { this.plannedExpanded = !this.plannedExpanded; this.renderPlannedList(); });
-  },
-
-  renderBestEfforts() {
-    const el = document.getElementById('bestEffortsForm');
-    if (!el) return;
-    const be = Store.data.bestEfforts || {};
-    el.innerHTML = BEST_EFFORT_DISTS.map(({ label, key }) => {
-      const secs = be[key];
-      const val = secs ? secsToHmsShort(secs) : '';
-      return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-        <span style="width:100px;font-size:13px">${label}</span>
-        <input type="text" id="be_${key}" value="${val}" placeholder="mm:ss"
-          style="width:90px;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;">
-      </div>`;
-    }).join('');
-  },
-
-  saveBestEfforts() {
-    const KEYS = BEST_EFFORT_DISTS.map(d => d.key);
-    if (!Store.data.bestEfforts) Store.data.bestEfforts = {};
-    KEYS.forEach(key => {
-      const raw = document.getElementById('be_' + key)?.value.trim();
-      if (!raw) { Store.data.bestEfforts[key] = null; return; }
-      const parts = raw.split(':').map(Number);
-      let secs = 0;
-      if (parts.length === 3) secs = parts[0]*3600 + parts[1]*60 + parts[2];
-      else if (parts.length === 2) secs = parts[0]*60 + parts[1];
-      Store.data.bestEfforts[key] = secs > 0 ? secs : null;
-    });
-    FileIO.save();
-    renderDashboard();
-    const msg = document.getElementById('bestEffortsMsg');
-    if (msg) { msg.textContent = 'Lagret ✓'; setTimeout(() => { msg.textContent = ''; }, 2000); }
   },
 
   // ── HR Zones ──
