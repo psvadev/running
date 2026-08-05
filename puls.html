@@ -5923,6 +5923,11 @@ function renderInsights(sessions) {
   const thirtyDaysAgo = localISODaysAgo(30);
   const curMonth  = today.slice(0, 7);
   const totalKm   = sessions.reduce((s, x) => s + (x.distanse || 0), 0);
+  // Last 4 weeks' distance — the yardstick for "is this near?", shared by the milestone blocks
+  // and the volume trend below. A fixed km threshold can't answer that: 50 km away is three
+  // weeks for him and three months for someone else.
+  const w4ago     = localISODaysAgo(28);
+  const recentKm  = sessions.filter(s => s.dato >= w4ago).reduce((sum, s) => sum + (s.distanse||0), 0);
   const candidates = [];
   // Quality generators (Easy pace/HR/RPE trends, fastest Easy, Zone 2 compliance) skip
   // flagged outlier sessions; quantity generators (milestones, volume, gaps, countdowns)
@@ -5931,7 +5936,11 @@ function renderInsights(sessions) {
   // Populated by the Easy pace/HR/RPE trend blocks below; reused by the decoupling check inside the RPE block.
   let easyPacePct = null, easyHrDiff = null, easyRpeChange = null;
 
-  // Km milestone passed
+  // Km milestones. Both blocks are EVENT-gated, not always-on: an insight has to be news.
+  // They used to emit unconditionally at a low priority, so "250 km totalt passert" sat on the
+  // card months after the fact and "98 km igjen" pointed at a marker ~6 weeks out — neither
+  // recent nor actionable, and both displacing something that was. Showing four good cards
+  // beats padding to six.
   const MILESTONES = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000];
   const passed = MILESTONES.filter(m => totalKm >= m);
   if (passed.length) {
@@ -5941,14 +5950,22 @@ function renderInsights(sessions) {
       cumKm += s.distanse || 0;
       if (cumKm >= top) { crossDate = s.dato; break; }
     }
-    candidates.push({ icon:'🎯', val:`${top} km`, sub:`totalt passert (${totalKm.toFixed(0)} km totalt)`, priority: crossDate >= thirtyDaysAgo ? 5 : 3 });
+    // Only while it's still an event. Older than that it's a statistic, and Rekorder owns those.
+    if (crossDate && crossDate >= thirtyDaysAgo) {
+      candidates.push({ icon:'🎯', val:`${top} km`, sub:`totalt passert (${totalKm.toFixed(0)} km totalt)`, priority: 5 });
+    }
   }
 
-  // Next km milestone
+  // Next km milestone — only once it's actually within reach, measured against how much he
+  // currently runs rather than a fixed distance: emit when the remainder is inside the last
+  // 4 weeks' volume (~a month away), and promote it at half that (~a fortnight).
   const nextMilestone = MILESTONES.find(m => m > totalKm);
-  if (nextMilestone) {
-    const rem = (nextMilestone - totalKm).toFixed(0);
-    candidates.push({ icon:'📍', val:`${rem} km igjen`, sub:`til ${nextMilestone} km-merket`, priority: nextMilestone - totalKm < 50 ? 4 : nextMilestone - totalKm < 100 ? 2 : 1 });
+  if (nextMilestone && recentKm > 0) {
+    const remKm = nextMilestone - totalKm;
+    if (remKm <= recentKm) {
+      candidates.push({ icon:'📍', val:`${remKm.toFixed(0)} km igjen`, sub:`til ${nextMilestone} km-merket`,
+        priority: remKm <= recentKm / 2 ? 4 : 3 });
+    }
   }
 
   // Shoe approaching retirement — respects the per-shoe limit when set (warn at 85%,
@@ -6019,10 +6036,9 @@ function renderInsights(sessions) {
     if (daysSince >= 10) candidates.push({ icon:'😴', val:`${daysSince} dager`, sub:'siden siste løpetur', priority: daysSince >= 14 ? 4 : 3 });
   }
 
-  // Volume trend: last 4 weeks vs prior 4 weeks
-  const w4ago  = localISODaysAgo(28);
+  // Volume trend: last 4 weeks vs prior 4 weeks (recentKm/w4ago hoisted to the top — the
+  // milestone blocks need the same window)
   const w8ago2 = localISODaysAgo(56);
-  const recentKm = sessions.filter(s => s.dato >= w4ago).reduce((sum, s) => sum + (s.distanse||0), 0);
   const priorKm  = sessions.filter(s => s.dato >= w8ago2 && s.dato < w4ago).reduce((sum, s) => sum + (s.distanse||0), 0);
   if (recentKm > 0 && priorKm > 0) {
     const volPct = Math.round((recentKm - priorKm) / priorKm * 100);
