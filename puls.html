@@ -7029,16 +7029,34 @@ const DetailPanel = {
         + `<div style="font-size:11px;color:var(--muted)">Ikke hentet — ${why} En split herfra ville blitt for rask og kunne tatt PR-plassen under Distanse-PR.</div>`;
     }
     if (!rows.length) return '';
+    // Mark the splits that ARE the current ⚙️ Inne record, so holding a PR is visible here rather
+    // than only in the Distanse-PR table. Deliberately "holds the record now", not "was a PR on the
+    // day": a trophy on a time since beaten would misread when browsing older runs, and the whole
+    // point is to mirror what Distanse-PR would tell you. Matching on source+date+time (not date
+    // alone) keeps it correct when the record for a distance comes from a *different* run, or from
+    // this run's whole-run entry rather than its split.
+    // Inne only — a belt split is never measured against the outdoor column (DATA.md "Belt vs GPS").
+    const recordT = {};
+    computeDistancePRs(Store.data.sessions).forEach(r => {
+      if (r.inne && r.inne.source === 'split' && r.inne.d === s.dato) recordT[r.key] = r.inne.t;
+    });
     const label = '<div class="dp-section-label">Beste splits</div>';
+    let anyRecord = false;
     const list = rows.map(({ label: l, key, km }) => {
       const e = sp.best[key];
       const at = e.startSec > 0 ? `<span style="color:var(--muted);font-size:11px">fra ${secsToHmsShort(e.startSec)}</span>` : '';
+      const isRecord = recordT[key] === e.t;
+      if (isRecord) anyRecord = true;
+      const trophy = isRecord
+        ? ` <span title="Gjeldende tredemølle-rekord på ${l} — dette er ⚙️ Inne under Distanse-PR" style="font-size:11px">🏆</span>`
+        : '';
       return `<div style="display:flex;gap:12px;align-items:baseline;padding:4px 0;font-size:12px">`
         + `<span style="min-width:90px;color:var(--muted)">${l}</span>`
-        + `<b>${secsToHms(e.t)}</b>`
+        + `<b>${secsToHms(e.t)}</b>${trophy}`
         + `<span style="color:var(--muted)">${secsToMmSs(Math.round(e.t / km))} /km</span>${at}</div>`;
     }).join('');
-    const caption = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Raskeste strekning på hver distanse inne i økten — målt fra Strava-data, ikke estimert. Tiden teller <b>aktiv tid</b>, akkurat som varigheten ellers i appen: står beltet stille midt i, trekkes pausen fra. Mater ⚙️ Inne under Distanse-PR.</div>`;
+    const recordNote = anyRecord ? ' 🏆 = gjeldende ⚙️ Inne-rekord på distansen.' : '';
+    const caption = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Raskeste strekning på hver distanse inne i økten — målt fra Strava-data, ikke estimert. Tiden teller <b>aktiv tid</b>, akkurat som varigheten ellers i appen: står beltet stille midt i, trekkes pausen fra. Mater ⚙️ Inne under Distanse-PR.${recordNote}</div>`;
     return `${label}${list}${caption}`;
   },
 
