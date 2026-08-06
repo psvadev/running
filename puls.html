@@ -129,6 +129,27 @@
      judgement isn't. Also every delta during a covered week. */
   #weekNowCard .wk-flat { color: var(--muted); font-weight:600; }
 
+  /* Tempo ↔ km/t converter */
+  .pc-io { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+  .pc-field { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
+  .pc-field input { width:80px; background:var(--surface2); border:1px solid var(--border); color:var(--text);
+                    border-radius:6px; padding:8px 10px; font:inherit; font-size:15px; font-weight:600; text-align:center; }
+  .pc-field input:focus { outline:none; border-color:var(--accent); }
+  .pc-unit { font-size:11px; color:var(--muted); }
+  .pc-swap { color:var(--muted); font-size:14px; padding-bottom:8px; }
+  /* column-count, not grid: the list reads top-to-bottom then continues in the next column, which is
+     how you scan a lookup table. Rows are single-line so none can break across a column boundary. */
+  /* Capped, not full-bleed: at card width three columns would each be ~400px and space-between
+     would fling the pace and its speed to opposite edges, so the pair stops reading as a pair. */
+  .pc-table { column-count:3; column-gap:28px; max-width:540px; }
+  .pc-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; padding:3px 6px;
+            border-radius:4px; break-inside:avoid; }
+  .pc-row .pc-p { color:var(--text); }
+  .pc-row .pc-k { color:var(--muted); }
+  .pc-row.pc-hit { background:color-mix(in srgb, var(--accent) 16%, transparent); }
+  .pc-row.pc-hit .pc-p, .pc-row.pc-hit .pc-k { color:var(--text); font-weight:600; }
+  @media (max-width: 700px) { .pc-table { column-count:2; } }
+
   /* Sko list rows — actions wrap to their own line when the card is too narrow (mobile) */
   .shoe-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .shoe-row .sr-name { flex:1 1 auto; min-width:120px; font-size:13px; font-weight:500; }
@@ -1113,6 +1134,28 @@
       </label>
     </div>
     <div id="shoeList" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
+  <!-- Tempo ↔ km/t. A tool, not data — the only card here that doesn't read your sessions. Lives at
+       the bottom because it's consulted occasionally, per the access-frequency ordering. -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Tempo ↔ km/t</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 14px">Planer og mål er i <b>tempo</b> (min/km), men en tredemølle stilles i <b>fart</b> (km/t). Skriv inn det ene, så følger det andre — og tabellen viser nabotempoene, så du ser hvor du ligger an.</p>
+    <div class="pc-io">
+      <label class="pc-field">Tempo
+        <input type="text" id="pcPace" placeholder="7:05" inputmode="numeric" autocomplete="off">
+        <span class="pc-unit">/km</span>
+      </label>
+      <span class="pc-swap">↔</span>
+      <label class="pc-field">Fart
+        <input type="text" id="pcKmh" placeholder="8,5" inputmode="decimal" autocomplete="off">
+        <span class="pc-unit">km/t</span>
+      </label>
+    </div>
+    <div id="pcTable" class="pc-table"></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6">
+      Regnestykket gjelder <b>fart</b>, ikke opplevd innsats: utendørs jobber du mot luftmotstand, det gjør du ikke på beltet. De <b>1 % stigning</b> du kjører med er nettopp korreksjonen for det — og i ditt fartsområde er forskjellen uansett liten, så tallene her er en rimelig match begge veier.
+    </div>
   </div>
 
 </div>
@@ -8935,6 +8978,73 @@ const StravaBestEfforts = {
 };
 
 // ═══════════════════════════════════════════════════════
+// TEMPO ↔ KM/T CONVERTER  (Planlegging)
+// ═══════════════════════════════════════════════════════
+// Pure arithmetic — `3600 / secondsPerKm`. Deliberately reads NOTHING from Store: it's a tool, not
+// another derived surface, and it has to answer for paces you've never run (a plan target, someone
+// else's run) as readily as your own.
+//
+// Stepped by PACE, not by km/t, because pace is always the input: Runna authors the plan in min/km,
+// targets are in min/km, and km/t is the thing being derived — even at the treadmill, where you know
+// the pace you want and need the speed to dial in.
+const PaceConv = {
+  // 4:30 covers his fastest (400 m PR ≈ 4:37/km); 12:00 reaches walk-break territory. The step
+  // coarsens below 9:00 — 15-second resolution on a walking pace is precision that means nothing.
+  _rows: null,
+  rows() {
+    if (this._rows) return this._rows;
+    const out = [];
+    for (let s = 270; s <= 720; s += (s < 540 ? 15 : 30)) out.push(s);
+    this._rows = out;
+    return out;
+  },
+  kmhFromPace: secs => secs > 0 ? 3600 / secs : null,
+  paceFromKmh: kmh  => kmh  > 0 ? 3600 / kmh  : null,
+  // Norwegian decimal comma, one place — which is also exactly what a treadmill accepts, so the
+  // displayed number is always dial-able and no "nearest settable step" hint is needed.
+  // Measured (test_paceconv.py): because pace = 3600/speed, a fixed 0.1 km/t step buys more pace the
+  // slower you go — ~3.3 s/km at the worst running row, ~5.5 s/km down at 12:00. In ABSOLUTE terms
+  // that grows; as a share of the pace it is flat and under 1 % everywhere, which is the measure that
+  // matters (5 s/km means something at 5:00 and nothing at 12:00).
+  fmtKmh: k => k.toFixed(1).replace('.', ','),
+
+  render(hitSecs) {
+    const el = document.getElementById('pcTable');
+    if (!el) return;
+    // Nearest row to the current value, so the exact answer lands in its neighbourhood rather than
+    // floating alone. Only within half a step, otherwise an out-of-range value would light up an end.
+    let hit = null;
+    if (hitSecs > 0) {
+      const near = this.rows().reduce((b, s) => Math.abs(s - hitSecs) < Math.abs(b - hitSecs) ? s : b, this.rows()[0]);
+      if (Math.abs(near - hitSecs) <= 15) hit = near;
+    }
+    el.innerHTML = this.rows().map(s =>
+      `<div class="pc-row${s === hit ? ' pc-hit' : ''}"><span class="pc-p">${secsToMmSs(s)}</span><span class="pc-k">${this.fmtKmh(this.kmhFromPace(s))}</span></div>`
+    ).join('');
+  },
+
+  init() {
+    const pace = document.getElementById('pcPace');
+    const kmh  = document.getElementById('pcKmh');
+    if (!pace || !kmh) return;
+    // Each handler writes only to the OTHER field. Setting .value programmatically fires no input
+    // event, so the two can't ping-pong.
+    pace.addEventListener('input', () => {
+      const s = mmSsToSecs(pace.value);
+      kmh.value = s > 0 ? this.fmtKmh(this.kmhFromPace(s)) : '';
+      this.render(s);
+    });
+    kmh.addEventListener('input', () => {
+      const k = parseFloat(kmh.value.replace(',', '.'));   // accept either separator
+      const s = k > 0 ? Math.round(this.paceFromKmh(k)) : 0;
+      pace.value = s > 0 ? secsToMmSs(s) : '';
+      this.render(s);
+    });
+    this.render(0);
+  },
+};
+
+// ═══════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════
 const ZONE_NAMES = ['Sone 1','Sone 2','Sone 3','Sone 4','Sone 5'];
@@ -10011,6 +10121,7 @@ document.addEventListener('DOMContentLoaded', () => {
   Form.init();
   StravaImport.init();
   Settings.init();
+  PaceConv.init();   // static tool — renders once, reads nothing from Store
   CustomLists.refreshDropdowns();
 
   // DetailPanel close
