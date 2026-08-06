@@ -120,6 +120,9 @@
   .wk-now-stats .insight-item { min-width:120px; }
   .wk-now-delta { margin-top:10px; font-size:11px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; color:var(--muted); }
   .wk-tile-delta { font-size:10px; margin-top:3px; white-space:nowrap; }
+  /* Heavy "=" for an unchanged metric, drawn rather than typed so it inherits colour (currentColor)
+     and stays on the same optical scale as the ▲/▼ glyphs next to it. */
+  .wk-eq { display:inline-block; width:9px; height:7px; border-top:2px solid currentColor; border-bottom:2px solid currentColor; vertical-align:middle; }
   #weekNowCard .wk-up   { color: var(--green); font-weight:600; }
   #weekNowCard .wk-down { color: var(--danger); font-weight:600; }
   /* Planned-low week (deload/taper/syk/ferie), or no change: the number is still true, the
@@ -7731,10 +7734,12 @@ function renderWeekNow(allSessions) {
     const d = now - then;
     // Unchanged is the one case with nothing to report, so it gets the lightest possible mark: a
     // grey sideways arrow, no words. Spelling it out gave the emptiest tile the longest label.
-    // A bare "=" rather than a sideways triangle (reads as a lopsided fragment at this size) and
-    // rather than a dash — "–" is already this app's NO DATA marker (missing pace, empty cells), so
-    // it would say "nothing here" where we mean "same as last week". Meaning lives in the tooltip.
-    if (Math.abs(d) < eps) return `<div class="wk-tile-delta wk-flat" title="Uendret mot samme tid forrige uke">=</div>`;
+    // Unchanged gets a heavy "equals" mark DRAWN IN CSS rather than a glyph: two bars in
+    // `currentColor`, so it can never drift from the muted grey or the 10px scale of the ▲/▼ beside
+    // it. The 🟰 emoji renders from the emoji font — fixed purple, ignores `color` (measured) — and
+    // a dash is out because "–" is already this app's NO DATA marker (missing pace, empty cells),
+    // which would say "nothing here" where we mean "same as last week". Meaning is in the tooltip.
+    if (Math.abs(d) < eps) return `<div class="wk-tile-delta wk-flat" title="Uendret mot samme tid forrige uke"><i class="wk-eq" aria-label="uendret"></i></div>`;
     const better = higherIsBetter ? d > 0 : d < 0;
     const cls = ctxEvt ? 'wk-flat' : better ? 'wk-up' : 'wk-down';
     // Arrow follows the VALUE, colour follows the verdict — so a faster pace reads "▼ … raskere"
