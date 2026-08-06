@@ -492,7 +492,7 @@
       </div>
       <div class="form-group">
         <label>Løpetype</label>
-        <select id="fLopetype" onchange="const isTM=this.value==='treadmill'; document.getElementById('stigningGroup').style.display=isTM?'':'none'; if(!isTM) document.getElementById('fStigning').value=''; document.getElementById('hoydeMeterGroup').style.display=!isTM?'':'none'; if(isTM) document.getElementById('fHoydeMeter').value='';">
+        <select id="fLopetype" onchange="Form.syncVenueFields(true)">
           <option value="utendors">Utendørs</option>
           <option value="treadmill" selected>Tredemølle</option>
         </select>
@@ -4821,11 +4821,30 @@ const Form = {
     if (hint) hint.textContent = `📋 Fra planen (Runna): ${p.okttype}${p.distance ? ` · ${p.distance} km` : ''}`;
   },
 
+  // The single place that decides what the venue-dependent fields look like. This rule used to be
+  // written out in THREE — clear(), applyVenueForType() and the #fLopetype onchange — each mirroring
+  // it slightly differently, which is exactly how the 1 % default came to be applied before the venue
+  // was settled and then leak onto outdoor runs.
+  //
+  // Two rules, together so they cannot diverge:
+  //   1. The hidden field is always EMPTIED. Stigning (%) and Høydemeter (m) are mutually exclusive
+  //      (DATA.md), and a value you cannot see must never reach the save.
+  //   2. Indoor seeds 1 %, because every treadmill run is done at 1 % or more. Only on a fresh/blank
+  //      field, never when editing, and never over something already typed.
+  syncVenueFields(seedDefault) {
+    const isTM = document.getElementById('fLopetype').value === 'treadmill';
+    const stig = document.getElementById('fStigning');
+    document.getElementById('stigningGroup').style.display = isTM ? '' : 'none';
+    document.getElementById('hoydeMeterGroup').style.display = isTM ? 'none' : '';
+    if (isTM) document.getElementById('fHoydeMeter').value = '';
+    else stig.value = '';
+    if (isTM && seedDefault && !this.editId && !stig.value) stig.value = '1';
+  },
+
   // Venue autofill — only the deterministic case: Tempo & Intervaller are always run indoors, so
   // pre-select Tredemølle for them. Easy/Long stay on the last-used venue (season makes them a guess
-  // we deliberately don't make). New sessions only; overridable. Mirrors the #fLopetype onchange
-  // (show Stigning, hide/clear Høydemeter) and re-applies the venue's shoe default, since setting
-  // .value programmatically doesn't fire the select's change event.
+  // we deliberately don't make). New sessions only; overridable. Re-applies the venue's shoe default
+  // too, since setting .value programmatically doesn't fire the select's change event.
   applyVenueForType() {
     if (this.editId) return;
     const okt = document.getElementById('fOkttype').value;
@@ -4833,14 +4852,14 @@ const Form = {
     const el = document.getElementById('fLopetype');
     if (el.value === 'treadmill') return;
     el.value = 'treadmill';
-    document.getElementById('stigningGroup').style.display = '';
-    document.getElementById('hoydeMeterGroup').style.display = 'none';
-    document.getElementById('fHoydeMeter').value = '';
+    this.syncVenueFields(true);
     this.applyShoeDefault();
   },
 
 
   read() {
+    const lopetype = document.getElementById('fLopetype').value || 'utendors';
+    const isTreadmill = lopetype === 'treadmill';
     return {
       id: this.editId || genId(),
       dato: document.getElementById('fDato').value,
@@ -4863,10 +4882,15 @@ const Form = {
       malDistanse: parseFloat(document.getElementById('fMalDistanse').value) || null,
       tempo: mmSsToSecs(document.getElementById('fTempo').value) || null,
       snittkmh: parseFloat(document.getElementById('fSnittkmh').value) || null,  // set by autoCalcPace
-      stigning: Math.min(parseFloat(document.getElementById('fStigning').value) || 0, 20) || null,
-      hoydeMeter: parseInt(document.getElementById('fHoydeMeter').value) || null,
+      // Venue-guarded, because the FIELDS are only hidden, never emptied, when the venue changes —
+      // and `clear()` seeds Stigning with the 1 % default before the venue is even settled. Without
+      // this guard, logging an outdoor run right after a treadmill one saved a phantom `stigning: 1`
+      // on it. Stigning (%) and Høydemeter (m) are mutually exclusive by design (DATA.md), so the
+      // save is the right place to enforce it: the invariant then holds whatever the form did.
+      stigning: isTreadmill ? (Math.min(parseFloat(document.getElementById('fStigning').value) || 0, 20) || null) : null,
+      hoydeMeter: !isTreadmill ? (parseInt(document.getElementById('fHoydeMeter').value) || null) : null,
       sko: document.getElementById('fSko').value,
-      løpetype: document.getElementById('fLopetype').value || 'utendors',
+      løpetype: lopetype,
       rpe: parseInt(document.getElementById('fRpe').value) || null,
       beskrivelse: document.getElementById('fBeskrivelse').value.trim() || null,
       notater: document.getElementById('fNotater').value.trim() || null,
@@ -4902,11 +4926,11 @@ const Form = {
     document.getElementById('fTempo').value = s.tempo ? secsToMmSs(s.tempo) : '';
     document.getElementById('fSnittkmh').value = s.snittkmh || '';
     document.getElementById('fLopetype').value = s.løpetype || 'utendors';
-    const isTM = (s.løpetype || 'utendors') === 'treadmill';
-    document.getElementById('stigningGroup').style.display = isTM ? '' : 'none';
-    document.getElementById('fStigning').value = isTM ? (s.stigning ?? '') : '';
-    document.getElementById('hoydeMeterGroup').style.display = !isTM ? '' : 'none';
-    document.getElementById('fHoydeMeter').value = !isTM ? (s.hoydeMeter ?? '') : '';
+    document.getElementById('fStigning').value = s.stigning ?? '';
+    document.getElementById('fHoydeMeter').value = s.hoydeMeter ?? '';
+    // Same single rule: shows the field this venue owns and empties the other. `false` = never seed
+    // the 1 % default while editing — an existing session's incline is whatever it was recorded as.
+    this.syncVenueFields(false);
     document.getElementById('fRpe').value = s.rpe || '';
     document.getElementById('beskrevelseGroup').style.display = s.treningsplan !== 'Egentrening' ? '' : 'none';
     document.getElementById('fBeskrivelse').value = s.beskrivelse || '';
@@ -4985,18 +5009,12 @@ const Form = {
     const lastLopetype = lastSession?.løpetype || 'treadmill';
     document.getElementById('fLopetype').value = lastLopetype;
     this.applyShoeDefault();   // pre-select the shoe for this venue (overridable per session)
-    document.getElementById('fStigning').value = '1';
     document.getElementById('fUtenPuls').checked = false;
     document.getElementById('fUtenforAnalyse').checked = false;
     this.togglePulsdata();
     document.getElementById('fTreningsplan').value = 'Runna';
     document.getElementById('beskrevelseGroup').style.display = document.getElementById('fTreningsplan').value !== 'Egentrening' ? '' : 'none';
-    // Mirror the select's own onchange: treadmill → Stigning, anything else → Høydemeter.
-    // (Reads the effective select value, not the raw stored string, so an unexpected
-    //  løpetype can't hide both — the outdoor option's value is 'utendors', not 'outdoor'.)
-    const isTM = document.getElementById('fLopetype').value === 'treadmill';
-    document.getElementById('stigningGroup').style.display = isTM ? '' : 'none';
-    document.getElementById('hoydeMeterGroup').style.display = isTM ? 'none' : '';
+    this.syncVenueFields(true);   // visibility + the 1 % indoor seed, decided together
     this.lastAutoOktnavn = '';
     this.applyPlannedDefault();   // Økt-type + Mål distanse from that day's imported Runna plan (if any)
     this.applyVenueForType();     // Tempo/Intervaller → Tredemølle (after the type is known)
