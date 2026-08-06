@@ -119,7 +119,9 @@
   .wk-now-stats { display:flex; flex-wrap:wrap; gap:10px; }
   .wk-now-stats .insight-item { min-width:120px; }
   .wk-now-delta { margin-top:10px; font-size:11px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; color:var(--muted); }
-  .wk-tile-delta { font-size:10px; margin-top:3px; white-space:nowrap; }
+  .wk-tile-delta { font-size:10px; margin-top:3px; display:flex; flex-wrap:wrap; gap:0 5px; }
+  .wk-tile-delta > span { white-space:nowrap; }
+  .wk-was { color:var(--muted); font-weight:400; }
   /* Heavy "=" for an unchanged metric, drawn rather than typed so it inherits colour (currentColor)
      and stays on the same optical scale as the ▲/▼ glyphs next to it. */
   .wk-eq { display:inline-block; width:9px; height:7px; border-top:2px solid currentColor; border-bottom:2px solid currentColor; vertical-align:middle; }
@@ -7798,11 +7800,16 @@ function renderWeekNow(allSessions) {
   // One comparator for all four tiles. `higherIsBetter` is false for pace — a faster run is a SMALLER
   // number, so a naive "up is green" would paint every improvement red. `eps` keeps a rounding
   // difference from rendering as a change.
-  const delta = (now, then, higherIsBetter, eps, fmt) => {
+  // `was` formats last week's figure for this metric. A delta alone is half a fact — "+14:59" can't
+  // be read without knowing it grew from 1:30:13 — and for tid and tempo that baseline appears
+  // nowhere else on the card. Change first, baseline after: the change is the headline, and leading
+  // with a different number would momentarily read as the tile's own current value.
+  const delta = (now, then, higherIsBetter, eps, fmt, was) => {
     if (!haveLast || now == null || then == null) return '';
     const d = now - then;
-    // Unchanged is the one case with nothing to report, so it gets the lightest possible mark: a
-    // grey sideways arrow, no words. Spelling it out gave the emptiest tile the longest label.
+    // Unchanged is the one case with nothing to report, so it gets the lightest possible mark and NO
+    // baseline — last week's figure equals the value already shown above, so printing it would put
+    // the most text on the emptiest tile.
     // Unchanged gets a heavy "equals" mark DRAWN IN CSS rather than a glyph: two bars in
     // `currentColor`, so it can never drift from the muted grey or the 10px scale of the ▲/▼ beside
     // it. The 🟰 emoji renders from the emoji font — fixed purple, ignores `color` (measured) — and
@@ -7813,20 +7820,27 @@ function renderWeekNow(allSessions) {
     const cls = ctxEvt ? 'wk-flat' : better ? 'wk-up' : 'wk-down';
     // Arrow follows the VALUE, colour follows the verdict — so a faster pace reads "▼ … raskere"
     // in green, which is how a runner reads it. Never dress a smaller number up as an increase.
-    return `<div class="wk-tile-delta ${cls}">${d > 0 ? '▲' : '▼'} ${fmt(d, better)}</div>`;
+    // Two nowrap spans in a wrapping row: the change and the baseline each stay intact, and on a
+    // narrow tile the baseline drops to its own line instead of either being clipped.
+    return `<div class="wk-tile-delta ${cls}"><span>${d > 0 ? '▲' : '▼'} ${fmt(d, better)}</span>`
+      + `<span class="wk-was">fra ${was(then)}</span></div>`;
   };
 
   const tile = (val, label, d) => `<div class="insight-item"><div class="i-body"><div class="i-val">${val}</div><div class="i-sub">${label}</div>${d}</div></div>`;
   const sgn = d => d > 0 ? '+' : '−';   // U+2212, not a hyphen — matches the minus used elsewhere
   const stats = `<div class="wk-now-stats">
       ${tile(km.toFixed(1) + ' km', 'distanse',
-             delta(km, lastKm, true, 0.05, d => `${sgn(d)}${Math.abs(d).toFixed(1)} km`))}
+             delta(km, lastKm, true, 0.05, d => `${sgn(d)}${Math.abs(d).toFixed(1)} km`,
+                   t => `${t.toFixed(1)} km`))}
       ${tile(thisWk.length, thisWk.length === 1 ? 'økt' : 'økter',
-             delta(thisWk.length, lastWkSoFar.length, true, 0.5, d => `${sgn(d)}${Math.abs(d)} ${Math.abs(d) === 1 ? 'økt' : 'økter'}`))}
+             delta(thisWk.length, lastWkSoFar.length, true, 0.5, d => `${sgn(d)}${Math.abs(d)} ${Math.abs(d) === 1 ? 'økt' : 'økter'}`,
+                   t => `${t} ${t === 1 ? 'økt' : 'økter'}`))}
       ${tile(secsToHms(secs), 'tid',
-             delta(secs, lastSecs, true, 30, d => `${sgn(d)}${secsToHmsShort(Math.abs(Math.round(d)))}`))}
+             delta(secs, lastSecs, true, 30, d => `${sgn(d)}${secsToHmsShort(Math.abs(Math.round(d)))}`,
+                   t => secsToHms(t)))}
       ${tile(paceTxt, 'snitt tempo',
-             delta(avgPace, lastPace, false, 2, (d, better) => `${Math.abs(Math.round(d))} s ${better ? 'raskere' : 'tregere'}`))}
+             delta(avgPace, lastPace, false, 2, (d, better) => `${Math.abs(Math.round(d))} s ${better ? 'raskere' : 'tregere'}`,
+                   t => useKmh ? `${(3600 / t).toFixed(1)} km/t` : `${secsToMmSs(Math.round(t))} /km`))}
     </div>`;
 
   // Said once under the tiles rather than repeated in each: what every delta above is measured against.
@@ -7835,7 +7849,9 @@ function renderWeekNow(allSessions) {
     const why = ctxEvt
       ? ` · ${EVENT_ICONS[ctxEvt.type] || ''} ${EVENT_TYPE_LABEL[ctxEvt.type] || ''} — lavere er planlagt`
       : '';
-    footHtml = `<div class="wk-now-delta">mot samme tid forrige uke (${lastKm.toFixed(1)} km · ${lastWkSoFar.length} ${lastWkSoFar.length === 1 ? 'økt' : 'økter'})${why}</div>`;
+    // Just the basis now — each tile carries its own "fra …", so repeating last week's distance and
+    // session count here would state the same two figures twice.
+    footHtml = `<div class="wk-now-delta">mot samme tid forrige uke${why}</div>`;
   }
 
   el.innerHTML = head + stats + footHtml;
