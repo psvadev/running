@@ -7729,7 +7729,11 @@ function renderWeekNow(allSessions) {
   const delta = (now, then, higherIsBetter, eps, fmt) => {
     if (!haveLast || now == null || then == null) return '';
     const d = now - then;
-    if (Math.abs(d) < eps) return `<div class="wk-tile-delta wk-flat">= uendret</div>`;
+    // Unchanged is the one case with nothing to report, so it gets the lightest possible mark: a
+    // grey sideways arrow, no words. Spelling it out gave the emptiest tile the longest label.
+    // U+25BA, not U+25B6 — the latter gets emoji presentation in some browsers and would render as a
+    // coloured play button next to two plain triangles.
+    if (Math.abs(d) < eps) return `<div class="wk-tile-delta wk-flat" title="Uendret mot samme tid forrige uke">►</div>`;
     const better = higherIsBetter ? d > 0 : d < 0;
     const cls = ctxEvt ? 'wk-flat' : better ? 'wk-up' : 'wk-down';
     // Arrow follows the VALUE, colour follows the verdict — so a faster pace reads "▼ … raskere"
