@@ -118,11 +118,13 @@
   .wk-now-head .wk-now-go { margin-left:auto; font-size:11px; color:var(--muted); }
   .wk-now-stats { display:flex; flex-wrap:wrap; gap:10px; }
   .wk-now-stats .insight-item { min-width:120px; }
-  .wk-now-delta { margin-top:10px; font-size:11px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .wk-now-delta .wk-up   { color: var(--green); font-weight:600; }
-  .wk-now-delta .wk-down { color: var(--danger); font-weight:600; }
-  /* Planned-low week (deload/taper/syk/ferie): the number is still true, the judgement isn't. */
-  .wk-now-delta .wk-flat { color: var(--muted); font-weight:600; }
+  .wk-now-delta { margin-top:10px; font-size:11px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; color:var(--muted); }
+  .wk-tile-delta { font-size:10px; margin-top:3px; white-space:nowrap; }
+  #weekNowCard .wk-up   { color: var(--green); font-weight:600; }
+  #weekNowCard .wk-down { color: var(--danger); font-weight:600; }
+  /* Planned-low week (deload/taper/syk/ferie), or no change: the number is still true, the
+     judgement isn't. Also every delta during a covered week. */
+  #weekNowCard .wk-flat { color: var(--muted); font-weight:600; }
 
   /* Sko list rows — actions wrap to their own line when the card is too narrow (mobile) */
   .shoe-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
@@ -7710,36 +7712,54 @@ function renderWeekNow(allSessions) {
     return;
   }
 
-  const tile = (val, label) => `<div class="insight-item"><div class="i-body"><div class="i-val">${val}</div><div class="i-sub">${label}</div></div></div>`;
-  const stats = `<div class="wk-now-stats">
-      ${tile(km.toFixed(1) + ' km', 'distanse')}
-      ${tile(thisWk.length, thisWk.length === 1 ? 'økt' : 'økter')}
-      ${tile(secsToHms(secs), 'tid')}
-      ${tile(paceTxt, 'snitt tempo')}
-    </div>`;
-
   // A planned-low week must not read as a failed one. Same week-overlap test the streak nudge uses,
   // widened from Syk/Ferie to include Deload/Taper: during any of them a drop is the plan working.
-  // The delta still shows — only its colour-coded verdict is withheld, and the reason is named.
+  // Deltas still show — only the colour-coded verdict is withheld, and the reason is named below.
   const OFF_TYPES = ['illness', 'vacation', 'deload', 'taper'];
   const ctxEvt = (Store.data.events || []).find(e => OFF_TYPES.includes(e.type) &&
     absWeekNum(e.date) <= nowAbsWk && nowAbsWk <= absWeekNum(e.endDate || e.date));
 
-  let deltaHtml = '';
-  if (lastWkSoFar.length) {
-    const diff = km - lastKm;
-    const same = Math.abs(diff) < 0.05;
-    const cls  = ctxEvt ? 'wk-flat' : same ? 'wk-flat' : diff > 0 ? 'wk-up' : 'wk-down';
-    const mark = same ? '=' : diff > 0 ? '▲' : '▼';
-    const amt  = same ? 'som forrige uke' : `${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(1)} km`;
-    const why  = ctxEvt
-      ? ` <span style="color:var(--muted)">· ${EVENT_ICONS[ctxEvt.type] || ''} ${EVENT_TYPE_LABEL[ctxEvt.type] || ''} — lavere er planlagt</span>`
+  const lastSecs = lastWkSoFar.reduce((sum, s) => sum + (s.varighet || 0), 0);
+  const lastPace = avgPaceHR(lastWkSoFar).avgPace;
+  const haveLast = lastWkSoFar.length > 0;
+
+  // One comparator for all four tiles. `higherIsBetter` is false for pace — a faster run is a SMALLER
+  // number, so a naive "up is green" would paint every improvement red. `eps` keeps a rounding
+  // difference from rendering as a change.
+  const delta = (now, then, higherIsBetter, eps, fmt) => {
+    if (!haveLast || now == null || then == null) return '';
+    const d = now - then;
+    if (Math.abs(d) < eps) return `<div class="wk-tile-delta wk-flat">= uendret</div>`;
+    const better = higherIsBetter ? d > 0 : d < 0;
+    const cls = ctxEvt ? 'wk-flat' : better ? 'wk-up' : 'wk-down';
+    // Arrow follows the VALUE, colour follows the verdict — so a faster pace reads "▼ … raskere"
+    // in green, which is how a runner reads it. Never dress a smaller number up as an increase.
+    return `<div class="wk-tile-delta ${cls}">${d > 0 ? '▲' : '▼'} ${fmt(d, better)}</div>`;
+  };
+
+  const tile = (val, label, d) => `<div class="insight-item"><div class="i-body"><div class="i-val">${val}</div><div class="i-sub">${label}</div>${d}</div></div>`;
+  const sgn = d => d > 0 ? '+' : '−';   // U+2212, not a hyphen — matches the minus used elsewhere
+  const stats = `<div class="wk-now-stats">
+      ${tile(km.toFixed(1) + ' km', 'distanse',
+             delta(km, lastKm, true, 0.05, d => `${sgn(d)}${Math.abs(d).toFixed(1)} km`))}
+      ${tile(thisWk.length, thisWk.length === 1 ? 'økt' : 'økter',
+             delta(thisWk.length, lastWkSoFar.length, true, 0.5, d => `${sgn(d)}${Math.abs(d)} ${Math.abs(d) === 1 ? 'økt' : 'økter'}`))}
+      ${tile(secsToHms(secs), 'tid',
+             delta(secs, lastSecs, true, 30, d => `${sgn(d)}${secsToHmsShort(Math.abs(Math.round(d)))}`))}
+      ${tile(paceTxt, 'snitt tempo',
+             delta(avgPace, lastPace, false, 2, (d, better) => `${Math.abs(Math.round(d))} s ${better ? 'raskere' : 'tregere'}`))}
+    </div>`;
+
+  // Said once under the tiles rather than repeated in each: what every delta above is measured against.
+  let footHtml = '';
+  if (haveLast) {
+    const why = ctxEvt
+      ? ` · ${EVENT_ICONS[ctxEvt.type] || ''} ${EVENT_TYPE_LABEL[ctxEvt.type] || ''} — lavere er planlagt`
       : '';
-    deltaHtml = `<div class="wk-now-delta"><span class="${cls}">${mark} ${amt}</span>`
-      + `<span style="color:var(--muted)">mot samme tid forrige uke (${lastKm.toFixed(1)} km)</span>${why}</div>`;
+    footHtml = `<div class="wk-now-delta">mot samme tid forrige uke (${lastKm.toFixed(1)} km · ${lastWkSoFar.length} ${lastWkSoFar.length === 1 ? 'økt' : 'økter'})${why}</div>`;
   }
 
-  el.innerHTML = head + stats + deltaHtml;
+  el.innerHTML = head + stats + footHtml;
   el.style.display = '';
 }
 
