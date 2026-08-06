@@ -108,6 +108,22 @@
   .insight-item .i-val  { font-size:13px; font-weight:600; color:var(--text); }
   .insight-item .i-sub  { font-size:11px; color:var(--muted); margin-top:2px; }
 
+  /* "Denne uken" strip — a status readout above the grid, not one of its cards. Tiles borrow the
+     .insight-item box so they inherit a layout already proven at 402px. */
+  #weekNowCard { margin-bottom:16px; cursor:pointer; }
+  #weekNowCard:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .wk-now-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .wk-now-head .wk-now-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  .wk-now-head .wk-now-wk { font-size:11px; color:var(--muted); }
+  .wk-now-head .wk-now-go { margin-left:auto; font-size:11px; color:var(--muted); }
+  .wk-now-stats { display:flex; flex-wrap:wrap; gap:10px; }
+  .wk-now-stats .insight-item { min-width:120px; }
+  .wk-now-delta { margin-top:10px; font-size:11px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .wk-now-delta .wk-up   { color: var(--green); font-weight:600; }
+  .wk-now-delta .wk-down { color: var(--danger); font-weight:600; }
+  /* Planned-low week (deload/taper/syk/ferie): the number is still true, the judgement isn't. */
+  .wk-now-delta .wk-flat { color: var(--muted); font-weight:600; }
+
   /* Sko list rows — actions wrap to their own line when the card is too narrow (mobile) */
   .shoe-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .shoe-row .sr-name { flex:1 1 auto; min-width:120px; font-size:13px; font-weight:500; }
@@ -312,6 +328,11 @@
   .weekly-table tfoot td { position: sticky; background: var(--surface); z-index: 2; }
   .weekly-table tfoot .wk-avg td { bottom: 34px; border-top: 2px solid var(--border); color: var(--muted); }
   .weekly-table tfoot .wk-tot td { bottom: 0; font-weight: 700; }
+  /* The period you're currently in — findable at a glance in a table of identical rows. Border on the
+     first cell only, so the row keeps its height and nothing shifts. */
+  .weekly-table tr.wk-current td { background: color-mix(in srgb, var(--accent) 9%, transparent); font-weight: 600; }
+  .weekly-table tr.wk-current td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  .weekly-table tr.wk-current .wk-current-tag { font-size:10px; font-weight:600; color:var(--accent); margin-left:6px; white-space:nowrap; }
 
   /* ── Toast ── */
   .toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:8px; font-size:13px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:toastIn .2s ease; pointer-events:none; }
@@ -655,6 +676,10 @@
   </div>
 
   <div id="dashEmpty" style="display:none;color:var(--muted);text-align:center;padding:56px 20px;font-size:14px">Logg din første økt under ➕, så bygger dashbordet seg opp med grafer, nøkkeltall og innsikt. 📊</div>
+
+  <!-- Denne uken — deliberately OUTSIDE .dash-grid: a status readout, not one of the analysis cards.
+       Reads every session regardless of the filter bar, same as Årsmål. -->
+  <div class="card" id="weekNowCard" style="display:none"></div>
 
   <div class="dash-grid">
     <div class="card span2" id="goalCard" style="display:none">
@@ -7642,22 +7667,102 @@ function renderPaceWeekChart(sessions) {
   }
 }
 
+// "Denne uken" — the current week at a glance, above the grid. The same four figures the Ukentlig
+// oversikt table carries for this week, so the two surfaces state one truth; that table is the only
+// other place these numbers live, and it sits at the bottom of a long page.
+//
+// Takes the UNFILTERED array on purpose (like the Årsmål card): "this week" has to mean this week.
+// Following the År pills would make it read 0 km whenever a past year is selected — filtered, but
+// indistinguishable from broken.
+function renderWeekNow(allSessions) {
+  const el = document.getElementById('weekNowCard');
+  if (!el) return;
+  const today = localISODate();
+  const nowAbsWk = absWeekNum(today);
+  // Day index inside the week, Monday-based to match absWeekNum (which shifts the epoch by 3 days
+  // so weeks start Monday). 0 = Monday … 6 = Sunday.
+  const dayIdx = d => (new Date(d).getDay() + 6) % 7;
+  const idxNow = dayIdx(today);
+
+  const dated = allSessions.filter(s => s.dato);
+  const thisWk = dated.filter(s => absWeekNum(s.dato) === nowAbsWk);
+  // Like-for-like: days 1..N of last week, NOT its finished total. Comparing an incomplete week
+  // against a complete one paints a red arrow every Monday for reasons that have nothing to do with
+  // training — the same two-different-clocks mistake as the old "3/2 uker" consistency line.
+  const lastWkSoFar = dated.filter(s => absWeekNum(s.dato) === nowAbsWk - 1 && dayIdx(s.dato) <= idxNow);
+
+  const km   = thisWk.reduce((sum, s) => sum + (s.distanse || 0), 0);
+  const secs = thisWk.reduce((sum, s) => sum + (s.varighet || 0), 0);
+  const lastKm = lastWkSoFar.reduce((sum, s) => sum + (s.distanse || 0), 0);
+  const { avgPace } = avgPaceHR(thisWk);
+  const useKmh = paceUnit === 'kmh';
+  const paceTxt = avgPace ? (useKmh ? (3600 / avgPace).toFixed(1) + ' km/t' : secsToMmSs(avgPace) + ' /km') : '–';
+
+  const head = `<div class="wk-now-head">
+      <span class="wk-now-label">Denne uken</span>
+      <span class="wk-now-wk">${fmtWeekLabel(isoWeek(today))}</span>
+      <span class="wk-now-go">Se hele uken ›</span>
+    </div>`;
+
+  if (!thisWk.length) {
+    el.innerHTML = head + `<div style="font-size:12px;color:var(--muted)">Ingen økter ennå denne uken.</div>`;
+    el.style.display = '';
+    return;
+  }
+
+  const tile = (val, label) => `<div class="insight-item"><div class="i-body"><div class="i-val">${val}</div><div class="i-sub">${label}</div></div></div>`;
+  const stats = `<div class="wk-now-stats">
+      ${tile(km.toFixed(1) + ' km', 'distanse')}
+      ${tile(thisWk.length, thisWk.length === 1 ? 'økt' : 'økter')}
+      ${tile(secsToHms(secs), 'tid')}
+      ${tile(paceTxt, 'snitt tempo')}
+    </div>`;
+
+  // A planned-low week must not read as a failed one. Same week-overlap test the streak nudge uses,
+  // widened from Syk/Ferie to include Deload/Taper: during any of them a drop is the plan working.
+  // The delta still shows — only its colour-coded verdict is withheld, and the reason is named.
+  const OFF_TYPES = ['illness', 'vacation', 'deload', 'taper'];
+  const ctxEvt = (Store.data.events || []).find(e => OFF_TYPES.includes(e.type) &&
+    absWeekNum(e.date) <= nowAbsWk && nowAbsWk <= absWeekNum(e.endDate || e.date));
+
+  let deltaHtml = '';
+  if (lastWkSoFar.length) {
+    const diff = km - lastKm;
+    const same = Math.abs(diff) < 0.05;
+    const cls  = ctxEvt ? 'wk-flat' : same ? 'wk-flat' : diff > 0 ? 'wk-up' : 'wk-down';
+    const mark = same ? '=' : diff > 0 ? '▲' : '▼';
+    const amt  = same ? 'som forrige uke' : `${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(1)} km`;
+    const why  = ctxEvt
+      ? ` <span style="color:var(--muted)">· ${EVENT_ICONS[ctxEvt.type] || ''} ${EVENT_TYPE_LABEL[ctxEvt.type] || ''} — lavere er planlagt</span>`
+      : '';
+    deltaHtml = `<div class="wk-now-delta"><span class="${cls}">${mark} ${amt}</span>`
+      + `<span style="color:var(--muted)">mot samme tid forrige uke (${lastKm.toFixed(1)} km)</span>${why}</div>`;
+  }
+
+  el.innerHTML = head + stats + deltaHtml;
+  el.style.display = '';
+}
+
 function renderDashboard() {
   const allSessions = Store.data.sessions;
   // Empty state — greet a fresh install like the other tabs do, instead of a bare filter bar over hidden cards.
   const dashEmpty = document.getElementById('dashEmpty');
   const dashFilterBar = document.getElementById('dashFilterBar');
   const dashGrid = document.querySelector('#panel-dash .dash-grid');
+  const weekNowCard = document.getElementById('weekNowCard');
   if (!allSessions.length) {
     if (dashEmpty) dashEmpty.style.display = '';
     if (dashFilterBar) dashFilterBar.style.display = 'none';
     if (dashGrid) dashGrid.style.display = 'none';
+    if (weekNowCard) weekNowCard.style.display = 'none';
     return;
   }
   if (dashEmpty) dashEmpty.style.display = 'none';
   if (dashFilterBar) dashFilterBar.style.display = '';
   if (dashGrid) dashGrid.style.display = '';
   buildYearPills(allSessions);
+  // Before the filter is applied, and given allSessions — see renderWeekNow's note on why.
+  renderWeekNow(allSessions);
   const sessions = DashFilter.get(allSessions);
 
   // Goal progress card
@@ -8128,11 +8233,20 @@ function renderWeeklyOverviewTable(sessions) {
   if (head) head.textContent = overviewGroupBy === 'week' ? 'Uke' : 'Måned';
   const titleEl = document.getElementById('overviewTitle');
   if (titleEl) titleEl.textContent = overviewGroupBy === 'week' ? 'Ukentlig oversikt' : 'Månedlig oversikt';
+  // Mark the period you're currently in — in a table of identically-styled rows the newest-first sort
+  // is the only clue, and it's the row people actually come here for. Keyed the same way the rows are,
+  // so it follows the Uke/Måned toggle. The table gets FILTERED sessions and only builds rows for
+  // periods that have any, so this row can legitimately be absent — highlight it when it's there,
+  // never synthesise one. The "Denne uken" strip covers the nothing-logged-yet case.
+  const today = localISODate();
+  const currentKey = overviewGroupBy === 'week' ? isoWeek(today) : today.slice(0, 7);
+  const currentTag = overviewGroupBy === 'week' ? 'Denne uken' : 'Denne måneden';
   document.getElementById('weeklyBody').innerHTML = keys.map(k => {
     const ws = stats[k];
     const avgPace = ws.paceCount ? ws.paceSum/ws.paceCount : null;
-    return `<tr>
-      <td>${fmtKey(k)}</td>
+    const isNow = k === currentKey;
+    return `<tr${isNow ? ' class="wk-current"' : ''}>
+      <td>${fmtKey(k)}${isNow ? `<span class="wk-current-tag">${currentTag}</span>` : ''}</td>
       <td>${ws.sessions}</td>
       <td>${ws.dist.toFixed(1)} km</td>
       <td>${secsToHms(ws.time)}</td>
@@ -9686,6 +9800,7 @@ document.addEventListener('DOMContentLoaded', () => {
       paceUnit = radio.value;
       const s = DashFilter.get(Store.data.sessions);
       renderPaceWeekChart(s);
+      renderWeekNow(Store.data.sessions);   // its snitt-tempo tile honours the unit too
     });
   });
 
@@ -9778,6 +9893,11 @@ document.addEventListener('DOMContentLoaded', () => {
       renderAeroTrend(DashFilter.get(Store.data.sessions));
     });
   });
+
+  // "Denne uken" strip → the week drill-down. No ctx: the plain panel, same as the heatmap and the
+  // Ukentlig oversikt row. Passes the unfiltered array, matching what the strip itself reads.
+  document.getElementById('weekNowCard').addEventListener('click', () =>
+    DetailPanel.openWeek(isoWeek(localISODate()), Store.data.sessions));
 
   // Dashboard filters
   document.getElementById('dfType').addEventListener('change', e => { DashFilter.type = e.target.value; renderDashboard(); });
