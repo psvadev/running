@@ -7731,9 +7731,10 @@ function renderWeekNow(allSessions) {
     const d = now - then;
     // Unchanged is the one case with nothing to report, so it gets the lightest possible mark: a
     // grey sideways arrow, no words. Spelling it out gave the emptiest tile the longest label.
-    // U+25BA, not U+25B6 — the latter gets emoji presentation in some browsers and would render as a
-    // coloured play button next to two plain triangles.
-    if (Math.abs(d) < eps) return `<div class="wk-tile-delta wk-flat" title="Uendret mot samme tid forrige uke">►</div>`;
+    // A bare "=" rather than a sideways triangle (reads as a lopsided fragment at this size) and
+    // rather than a dash — "–" is already this app's NO DATA marker (missing pace, empty cells), so
+    // it would say "nothing here" where we mean "same as last week". Meaning lives in the tooltip.
+    if (Math.abs(d) < eps) return `<div class="wk-tile-delta wk-flat" title="Uendret mot samme tid forrige uke">=</div>`;
     const better = higherIsBetter ? d > 0 : d < 0;
     const cls = ctxEvt ? 'wk-flat' : better ? 'wk-up' : 'wk-down';
     // Arrow follows the VALUE, colour follows the verdict — so a faster pace reads "▼ … raskere"
