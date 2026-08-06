@@ -139,6 +139,9 @@
   .pc-swap { color:var(--muted); font-size:14px; padding-bottom:8px; }
   /* column-count, not grid: the list reads top-to-bottom then continues in the next column, which is
      how you scan a lookup table. Rows are single-line so none can break across a column boundary. */
+  .pc-legend { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted);
+               max-width:540px; padding:0 6px 6px; margin-bottom:4px; border-bottom:1px solid var(--border); }
+  .pc-legend-sep { opacity:.5; }
   /* Capped, not full-bleed: at card width three columns would each be ~400px and space-between
      would fling the pace and its speed to opposite edges, so the pair stops reading as a pair. */
   .pc-table { column-count:3; column-gap:28px; max-width:540px; }
@@ -1142,16 +1145,21 @@
     <div class="card-title">Tempo ↔ km/t</div>
     <p style="font-size:12px;color:var(--muted);margin:0 0 14px">Planer og mål er i <b>tempo</b> (min/km), men en tredemølle stilles i <b>fart</b> (km/t). Skriv inn det ene, så følger det andre — og tabellen viser nabotempoene, så du ser hvor du ligger an.</p>
     <div class="pc-io">
-      <label class="pc-field">Tempo
+      <label class="pc-field">⏱️ Tempo
         <input type="text" id="pcPace" placeholder="7:05" inputmode="numeric" autocomplete="off">
         <span class="pc-unit">/km</span>
       </label>
       <span class="pc-swap">↔</span>
-      <label class="pc-field">Fart
+      <label class="pc-field">⚡ Fart
         <input type="text" id="pcKmh" placeholder="8,5" inputmode="decimal" autocomplete="off">
         <span class="pc-unit">km/t</span>
       </label>
     </div>
+    <!-- Legend sits ABOVE the table, not inside it: the table is a CSS multi-column flow, so a header
+         row placed within it would land at the top of the first column only, never repeat per column.
+         Deliberately not on every row either — emoji come from the emoji font and can't be muted, so
+         50 of them would shout over the numbers they're labelling. -->
+    <div class="pc-legend">⏱️ tempo <span class="pc-unit">min/km</span> <span class="pc-legend-sep">·</span> ⚡ fart <span class="pc-unit">km/t</span></div>
     <div id="pcTable" class="pc-table"></div>
     <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6">
       Regnestykket gjelder <b>fart</b>, ikke opplevd innsats: utendørs jobber du mot luftmotstand, det gjør du ikke på beltet. De <b>1 % stigning</b> du kjører med er nettopp korreksjonen for det — og i ditt fartsområde er forskjellen uansett liten, så tallene her er en rimelig match begge veier.
