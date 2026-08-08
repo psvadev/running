@@ -4,6 +4,11 @@ HANDOFF.md
 tests/
 # Screenshots. The repo is public and the app is full of real training data, so a debug capture
 # dropped in the folder must not be committable by accident — which nearly happened 2026-08-06 when
-# a Playwright script wrote its output here via a relative path. Nothing in the app needs a PNG:
-# the favicon is an inline SVG data URI and the README carries no images.
+# a Playwright script wrote its output here via a relative path.
 *.png
+# screenshots/ is the ONE exception: the README images. They are generated from synthetic data by
+# tests/make-screenshots.py and contain nothing personal. The blanket rule above still stands
+# everywhere else, so a stray capture at the repo root remains uncommittable — which is the whole
+# point. Regenerate rather than hand-place a file here; the folder is named for exactly what belongs
+# in it, so nothing else ends up drifting in.
+!screenshots/*.png
