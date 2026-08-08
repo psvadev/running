@@ -3977,7 +3977,7 @@ function analyzeTreadmillSplits(streams, targets, options = {}) {
   if (!hasCadence) {
     return emptyResult({
       totalMeters, noCadence: true,
-      warnings: ['Ingen kadens — tatt opp uten Runna, så distansen er klokkemålt og ikke fra beltet'],
+      warnings: ['Ingen kadens — ikke tatt opp med Runna, så strømmen er ikke en beltemåling (logget distanse/tid er ikke berørt)'],
     });
   }
 
@@ -7223,11 +7223,15 @@ const DetailPanel = {
     // Say why rather than render nothing: a rejected run is indistinguishable from an un-analyzed
     // one otherwise, and this is the one absence a user would reasonably question.
     if (!rows.length && (sp.distanceMismatch || sp.noCadence)) {
+      // Only the STREAM is rejected here, never the logged totals — say so. The old copy claimed
+      // "distansen er målt av klokken og ikke av beltet", which is false for the common case: a run
+      // Runna failed to capture, reconstructed in Apple Fitness from the belt's own time + distance.
+      // There the totals are exact and still feed ⚙️ Inne; it is the stream that isn't a measurement.
       const why = sp.distanceMismatch
         ? `Strava-strømmen måler ${(sp.totalMeters / 1000).toFixed(2)} km mot ${(+s.distanse || 0).toFixed(2)} km logget.`
-        : 'Økten har ingen kadens, altså tatt opp uten Runna — da er distansen målt av klokken og ikke av beltet.';
+        : 'Økten mangler kadens, altså ikke tatt opp med Runna, så strømmen er ikke målt av beltet.';
       return '<div class="dp-section-label">Beste splits</div>'
-        + `<div style="font-size:11px;color:var(--muted)">Ikke hentet — ${why} En split herfra ville blitt for rask og kunne tatt PR-plassen under Distanse-PR.</div>`;
+        + `<div style="font-size:11px;color:var(--muted)">Ikke hentet — ${why} En split herfra kunne tatt PR-plassen under Distanse-PR uten å være en reell måling. Distansen og tiden du har logget er ikke berørt.</div>`;
     }
     if (!rows.length) return '';
     // Mark the splits that ARE the current ⚙️ Inne record, so holding a PR is visible here rather
