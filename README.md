@@ -23,7 +23,7 @@ A self-contained single-file running tracker — log a run in seconds and follow
 
 ![Oversikt — Denne uken, Årsmål, Rekorder, Distanse-PR, Prognose and Formkurve](screenshots/dashboard.png)
 
-*(All screenshots are generated from synthetic data — no real training history is shown.)*
+*(All screenshots are generated from synthetic data.)*
 
 - On a **fresh install** (no sessions yet) the dashboard shows a short "log your first run" greeting instead of an empty filter bar — matching the other tabs; the charts and filter bar appear once you've logged a session
 - **Denne uken** — a thin strip at the top of the dashboard answering "how is this week going" without scrolling. Click it to open the full week. It reads **every** run regardless of the dashboard filters (like the yearly goal card), so "this week" always means this week.
