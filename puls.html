@@ -115,6 +115,8 @@
   .wk-now-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
   .wk-now-head .wk-now-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
   .wk-now-head .wk-now-wk { font-size:11px; color:var(--muted); }
+  .wk-now-head .wk-now-plan { font-size:11px; color:var(--muted); }
+  .wk-now-head .wk-now-plan-done { color:var(--green); opacity:.85; }
   .wk-now-head .wk-now-go { margin-left:auto; font-size:11px; color:var(--muted); }
   .wk-now-stats { display:flex; flex-wrap:wrap; gap:10px; }
   .wk-now-stats .insight-item { min-width:120px; }
@@ -1691,6 +1693,30 @@ function offPeriodKind(dateStr) {
   }
   return null;
 }
+// The Plan event covering today, if any — the window plannedForBlock needs. Deliberately does NOT
+// require a km target: that filter belongs to the progress *insight*, and a block can carry an
+// imported plan without anyone ever setting a target.
+function activePlanEvent(today) {
+  return (Store.data.events || [])
+    .filter(e => e.type === 'plan' && e.date <= today && (!e.endDate || e.endDate >= today))
+    .sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+}
+
+// Today's planned session and its status, resolved through exactly the same chain the block hero and
+// the Planlegging list use (plannedForBlock → matchPlannedSessions → plannedStatus) so the surfaces
+// can never disagree about whether today's run is done.
+//
+// Returns null when nothing is planned for today — which is NOT the same as "rest day". Only runs are
+// imported from the .ics (strength sessions are filtered out at import), so absence proves nothing
+// about what the plan intended. Callers must render nothing rather than claim a rest day.
+function plannedToday(today) {
+  const evt = activePlanEvent(today);
+  if (!evt) return null;
+  const planned = plannedForBlock(evt.date, evt.endDate || null);
+  const p = planned.find(x => x.date === today);
+  return p ? { p, status: plannedStatus(p, matchPlannedSessions(planned), today) } : null;
+}
+
 // Adherence status for a planned session. A session dated *today* is still 'pending' (○), NOT a
 // miss — it only becomes 'overdue' (✗) once the day has fully passed. A session inside a Syk/Ferie
 // window is 'excused' (–) and left out of the adherence count. Matched runs are always 'done' (even
@@ -7774,9 +7800,28 @@ function renderWeekNow(allSessions) {
   const useKmh = paceUnit === 'kmh';
   const paceTxt = avgPace ? (useKmh ? (3600 / avgPace).toFixed(1) + ' km/t' : secsToMmSs(avgPace) + ' /km') : '–';
 
+  // Today's planned session, in the space the header already had spare — so it costs no extra height
+  // on the dashboard (it wraps to a second line only at phone width). Rendered here rather than as its
+  // own row for exactly that reason.
+  //   pending  → 📋, the useful case: what am I supposed to run today, without opening anything
+  //   done     → ✓, so the same line also answers "have I done it yet"
+  //   excused  → nothing. Registered Syk/Ferie already excuses the session everywhere else; showing a
+  //              plan you're excused from is the same wrong signal the streak nudge suppresses.
+  // Nothing at all when no session is planned — never "Hviledag", see plannedToday().
+  const pt = plannedToday(today);
+  let planHtml = '';
+  if (pt && pt.status !== 'excused') {
+    const done = pt.status === 'done';
+    const flavour = plannedTitle(pt.p);           // '' for generic names like "Easy Run"
+    const what = [pt.p.okttype, pt.p.distance ? `${pt.p.distance} km` : null].filter(Boolean).join(' · ');
+    planHtml = `<span class="wk-now-plan${done ? ' wk-now-plan-done' : ''}">`
+      + `${done ? '✓' : '📋'} I dag: ${escapeHtml(what)}${flavour ? ` — ${escapeHtml(flavour)}` : ''}</span>`;
+  }
+
   const head = `<div class="wk-now-head">
       <span class="wk-now-label">Denne uken</span>
       <span class="wk-now-wk">${fmtWeekLabel(isoWeek(today))}</span>
+      ${planHtml}
       <span class="wk-now-go">Se hele uken ›</span>
     </div>`;
 
@@ -7827,14 +7872,19 @@ function renderWeekNow(allSessions) {
   };
 
   const tile = (val, label, d) => `<div class="insight-item"><div class="i-body"><div class="i-val">${val}</div><div class="i-sub">${label}</div>${d}</div></div>`;
+  // Økter is the one integer-valued, low-cardinality metric here: it sits on the same number most
+  // weeks, so "3 økter, same as last week" is a tile that reports nothing. Show it only when the
+  // count actually moved. The other three are continuous and effectively never repeat exactly, so
+  // they don't need the guard — and distance is the headline figure, which should always be present.
+  const sessionsMoved = !haveLast || thisWk.length !== lastWkSoFar.length;
   const sgn = d => d > 0 ? '+' : '−';   // U+2212, not a hyphen — matches the minus used elsewhere
   const stats = `<div class="wk-now-stats">
       ${tile(km.toFixed(1) + ' km', 'distanse',
              delta(km, lastKm, true, 0.05, d => `${sgn(d)}${Math.abs(d).toFixed(1)} km`,
                    t => `${t.toFixed(1)} km`))}
-      ${tile(thisWk.length, thisWk.length === 1 ? 'økt' : 'økter',
+      ${sessionsMoved ? tile(thisWk.length, thisWk.length === 1 ? 'økt' : 'økter',
              delta(thisWk.length, lastWkSoFar.length, true, 0.5, d => `${sgn(d)}${Math.abs(d)} ${Math.abs(d) === 1 ? 'økt' : 'økter'}`,
-                   t => `${t} ${t === 1 ? 'økt' : 'økter'}`))}
+                   t => `${t} ${t === 1 ? 'økt' : 'økter'}`)) : ''}
       ${tile(secsToHms(secs), 'tid',
              delta(secs, lastSecs, true, 30, d => `${sgn(d)}${secsToHmsShort(Math.abs(Math.round(d)))}`,
                    t => secsToHms(t)))}
