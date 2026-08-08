@@ -1097,7 +1097,7 @@
   <!-- Planlagte økter (Runna .ics-import) -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Planlagte økter <span class="ct-sub">· importert fra Runna</span></div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Importer Runna-planens <strong>.ics</strong>-fil for å se planlagte økter og hvor godt de matcher det du faktisk løper. Én import per treningsblokk holder — hele blokken følger med. Strength og ad-hoc-løp hoppes over.<br><em>Slik:</em> i Runna: <strong>Profile → Connected Apps &amp; Devices → Connected Calendar → Other calendar → Copy URL</strong>. Åpne URL-en i nettleseren → last ned <code>.ics</code>-filen → velg den her.</p>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Importer Runna-planens <strong>.ics</strong>-fil for å se planlagte økter og hvor godt de matcher det du faktisk løper. Én import per treningsblokk holder — hele blokken følger med. Strength og ad-hoc-løp hoppes over.<br>Listen under viser den <strong>aktive</strong> blokken. En ny import erstatter bare den, så tidligere blokker beholder planen sin og vises fortsatt i sin egen blokkvisning.<br><em>Slik:</em> i Runna: <strong>Profile → Connected Apps &amp; Devices → Connected Calendar → Other calendar → Copy URL</strong>. Åpne URL-en i nettleseren → last ned <code>.ics</code>-filen → velg den her.</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <input type="file" id="runnaIcsFile" accept=".ics,text/calendar" style="font-size:12px;color:var(--muted);max-width:100%">
       <button class="btn-secondary btn-sm" id="btnClearPlanned" style="display:none">Fjern importerte</button>
@@ -9755,20 +9755,25 @@ const Settings = {
       if (!parsed.length) { msg.style.color = 'var(--danger)'; msg.textContent = 'Fant ingen planlagte løpeøkter i filen. Er det riktig Runna-.ics?'; return; }
       // Scope to the active training block (Plan event): keep only sessions on/after the block's
       // start, so completed sessions from older finished blocks don't flood in.
-      const today = localISODate();
-      const active = (Store.data.events || [])
-        .filter(e => e.type === 'plan' && e.date <= today && (!e.endDate || e.endDate >= today))
-        .sort((a, b) => b.date.localeCompare(a.date))[0];
+      const active = activePlanEvent(localISODate());
       const scoped = active ? parsed.filter(p => p.date >= active.date) : parsed;
       if (!scoped.length) { msg.style.color = 'var(--danger)'; msg.textContent = `Fant ${parsed.length} økter, men ingen innenfor den aktive blokken (fra ${fmtDate(active.date)}).`; return; }
-      Store.data.plannedSessions = scoped;
+      // ADDITIVE: replace only the date range this import covers, keep everything before it. The
+      // import used to overwrite plannedSessions wholesale, which silently destroyed every finished
+      // block's planned-vs-actual record — plannedForBlock still window-bounded correctly, the rows
+      // were simply gone. No dedupe needed: kept is strictly < from and scoped strictly >= from, so
+      // re-importing the SAME block is still a clean replace of that block.
+      const from = active ? active.date : scoped[0].date;
+      const kept = (Store.data.plannedSessions || []).filter(p => p.date < from);
+      Store.data.plannedSessions = kept.concat(scoped);
       FileIO.save();
       this.plannedExpanded = false;
       this.renderPlannedList();
       const first = scoped[0].date, last = scoped[scoped.length - 1].date;
       const skipped = parsed.length - scoped.length;
       msg.style.color = 'var(--green)';
-      msg.textContent = `Importerte ${scoped.length} planlagte løpeøkter (${fmtDate(first)} – ${fmtDate(last)})${skipped ? `, hoppet over ${skipped} fra tidligere blokker` : ''}. Strength og ad-hoc-løp ble hoppet over.`;
+      msg.textContent = `Importerte ${scoped.length} planlagte løpeøkter (${fmtDate(first)} – ${fmtDate(last)})${skipped ? `, hoppet over ${skipped} fra tidligere blokker` : ''}. Strength og ad-hoc-løp ble hoppet over.`
+        + (kept.length ? ` ${kept.length} økter fra tidligere blokker ble beholdt.` : '');
     };
     reader.onerror = () => { msg.style.color = 'var(--danger)'; msg.textContent = 'Kunne ikke lese filen.'; };
     reader.readAsText(file);
@@ -9776,7 +9781,10 @@ const Settings = {
   },
 
   clearPlanned() {
-    if (!confirm('Fjerne alle importerte planlagte økter?')) return;
+    // plannedSessions now spans every block, so name what this actually destroys — the card above
+    // only shows the active block's rows, and the rest would go silently.
+    const n = (Store.data.plannedSessions || []).length;
+    if (!confirm(`Fjerne alle ${n} importerte planlagte økter, inkludert tidligere blokker?`)) return;
     Store.data.plannedSessions = [];
     FileIO.save();
     const msg = document.getElementById('plannedImportMsg');
@@ -9789,10 +9797,24 @@ const Settings = {
     const adhEl = document.getElementById('plannedAdherence');
     const clearBtn = document.getElementById('btnClearPlanned');
     if (!listEl) return;
-    const planned = (Store.data.plannedSessions || []).slice().sort((a, b) => a.date.localeCompare(b.date));
-    if (clearBtn) clearBtn.style.display = planned.length ? '' : 'none';
-    if (!planned.length) { adhEl.innerHTML = ''; listEl.innerHTML = '<p style="color:var(--muted);font-size:13px">Ingen plan importert ennå.</p>'; return; }
     const today = localISODate();
+    // Imports are additive, so the store holds every block ever imported. This card is about the plan
+    // you are running NOW — older blocks surface in their own block detail view. With no Plan event
+    // covering today (between blocks) fall back to everything, or the card would just empty out.
+    const active = activePlanEvent(today);
+    const all = (Store.data.plannedSessions || []);
+    const planned = (active ? plannedForBlock(active.date, active.endDate || null) : all.slice())
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (clearBtn) clearBtn.style.display = all.length ? '' : 'none';
+    if (!planned.length) {
+      adhEl.innerHTML = '';
+      // "Ingen plan importert ennå" would be false when earlier blocks' plans are still stored —
+      // say which of the two it is.
+      listEl.innerHTML = `<p style="color:var(--muted);font-size:13px">${all.length
+        ? `Ingen plan importert for den aktive blokken. ${all.length} økter fra tidligere blokker er bevart og vises i sin egen blokkvisning.`
+        : 'Ingen plan importert ennå.'}</p>`;
+      return;
+    }
     const matchOf = matchPlannedSessions(planned);
     const pastDue = plannedDueList(planned, matchOf, today);
     const done = pastDue.filter(p => matchOf[p.id]).length;
