@@ -4768,7 +4768,7 @@ const Form = {
   editId: null,
   returnTab: null,
   lastAutoOktnavn: '',
-  lastAutoPlan: DEFAULT_PLAN,   // what syncPlanForType last set; a value that differs was hand-picked
+  planTouched: false,   // set once Treningsplan is hand-picked; syncPlanForType then keeps its hands off
 
   init() {
     document.getElementById('fDato').value = localISODate();
@@ -4784,9 +4784,10 @@ const Form = {
     document.getElementById('btnCancelEdit').addEventListener('click', () => this.cancelEdit());
     document.getElementById('btnAddShoe').addEventListener('click', () => switchTab('plan'));
 
-    // Treningsplan change: toggle Øktbeskrivelse visibility + auto-name. A hand-pick is final —
-    // lastAutoPlan keeps its old value, so syncPlanForType() will no longer touch the field.
+    // Treningsplan change: toggle Øktbeskrivelse visibility + auto-name. A hand-pick is final for
+    // the rest of this form — syncPlanForType() will not touch the field again until clear().
     document.getElementById('fTreningsplan').addEventListener('change', () => {
+      this.planTouched = true;
       this.syncPlanFields();
       this.maybeAutoName();
     });
@@ -4826,14 +4827,16 @@ const Form = {
   //
   // Deliberately one-directional. When a Plan event DOES cover the date the field is left exactly as
   // it is — mapping the event's free-text title ("Runna 5K") onto a dropdown value would be guesswork.
-  // And like maybeAutoName, it only ever moves a value it put there itself, so a hand-pick is final.
+  //
+  // The guard is a touched FLAG rather than maybeAutoName's compare-to-what-we-last-wrote, because
+  // the two cases that trick a value compare are real here: deliberately picking the value the rule
+  // had already chosen is indistinguishable from never touching the field, and it would then be
+  // silently overridden on the next date change.
   syncPlanForType() {
-    if (this.editId) return;
-    const el = document.getElementById('fTreningsplan');
-    if (el.value !== this.lastAutoPlan) return;
+    if (this.editId || this.planTouched) return;
     const isRace  = document.getElementById('fOkttype').value === 'Race';
     const covered = !!activePlanEvent(document.getElementById('fDato').value);
-    el.value = this.lastAutoPlan = (isRace && !covered) ? 'Egentrening' : DEFAULT_PLAN;
+    document.getElementById('fTreningsplan').value = (isRace && !covered) ? 'Egentrening' : DEFAULT_PLAN;
     this.syncPlanFields();
   },
 
@@ -5143,7 +5146,8 @@ const Form = {
     document.getElementById('fUtenPuls').checked = false;
     document.getElementById('fUtenforAnalyse').checked = false;
     this.togglePulsdata();
-    document.getElementById('fTreningsplan').value = this.lastAutoPlan = DEFAULT_PLAN;
+    this.planTouched = false;
+    document.getElementById('fTreningsplan').value = DEFAULT_PLAN;
     this.syncPlanForType();       // Økt-type survives a save, so a race form must re-derive its plan
     this.syncVenueFields(true);   // visibility + the 1 % indoor seed, decided together
     this.lastAutoOktnavn = '';
