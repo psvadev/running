@@ -1066,8 +1066,10 @@
     <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Markeres som vertikale linjer i belastnings- og distansegrafene.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
       <input type="date" id="newEvtDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <span style="color:var(--muted);align-self:center;font-size:13px">–</span>
-      <input type="date" id="newEvtEndDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;" title="Sluttdato (valgfritt — for perioder som sykdom)">
+      <span id="evtEndDateWrap" style="display:flex;gap:10px;align-items:center">
+        <span style="color:var(--muted);font-size:13px">–</span>
+        <input type="date" id="newEvtEndDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;" title="Sluttdato (valgfritt — for perioder som sykdom)">
+      </span>
       <select id="newEvtType" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
         <option value="plan">Plan</option>
         <option value="race">Løp / Race</option>
@@ -1085,6 +1087,9 @@
       <input type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newEvtRunTarget" placeholder="Mål løp/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+    </div>
+    <div id="evtRaceFields" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="number" id="newEvtRaceDist" placeholder="Distanse (km, valgfritt)" min="0" step="0.1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
     </div>
     <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -6219,13 +6224,14 @@ function renderInsights(sessions) {
   if (upcomingRaces.length) {
     const next = upcomingRaces[0];
     const daysUntil = Math.round((new Date(next.date) - new Date(today)) / 86400000);
+    const nextDist = next.distanceKm ? ` · ${next.distanceKm} km` : '';
     if (daysUntil === 0) {
-      candidates.push({ icon: '🏁', val: 'I dag', sub: `${next.title} — lykke til!`, priority: 5 });
+      candidates.push({ icon: '🏁', val: 'I dag', sub: `${next.title}${nextDist} — lykke til!`, priority: 5 });
     } else if (daysUntil <= 30) {
       // Only surface within 30 days — an insight must be timely, and a race two
       // months out crowds the 6 slots. All races stay listed in Løp & Races.
       candidates.push({ icon: '🏁', val: `${daysUntil} ${daysUntil === 1 ? 'dag' : 'dager'}`,
-        sub: `til ${next.title} (${fmtDate(next.date)})`,
+        sub: `til ${next.title} (${fmtDate(next.date)})${nextDist}`,
         priority: daysUntil <= 14 ? 5 : 4 });
     }
   }
@@ -9142,9 +9148,8 @@ const Settings = {
     document.getElementById('btnAddEvent').addEventListener('click', () => this.addEvent());
     document.getElementById('btnCancelEvtEdit').addEventListener('click', () => this.cancelEventEdit());
     document.getElementById('newEvtTitle').addEventListener('keydown', e => { if (e.key === 'Enter') this.addEvent(); });
-    document.getElementById('newEvtType').addEventListener('change', e => {
-      document.getElementById('evtPlanTargets').style.display = e.target.value === 'plan' ? 'flex' : 'none';
-    });
+    document.getElementById('newEvtType').addEventListener('change', () => this.syncEventFields());
+    this.syncEventFields();   // the markup ships hidden while the select ships "Plan" — reconcile once
 
     // Profile / zones
     document.getElementById('btnSaveProfile').addEventListener('click', () => this.saveProfile());
@@ -9509,7 +9514,6 @@ const Settings = {
       list.innerHTML = '<p style="color:var(--muted);font-size:13px">Ingen hendelser lagt til ennå.</p>';
       return;
     }
-    const typeLabel = { plan: 'Plan', race: 'Løp/Race', illness: 'Sykdom', vacation: 'Ferie', deload: 'Deload', taper: 'Taper', personal: 'Annet' };
     // Collapse a long list to the most recent few so it doesn't push the page down; toggle reveals the rest.
     const COLLAPSE_N = 10;
     const overflow = events.length - COLLAPSE_N;
@@ -9520,7 +9524,7 @@ const Settings = {
       return `<div class="event-row">
         <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
         <span class="er-date">${dateStr}</span>
-        <span class="er-type" style="color:${color}">${typeLabel[evt.type] || escapeHtml(evt.type)}</span>
+        <span class="er-type" style="color:${color}">${EVENT_TYPE_LABEL[evt.type] || escapeHtml(evt.type)}</span>
         <span class="er-title">${escapeHtml(evt.title)}</span>
         <button class="btn-secondary btn-sm" data-edit-event="${evt.id}" title="Rediger">✏️</button>
         <button class="btn-secondary btn-sm" data-del-event="${evt.id}" title="Slett">✕</button>
@@ -9540,17 +9544,42 @@ const Settings = {
 
   editingEventId: null,
 
+  // The single place that decides which event fields are visible. This rule used to live in THREE
+  // spots — the #newEvtType change handler, editEvent() and _clearEventForm() — and in none of them
+  // at page load, so the form opened claiming "Plan" with the plan targets hidden: re-picking the
+  // same option fires no change event, so you had to select another type and come back. Same shape
+  // as the stigning leak (Form.syncVenueFields).
+  //
+  // Two rules, together so they cannot diverge:
+  //   1. Hidden fields are always EMPTIED, so a value you cannot see can never reach addEvent().
+  //   2. Sluttdato is hidden for a race — a race is one day. (Periods like Sykdom keep it.)
+  syncEventFields() {
+    const type = document.getElementById('newEvtType').value;
+    const show = (id, on, disp) => {
+      const el = document.getElementById(id);
+      el.style.display = on ? (disp || '') : 'none';
+    };
+    show('evtPlanTargets', type === 'plan', 'flex');
+    show('evtRaceFields',  type === 'race', 'flex');
+    show('evtEndDateWrap', type !== 'race', 'flex');
+    if (type !== 'plan') ['newEvtTotalKmTarget','newEvtKmTarget','newEvtRunTarget']
+      .forEach(id => { document.getElementById(id).value = ''; });
+    if (type !== 'race') document.getElementById('newEvtRaceDist').value = '';
+    else document.getElementById('newEvtEndDate').value = '';
+  },
+
   editEvent(id) {
     const evt = (Store.data.events || []).find(e => e.id === id);
     if (!evt) return;
+    document.getElementById('newEvtType').value = evt.type;
+    this.syncEventFields();               // before the values, so it cannot clear what we just set
     document.getElementById('newEvtDate').value = evt.date;
     document.getElementById('newEvtEndDate').value = evt.endDate || '';
-    document.getElementById('newEvtType').value = evt.type;
     document.getElementById('newEvtTitle').value = evt.title;
     document.getElementById('newEvtTotalKmTarget').value = evt.targetTotalKm || '';
     document.getElementById('newEvtKmTarget').value = evt.targetKmPerWeek || '';
     document.getElementById('newEvtRunTarget').value = evt.targetRunsPerWeek || '';
-    document.getElementById('evtPlanTargets').style.display = evt.type === 'plan' ? 'flex' : 'none';
+    document.getElementById('newEvtRaceDist').value = evt.distanceKm || '';
     this.editingEventId = id;
     document.getElementById('btnAddEvent').textContent = 'Lagre endringer';
     document.getElementById('btnCancelEvtEdit').style.display = '';
@@ -9569,8 +9598,9 @@ const Settings = {
     document.getElementById('newEvtTotalKmTarget').value = '';
     document.getElementById('newEvtKmTarget').value = '';
     document.getElementById('newEvtRunTarget').value = '';
-    document.getElementById('evtPlanTargets').style.display = 'none';
+    document.getElementById('newEvtRaceDist').value = '';
     document.getElementById('newEvtType').value = 'plan';
+    this.syncEventFields();
     document.getElementById('btnAddEvent').textContent = '+ Legg til';
     document.getElementById('btnCancelEvtEdit').style.display = 'none';
   },
@@ -9591,6 +9621,10 @@ const Settings = {
       if (totT) evt.targetTotalKm     = totT;
       if (kmT)  evt.targetKmPerWeek   = kmT;
       if (runT) evt.targetRunsPerWeek = runT;
+    }
+    if (type === 'race') {
+      const dist = parseFloat(document.getElementById('newEvtRaceDist').value) || null;
+      if (dist) evt.distanceKm = dist;
     }
     if (this.editingEventId) { Store.updateEvent(evt); this.editingEventId = null; }
     else Store.addEvent(evt);
@@ -9631,14 +9665,20 @@ const Settings = {
       const isFuture = evt.date > today;
       const nearby = Store.data.sessions.filter(s =>
         Math.abs(new Date(s.dato) - new Date(evt.date)) <= 86400000);
+      // Fall back to the nearby run closest to the declared distance when nothing is typed Race —
+      // a 10 km event beside a 5 km shakeout and a 10.2 km run should pick the 10.2, not the longest.
       const raceSession = nearby.find(s => s.okttype === 'Race');
-      const s = raceSession || nearby.reduce((best, x) => !best || x.distanse > best.distanse ? x : best, null);
+      const pick = evt.distanceKm
+        ? (best, x) => !best || Math.abs((x.distanse||0) - evt.distanceKm) < Math.abs((best.distanse||0) - evt.distanceKm) ? x : best
+        : (best, x) => !best || x.distanse > best.distanse ? x : best;
+      const s = raceSession || nearby.reduce(pick, null);
       const stats = s ? [
         s.distanse ? `${fmtDist(s.distanse)} km` : '',
         s.varighet ? secsToHms(s.varighet) : '',
         s.tempo    ? `${secsToMmSs(s.tempo)}/km` : '',
         s.gjsnittspuls ? `♥ ${s.gjsnittspuls}` : '',
-      ].filter(Boolean).join(' · ') : (isFuture ? '' : 'Ingen økt logget');
+      ].filter(Boolean).join(' · ')
+        : (isFuture ? (evt.distanceKm ? `${evt.distanceKm} km` : '') : 'Ingen økt logget');
       return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-weight:600">🏁 ${escapeHtml(evt.title)}</span>
