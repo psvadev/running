@@ -1707,6 +1707,13 @@ function activePlanEvent(today) {
     .sort((a, b) => b.date.localeCompare(a.date))[0] || null;
 }
 
+// The 🏁 event on exactly this date, if any. Exact match on purpose: this names a session you are
+// logging on the day you ran it, unlike renderRaceHistory's ±1-day match, which reconciles an event
+// with a run whose recorded date may have slipped across midnight.
+function raceEventOn(date) {
+  return (Store.data.events || []).find(e => e.type === 'race' && e.date === date) || null;
+}
+
 // Today's planned session and its status, resolved through exactly the same chain the block hero and
 // the Planlegging list use (plannedForBlock → matchPlannedSessions → plannedStatus) so the surfaces
 // can never disagree about whether today's run is done.
@@ -2521,6 +2528,7 @@ const Store = {
 // ═══════════════════════════════════════════════════════
 const CORE_OKTTYPER = ['Easy','Steady','Long','Tempo','Intervaller','Test','Race'];
 const CORE_PLANER   = ['Egentrening','Runna'];
+const DEFAULT_PLAN  = 'Runna';   // what a fresh log form starts on, and what Form.syncPlanForType falls back to
 
 function refreshCustomOptionSelects(selectIds, values) {
   selectIds.forEach(id => {
@@ -4760,6 +4768,7 @@ const Form = {
   editId: null,
   returnTab: null,
   lastAutoOktnavn: '',
+  lastAutoPlan: DEFAULT_PLAN,   // what syncPlanForType last set; a value that differs was hand-picked
 
   init() {
     document.getElementById('fDato').value = localISODate();
@@ -4768,21 +4777,24 @@ const Form = {
 
     document.getElementById('fDato').addEventListener('change', () => {
       this.updateWeek();
-      if (!this.editId) { this.applyPlannedDefault(); this.applyVenueForType(); this.maybeAutoName(); }
+      if (!this.editId) { this.applyPlannedDefault(); this.applyVenueForType(); this.syncPlanForType(); this.maybeAutoName(); }
     });
     document.getElementById('btnSaveSession').addEventListener('click', () => this.save());
     document.getElementById('btnClearForm').addEventListener('click', () => this.clear());
     document.getElementById('btnCancelEdit').addEventListener('click', () => this.cancelEdit());
     document.getElementById('btnAddShoe').addEventListener('click', () => switchTab('plan'));
 
-    // Treningsplan change: toggle Øktbeskrivelse visibility + auto-name
+    // Treningsplan change: toggle Øktbeskrivelse visibility + auto-name. A hand-pick is final —
+    // lastAutoPlan keeps its old value, so syncPlanForType() will no longer touch the field.
     document.getElementById('fTreningsplan').addEventListener('change', () => {
-      const plan = document.getElementById('fTreningsplan').value;
-      document.getElementById('beskrevelseGroup').style.display = plan !== 'Egentrening' ? '' : 'none';
+      this.syncPlanFields();
       this.maybeAutoName();
     });
     document.getElementById('fOkttype').addEventListener('change', () => {
-      if (!this.editId) this.applyVenueForType();   // Tempo/Intervaller → Tredemølle on manual pick
+      if (!this.editId) {
+        this.applyVenueForType();   // Tempo/Intervaller → Tredemølle on manual pick
+        this.syncPlanForType();     // Race outside every block → Egentrening
+      }
       this.maybeAutoName();
     });
 
@@ -4808,16 +4820,51 @@ const Form = {
     document.getElementById('fDistanse').addEventListener('input', () => this.autoCalcPace());
   },
 
+  // Which Treningsplan a race belongs to is derivable, so don't make it a question: a race that
+  // closes a training block was prescribed by that block's plan (a Berlin Marathon ending a Runna
+  // build keeps Runna), while a parkrun outside every block was prescribed by nobody → Egentrening.
+  //
+  // Deliberately one-directional. When a Plan event DOES cover the date the field is left exactly as
+  // it is — mapping the event's free-text title ("Runna 5K") onto a dropdown value would be guesswork.
+  // And like maybeAutoName, it only ever moves a value it put there itself, so a hand-pick is final.
+  syncPlanForType() {
+    if (this.editId) return;
+    const el = document.getElementById('fTreningsplan');
+    if (el.value !== this.lastAutoPlan) return;
+    const isRace  = document.getElementById('fOkttype').value === 'Race';
+    const covered = !!activePlanEvent(document.getElementById('fDato').value);
+    el.value = this.lastAutoPlan = (isRace && !covered) ? 'Egentrening' : DEFAULT_PLAN;
+    this.syncPlanFields();
+  },
+
+  // Øktbeskrivelse holds a programme's prescription, so Egentrening has none to show. This one line
+  // used to be written out in four places; syncPlanForType() changing the field programmatically is
+  // what made a single source necessary rather than merely tidy.
+  syncPlanFields() {
+    const plan = document.getElementById('fTreningsplan').value;
+    document.getElementById('beskrevelseGroup').style.display = plan !== 'Egentrening' ? '' : 'none';
+  },
+
+  // A race is named by its 🏁 event or by you — never by the programme, which is what produced the
+  // meaningless "Runna Race". With no event registered the field is CLEARED rather than left holding
+  // the previous type's "Runna Easy": a stale generated name on a race is worse than a blank one.
+  //
+  // Either way only a name this function generated is touched — anything typed is left alone.
   maybeAutoName() {
     if (this.editId) return;
     const type = document.getElementById('fOkttype').value;
     const plan = document.getElementById('fTreningsplan').value;
-    if (!type || !plan || plan === 'Egentrening') return;
-    const generated = `${plan} ${type}`;
+    let generated = null;   // null = leave the field alone entirely; '' = clear it
+    if (type === 'Race') {
+      const evt = raceEventOn(document.getElementById('fDato').value);
+      generated = (evt && evt.title) ? evt.title : '';
+    } else if (type && plan && plan !== 'Egentrening') {
+      generated = `${plan} ${type}`;
+    }
+    if (generated === null) return;
     const nameEl = document.getElementById('fOktnavn');
     if (!nameEl.value.trim() || nameEl.value === this.lastAutoOktnavn) {
-      nameEl.value = generated;
-      this.lastAutoOktnavn = generated;
+      nameEl.value = this.lastAutoOktnavn = generated;
     }
   },
 
@@ -5016,7 +5063,7 @@ const Form = {
     // the 1 % default while editing — an existing session's incline is whatever it was recorded as.
     this.syncVenueFields(false);
     document.getElementById('fRpe').value = s.rpe || '';
-    document.getElementById('beskrevelseGroup').style.display = s.treningsplan !== 'Egentrening' ? '' : 'none';
+    this.syncPlanFields();
     document.getElementById('fBeskrivelse').value = s.beskrivelse || '';
     document.getElementById('fNotater').value = s.notater || '';
     document.getElementById('fUtenforAnalyse').checked = !!s.utenforAnalyse;
@@ -5096,8 +5143,8 @@ const Form = {
     document.getElementById('fUtenPuls').checked = false;
     document.getElementById('fUtenforAnalyse').checked = false;
     this.togglePulsdata();
-    document.getElementById('fTreningsplan').value = 'Runna';
-    document.getElementById('beskrevelseGroup').style.display = document.getElementById('fTreningsplan').value !== 'Egentrening' ? '' : 'none';
+    document.getElementById('fTreningsplan').value = this.lastAutoPlan = DEFAULT_PLAN;
+    this.syncPlanForType();       // Økt-type survives a save, so a race form must re-derive its plan
     this.syncVenueFields(true);   // visibility + the 1 % indoor seed, decided together
     this.lastAutoOktnavn = '';
     this.applyPlannedDefault();   // Økt-type + Mål distanse from that day's imported Runna plan (if any)
