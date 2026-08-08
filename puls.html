@@ -1070,6 +1070,10 @@
         <span style="color:var(--muted);font-size:13px">–</span>
         <input type="date" id="newEvtEndDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;" title="Sluttdato (valgfritt — for perioder som sykdom)">
       </span>
+      <!-- Sits in the slot Sluttdato vacates for a race, so the row stays one line -->
+      <span id="evtRaceFields" style="display:none;align-items:center">
+        <input type="number" id="newEvtRaceDist" placeholder="Distanse (km)" title="Distanse (km) – valgfritt" min="0" step="0.1" style="width:130px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      </span>
       <select id="newEvtType" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
         <option value="plan">Plan</option>
         <option value="race">Løp / Race</option>
@@ -1079,7 +1083,7 @@
         <option value="taper">Taper</option>
         <option value="personal">Annet</option>
       </select>
-      <input type="text" id="newEvtTitle" placeholder="Tittel (f.eks. Start Runna 10K)" style="flex:1;min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input type="text" id="newEvtTitle" placeholder="Tittel (f.eks. Start Runna 10K)" style="flex:1;min-width:150px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <button class="btn-primary btn-sm" id="btnAddEvent">+ Legg til</button>
       <button class="btn-secondary btn-sm" id="btnCancelEvtEdit" style="display:none">Avbryt</button>
     </div>
@@ -1087,9 +1091,6 @@
       <input type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newEvtRunTarget" placeholder="Mål løp/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-    </div>
-    <div id="evtRaceFields" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <input type="number" id="newEvtRaceDist" placeholder="Distanse (km, valgfritt)" min="0" step="0.1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
     </div>
     <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -9611,7 +9612,7 @@ const Settings = {
       el.style.display = on ? (disp || '') : 'none';
     };
     show('evtPlanTargets', type === 'plan', 'flex');
-    show('evtRaceFields',  type === 'race', 'flex');
+    show('evtRaceFields',  type === 'race', 'inline-flex');
     show('evtEndDateWrap', type !== 'race', 'flex');
     if (type !== 'plan') ['newEvtTotalKmTarget','newEvtKmTarget','newEvtRunTarget']
       .forEach(id => { document.getElementById(id).value = ''; });
