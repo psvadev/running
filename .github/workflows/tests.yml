@@ -1,0 +1,63 @@
+# Runs the four Playwright suites on every push, so a regression is caught even when the pre-commit
+# routine gets skipped — which, in maintenance mode with weeks between changes, it eventually will.
+#
+# Scope is deliberate: the Python ports in tests/ (splits_port, pr_port, ...) are NOT run here. They
+# use real training sessions as fixtures and stay gitignored — see .gitignore. balcheck.py is also
+# absent by construction: it diffs the working file against git HEAD, so on a clean checkout it would
+# pass vacuously forever. Both remain part of the local `python tests/run_all.py` gate.
+name: tests
+
+on:
+  push:
+    branches:
+      - main
+      # ci-test/** exists so the "prove it can actually go RED" check can be repeated on a throwaway
+      # branch without touching main. A CI job nobody has ever seen fail is worth less than no CI.
+      - 'ci-test/**'
+    paths:
+      - 'puls.html'
+      - 'tests/**'
+      - '.github/workflows/tests.yml'
+  workflow_dispatch:
+
+# A newer push supersedes an in-flight run on the same ref.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  playwright:
+    # Windows on purpose: the layout assertions (402 px mobile overflow, "the event row stays on one
+    # line") depend on font metrics, and Linux has a different font stack. Free for public repos.
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright + WebKit
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          playwright install webkit
+
+      # One step per suite: the log then shows which one broke, instead of a single opaque result.
+      # Each suite sys.exit(1)s on any failed assertion.
+      - name: Denne uken / Ukentlig oversikt
+        run: python tests/test_weeknow.py
+
+      - name: Tempo and km/t converter
+        run: python tests/test_paceconv.py
+
+      - name: Venue-exclusive fields
+        run: python tests/test_venue_fields.py
+
+      - name: Races and additive .ics import
+        run: python tests/test_race_events.py

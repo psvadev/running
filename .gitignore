@@ -1,7 +1,19 @@
 puls.json
 .claude/
 HANDOFF.md
-tests/
+# NOTE: `tests/*`, not `tests/` — git does not descend into an excluded DIRECTORY, so with a bare
+# `tests/` the negations below are never even evaluated and silently do nothing. Excluding the
+# contents keeps everything ignored while leaving the four re-includes reachable.
+tests/*
+# The Playwright suites are the ONE exception, so CI can run them: each synthesises every session
+# in-page and reads no file, so there is nothing personal in them. The ports are a different story —
+# pr_port.py and friends carry real PR times and dates as fixtures, and they stay ignored.
+# Named ONE BY ONE on purpose: a blanket !tests/test_*.py would silently commit a future suite that
+# happened to embed a real session. Adding a name here is the conscious check that it is synthetic.
+!tests/test_weeknow.py
+!tests/test_paceconv.py
+!tests/test_venue_fields.py
+!tests/test_race_events.py
 # Screenshots. The repo is public and the app is full of real training data, so a debug capture
 # dropped in the folder must not be committable by accident — which nearly happened 2026-08-06 when
 # a Playwright script wrote its output here via a relative path.
