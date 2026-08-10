@@ -184,7 +184,7 @@ with sync_playwright() as b0:
     pg.wait_for_timeout(120)
     out3 = txt(pg, "#ivOut")
     check("recovery distance shown", "800 m" in out3, True)          # 4 pauses x 200 m
-    check("block duration refuses to guess", "– HELE BLOKKA" in out3.upper(), True)
+    check("block duration refuses to guess", "– HELE BLOKKEN" in out3.upper(), True)
     check("...and says why", "KREVER PAUSETEMPO" in out3.upper(), True)
 
     # Incomplete input never renders a half-computed block.

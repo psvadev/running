@@ -1299,7 +1299,7 @@
 
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Intervaller</div>
-    <p class="tc-help">Gjør en intervalløkt om til tallene du faktisk trenger når du står klar: farten å stille inn, tiden per drag, og hvor lenge hele blokka tar.</p>
+    <p class="tc-help">Gjør en intervalløkt om til tallene du faktisk trenger når du står klar: farten å stille inn, tiden per drag, og hvor lenge hele blokken tar.</p>
 
     <div class="pc-io">
       <label class="pc-field">🔁 Antall
@@ -9630,14 +9630,14 @@ const IntervalCalc = {
     if (i.restUnit === 's') {
       const restTime = i.rest * rests;
       stats.push(statHtml(fmtDur(Math.round(restTime)), `pausetid (${rests} pauser)`));
-      stats.push(statHtml(fmtDur(Math.round(workTime + restTime)), 'hele blokka', true));
+      stats.push(statHtml(fmtDur(Math.round(workTime + restTime)), 'hele blokken', true));
     } else {
       // Recovery given as DISTANCE: how long it takes depends on the pace you jog it at, which the
       // card has not been told. An empty cell with the reason on it beats a number derived from a
       // recovery pace nobody entered — the same rule the Distanse-PR card follows.
       const restKm = (i.rest / 1000) * rests;
       stats.push(statHtml(restKm < 1 ? Math.round(restKm * 1000) + ' m' : (+restKm.toFixed(2)) + ' km', `pausedistanse (${rests} pauser)`));
-      stats.push(statHtml('–', 'hele blokka — krever pausetempo', true));
+      stats.push(statHtml('–', 'hele blokken — krever pausetempo', true));
     }
     out.innerHTML = stats.join('');
   },
