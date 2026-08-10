@@ -229,6 +229,31 @@ with sync_playwright() as b0:
     check("upcoming race shows its distance",
           '10 km' in pg.locator('#raceHistoryList').inner_text(), True)
 
+    # ── The distance in the Hendelser row ────────────────────────────────────────────────────
+    # A race is one day, so it has no end date and that half of the row sits empty; the distance
+    # goes there. "Runna 5K test" carries it in the name, "adidas x Anton Sport: Social Run" does
+    # not — and it is NOT decorative: distanceKm decides which nearby run gets matched to the race
+    # (renderRaceHistory's picker), so a blank one is now visibly blank.
+    pg.evaluate("""() => {
+      Store.data.events = [
+        { id:'f',  type:'vacation', title:'Japan', date:'2026-11-24', endDate:'2026-12-10' },
+        { id:'r1', type:'race', title:'Runna 5K test', date:'2026-09-11', distanceKm:5 },
+        { id:'r2', type:'race', title:'Social Run',    date:'2026-08-13', distanceKm:10 },
+        { id:'r3', type:'race', title:'Halvmaraton',   date:'2026-07-01', distanceKm:21.1 },
+        { id:'r4', type:'race', title:'Ukjent',        date:'2026-06-01' }
+      ];
+      Settings.renderEventList();
+    }""")
+    pg.wait_for_timeout(200)
+    rowtext = lambda i: " ".join(pg.locator('#eventList .event-row').nth(i).inner_text().split())
+    check("whole km drops the decimal", "5 km" in rowtext(1), True)
+    check("two-digit distance", "10 km" in rowtext(2), True)
+    check("fractional distance keeps one place", "21.1 km" in rowtext(3), True)
+    check("a race with no distance shows none", "km" in rowtext(4), False)
+    # Non-race types keep their end date and must not grow a distance.
+    check("vacation row unchanged", "km" in rowtext(0), False)
+    check("...and still shows its range", "24.11.2026 – 10.12.2026" in rowtext(0), True)
+
     check("no page errors", eerr, [])
     pg.close()
 

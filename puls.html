@@ -227,6 +227,9 @@
   .event-row .er-date  { font-size:12px; color:var(--muted); min-width:120px; }
   .event-row .er-type  { font-size:11px; min-width:64px; flex-shrink:0; }
   .event-row .er-title { flex:1; min-width:0; font-size:13px; font-weight:500; }
+  /* A race's distance, in the space its missing end date leaves. "Runna 5K test" carries it in the
+     name; "adidas x Anton Sport: Social Run" does not, and that is the row that needs it. */
+  .event-row .er-dist  { font-size:12px; color:var(--muted); flex-shrink:0; }
   .event-row button    { flex-shrink:0; }
 
   /* Shoe extra stats line */
@@ -10079,11 +10082,16 @@ const Settings = {
     let html = shown.map(evt => {
       const color = EVENT_COLORS[evt.type] || EVENT_COLORS.personal;
       const dateStr = evt.endDate ? `${fmtDate(evt.date)} – ${fmtDate(evt.endDate)}` : fmtDate(evt.date);
+      // A race is one day, so it has no end date and that half of the row sits empty. Its distance
+      // goes there instead — trailing zeros stripped, so 5 reads "5 km" and 21.1 reads "21.1 km".
+      const dist = evt.type === 'race' && evt.distanceKm
+        ? `<span class="er-dist">${+(+evt.distanceKm).toFixed(2)} km</span>` : '';
       return `<div class="event-row">
         <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
         <span class="er-date">${dateStr}</span>
         <span class="er-type" style="color:${color}">${EVENT_TYPE_LABEL[evt.type] || escapeHtml(evt.type)}</span>
         <span class="er-title">${escapeHtml(evt.title)}</span>
+        ${dist}
         <button class="btn-secondary btn-sm" data-edit-event="${evt.id}" title="Rediger">✏️</button>
         <button class="btn-secondary btn-sm" data-del-event="${evt.id}" title="Slett">✕</button>
       </div>`;
