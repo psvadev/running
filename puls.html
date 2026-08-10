@@ -157,6 +157,42 @@
   .pc-row.pc-hit .pc-p, .pc-row.pc-hit .pc-k { color:var(--text); font-weight:600; }
   @media (max-width: 700px) { .pc-table { column-count:2; } }
 
+  /* Verktøy — the calculators that share the pc-* input styling above */
+  .pc-field select { background:var(--surface2); border:1px solid var(--border); color:var(--text);
+                     border-radius:6px; padding:8px 6px; font:inherit; font-size:12px; }
+  .pc-field select:focus { outline:none; border-color:var(--accent); }
+  .tc-help { font-size:12px; color:var(--muted); margin:0 0 14px; line-height:1.6; }
+  .tc-modes { display:inline-flex; gap:2px; background:var(--surface2); border:1px solid var(--border);
+              border-radius:8px; padding:2px; margin-bottom:16px; }
+  .tc-mode { background:none; border:none; color:var(--muted); font:inherit; font-size:13px; font-weight:600;
+             padding:6px 16px; border-radius:6px; cursor:pointer; }
+  .tc-mode.tc-on { background:var(--surface); color:var(--accent); }
+  /* Chips wrap rather than scroll: at 402px a preset row of 7 distances is three lines, and three
+     visible lines beat one line with six items hidden off-screen. */
+  .tc-chips { display:flex; flex-wrap:wrap; gap:6px; margin:-8px 0 16px; }
+  .tc-chip { background:var(--surface2); border:1px solid var(--border); color:var(--muted); font:inherit;
+             font-size:12px; padding:4px 10px; border-radius:999px; cursor:pointer; white-space:nowrap; }
+  .tc-chip:hover { color:var(--text); border-color:var(--accent); }
+  .tc-chip.tc-chip-on { background:color-mix(in srgb, var(--accent) 16%, transparent);
+                        border-color:var(--accent); color:var(--text); font-weight:600; }
+  .tc-out { display:flex; flex-wrap:wrap; gap:10px 28px; margin-bottom:14px; }
+  .tc-stat { display:flex; flex-direction:column; gap:2px; }
+  .tc-stat-v { font-size:20px; font-weight:700; color:var(--text); line-height:1.2; }
+  .tc-stat-v.tc-lead { color:var(--accent); font-size:26px; }
+  .tc-stat-l { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .tc-splits-wrap { border-top:1px solid var(--border); padding-top:14px; }
+  /* The interval hero. Deliberately the loudest thing on the card: it is what you read in the ten
+     seconds before you start, and everything else is detail you check afterwards. */
+  .iv-hero { background:color-mix(in srgb, var(--accent) 12%, transparent); border:1px solid var(--accent);
+             border-radius:8px; padding:14px 16px; margin-bottom:16px; font-size:19px; font-weight:700;
+             color:var(--text); line-height:1.4; }
+  .iv-hero .iv-hero-sep { color:var(--muted); font-weight:400; margin:0 8px; }
+  .iv-hero.iv-empty { background:none; border-style:dashed; border-color:var(--border); color:var(--muted);
+                      font-size:13px; font-weight:400; }
+  .iv-check { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted);
+              cursor:pointer; padding-bottom:8px; }
+  @media (max-width: 700px) { .iv-hero { font-size:16px; } .tc-stat-v.tc-lead { font-size:22px; } }
+
   /* Sko list rows — actions wrap to their own line when the card is too narrow (mobile) */
   .shoe-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .shoe-row .sr-name { flex:1 1 auto; min-width:120px; font-size:13px; font-weight:500; }
@@ -463,6 +499,7 @@
   <div class="tab" data-tab="log">📋 Treningslogg</div>
   <div class="tab" data-tab="atlas">🗺️ Løpeatlas</div>
   <div class="tab" data-tab="plan">📅 Planlegging</div>
+  <div class="tab" data-tab="tools">🧮 Verktøy</div>
   <div class="tab" data-tab="settings">⚙️ Innstillinger</div>
 </div>
 
@@ -1149,8 +1186,113 @@
     <div id="shoeList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
 
-  <!-- Tempo ↔ km/t. A tool, not data — the only card here that doesn't read your sessions. Lives at
-       the bottom because it's consulted occasionally, per the access-frequency ordering. -->
+</div>
+
+<!-- ══════════════ TAB: VERKTØY ══════════════
+     Stateless calculators. NOTHING here reads Store — that is the defining rule of this tab, not an
+     implementation detail: these must answer for paces you have never run (a plan target, someone
+     else's race, a goal you are not yet fit for). The moment one of them reads your sessions it
+     becomes a derived surface and inherits every provenance question the dashboard has.
+     Ordered by expected use, with the reference table last as the occasional lookup. -->
+<div class="panel" id="panel-tools" style="max-width:1200px;margin:0 auto">
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Tid og tempo</div>
+    <p class="tc-help">To spørsmål som er samme regnestykke hver sin vei: <b>hva blir tiden</b> om du holder et tempo, og <b>hvilket tempo</b> må til for å nå en tid. Velg modus, så følger resten.</p>
+
+    <div class="tc-modes" id="tcModes">
+      <button type="button" class="tc-mode tc-on" data-mode="finish">Sluttid</button>
+      <button type="button" class="tc-mode" data-mode="target">Måltempo</button>
+    </div>
+
+    <!-- Distance is shared across both modes and deliberately survives a mode switch: you are usually
+         asking both questions about the SAME race. -->
+    <div class="pc-io">
+      <label class="pc-field">📏 Distanse
+        <input type="text" id="tcDist" placeholder="10" inputmode="decimal" autocomplete="off">
+        <span class="pc-unit">km</span>
+      </label>
+    </div>
+    <div class="tc-chips" id="tcDistChips"></div>
+
+    <div class="pc-io" id="tcFinishIn">
+      <label class="pc-field">⏱️ Tempo
+        <input type="text" id="tcPace" placeholder="6:15" inputmode="numeric" autocomplete="off">
+        <span class="pc-unit">/km</span>
+      </label>
+      <span class="pc-swap">↔</span>
+      <label class="pc-field">⚡ Fart
+        <input type="text" id="tcKmh" placeholder="9.6" inputmode="decimal" autocomplete="off">
+        <span class="pc-unit">km/t</span>
+      </label>
+    </div>
+
+    <div class="pc-io" id="tcTargetIn" style="display:none">
+      <label class="pc-field">🎯 Måltid
+        <input type="text" id="tcTime" placeholder="29:30" inputmode="numeric" autocomplete="off">
+      </label>
+    </div>
+    <!-- Round numbers bracketing whatever is in the box — NOT derived from your PRs, which would make
+         this read Store and would show nothing for a distance you have never raced. -->
+    <div class="tc-chips" id="tcGoalChips"></div>
+
+    <div class="tc-out" id="tcOut"></div>
+    <div class="tc-splits-wrap" id="tcSplitsWrap">
+      <div class="pc-legend">📍 passering <span class="pc-legend-sep">·</span> ⏱️ tid</div>
+      <div id="tcSplits" class="pc-table"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Intervaller</div>
+    <p class="tc-help">Gjør en intervalløkt om til tallene du faktisk trenger når du står klar: farten å stille inn, tiden per drag, og hvor lenge hele blokka tar.</p>
+
+    <div class="pc-io">
+      <label class="pc-field">🔁 Antall
+        <input type="text" id="ivReps" placeholder="6" inputmode="numeric" autocomplete="off">
+        <span class="pc-unit">drag</span>
+      </label>
+      <label class="pc-field">📏 Hvert drag
+        <input type="text" id="ivVal" placeholder="400" inputmode="decimal" autocomplete="off">
+        <select id="ivUnit">
+          <option value="m">meter</option>
+          <option value="min">minutter</option>
+        </select>
+      </label>
+    </div>
+    <div class="tc-chips" id="ivValChips"></div>
+
+    <div class="pc-io">
+      <label class="pc-field">⏱️ Tempo
+        <input type="text" id="ivPace" placeholder="5:30" inputmode="numeric" autocomplete="off">
+        <span class="pc-unit">/km</span>
+      </label>
+      <span class="pc-swap">↔</span>
+      <label class="pc-field">⚡ Fart
+        <input type="text" id="ivKmh" placeholder="10.9" inputmode="decimal" autocomplete="off">
+        <span class="pc-unit">km/t</span>
+      </label>
+    </div>
+
+    <div class="pc-io">
+      <label class="pc-field">😮‍💨 Pause
+        <input type="text" id="ivRest" placeholder="90" inputmode="numeric" autocomplete="off">
+        <select id="ivRestUnit">
+          <option value="s">sekunder</option>
+          <option value="m">meter</option>
+        </select>
+      </label>
+      <!-- 6 drag means 5 pauser unless you say otherwise. Getting this wrong misstates the block
+           duration by a whole recovery, which is exactly the arithmetic this card exists to remove. -->
+      <label class="iv-check"><input type="checkbox" id="ivTrailRest"> Pause etter siste drag</label>
+    </div>
+
+    <div class="iv-hero" id="ivHero"></div>
+    <div class="tc-out" id="ivOut"></div>
+  </div>
+
+  <!-- Tempo ↔ km/t. Moved here from the bottom of Planlegging 2026-08-09 when it stopped being the
+       only tool. Unchanged apart from its address. -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Tempo ↔ km/t</div>
     <p style="font-size:12px;color:var(--muted);margin:0 0 14px">Planer og mål er i <b>tempo</b> (min/km), men en tredemølle stilles i <b>fart</b> (km/t). Skriv inn det ene, så følger det andre — og tabellen viser nabotempoene, så du ser hvor du ligger an.</p>
@@ -1161,7 +1303,7 @@
       </label>
       <span class="pc-swap">↔</span>
       <label class="pc-field">⚡ Fart
-        <input type="text" id="pcKmh" placeholder="8,5" inputmode="decimal" autocomplete="off">
+        <input type="text" id="pcKmh" placeholder="8.5" inputmode="decimal" autocomplete="off">
         <span class="pc-unit">km/t</span>
       </label>
     </div>
@@ -9136,13 +9278,15 @@ const PaceConv = {
   },
   kmhFromPace: secs => secs > 0 ? 3600 / secs : null,
   paceFromKmh: kmh  => kmh  > 0 ? 3600 / kmh  : null,
-  // Norwegian decimal comma, one place — which is also exactly what a treadmill accepts, so the
-  // displayed number is always dial-able and no "nearest settable step" hint is needed.
+  // One decimal — exactly what a treadmill accepts, so the displayed number is always dial-able and
+  // no "nearest settable step" hint is needed. DECIMAL POINT, not the Norwegian comma: his explicit
+  // preference (2026-08-09) is that 10.9 reads better than 10,9 here, and it matches what the
+  // dashboard's km/t charts already print. Input stays lenient — init() accepts either separator.
   // Measured (test_paceconv.py): because pace = 3600/speed, a fixed 0.1 km/t step buys more pace the
   // slower you go — ~3.3 s/km at the worst running row, ~5.5 s/km down at 12:00. In ABSOLUTE terms
   // that grows; as a share of the pace it is flat and under 1 % everywhere, which is the measure that
   // matters (5 s/km means something at 5:00 and nothing at 12:00).
-  fmtKmh: k => k.toFixed(1).replace('.', ','),
+  fmtKmh: k => k.toFixed(1),
 
   render(hitSecs) {
     const el = document.getElementById('pcTable');
@@ -9171,12 +9315,265 @@ const PaceConv = {
       this.render(s);
     });
     kmh.addEventListener('input', () => {
-      const k = parseFloat(kmh.value.replace(',', '.'));   // accept either separator
+      const k = parseDec(kmh.value);
       const s = k > 0 ? Math.round(this.paceFromKmh(k)) : 0;
       pace.value = s > 0 ? secsToMmSs(s) : '';
       this.render(s);
     });
     this.render(0);
+  },
+};
+
+// ═══════════════════════════════════════════════════════
+// VERKTØY — stateless calculators
+//
+// THE RULE FOR THIS WHOLE SECTION: nothing here reads Store. These answer for paces you have never
+// run — a plan target, someone else's race, a goal you are not yet fit for — which is the entire
+// reason they are tools and not another derived surface. Adding a Store read here would silently
+// change what the card is.
+// ═══════════════════════════════════════════════════════
+
+// Every speed input in the app accepts a comma or a point; every speed OUTPUT is a point (see
+// PaceConv.fmtKmh). Lenient in, consistent out — kept in one function so the two can't drift.
+function parseDec(str) {
+  const n = parseFloat(String(str == null ? '' : str).replace(',', '.'));
+  return isFinite(n) ? n : 0;
+}
+
+// Two-way pace/speed binding, extracted because all three cards need it and each handler must write
+// ONLY to the other field — setting .value programmatically fires no input event, so they can't
+// ping-pong. Same pattern PaceConv.init uses; this is the reusable form of it.
+function bindPaceSpeed(paceEl, kmhEl, onChange) {
+  if (!paceEl || !kmhEl) return;
+  paceEl.addEventListener('input', () => {
+    const s = mmSsToSecs(paceEl.value);
+    kmhEl.value = s > 0 ? PaceConv.fmtKmh(PaceConv.kmhFromPace(s)) : '';
+    onChange();
+  });
+  kmhEl.addEventListener('input', () => {
+    const k = parseDec(kmhEl.value);
+    const s = k > 0 ? Math.round(PaceConv.paceFromKmh(k)) : 0;
+    paceEl.value = s > 0 ? secsToMmSs(s) : '';
+    onChange();
+  });
+}
+
+// NOT secsToHmsShort: that slices "0:" off the front and leaves "0:07:30" as "07:30", which is fine
+// for PR times (always double-digit minutes) but wrong for a 7:30 recovery. Under an hour read mm:ss,
+// above it h:mm:ss — a rest, a rep and a marathon finish all have to render on the same cards.
+const fmtDur = s => s < 3600 ? secsToMmSs(s) : secsToHms(s);
+
+const statHtml = (v, l, lead) =>
+  `<div class="tc-stat"><span class="tc-stat-v${lead ? ' tc-lead' : ''}">${v}</span><span class="tc-stat-l">${l}</span></div>`;
+
+const TimeCalc = {
+  mode: 'finish',
+
+  // Every km to 10, then every 5, always ending on the real distance. A marathon is 17 rows instead
+  // of 42 — enough to pace by, few enough to read.
+  checkpoints(km) {
+    const out = [];
+    for (let d = 1; d <= Math.min(km, 10); d++) out.push(d);
+    for (let d = 15; d <= km; d += 5) out.push(d);
+    if (!out.length || km - out[out.length - 1] > 1e-9) out.push(km);
+    return out;
+  },
+
+  // Round targets bracketing the current time, one slower and three faster — goals are usually
+  // faster, but if you are not there yet the slower one is the useful chip. The step ladder keeps
+  // the labels round at every distance: 2:30 means something over 5 km, nothing over a marathon.
+  goalSteps(secs) {
+    const step = secs < 1200 ? 60 : secs < 2700 ? 150 : secs < 5400 ? 300 : 600;
+    const anchor = Math.ceil(secs / step) * step;
+    return [anchor + step, anchor, anchor - step, anchor - 2 * step].filter(s => s > 0);
+  },
+  goalLabel: s => 'Sub-' + (s < 3600 && s % 60 === 0 ? String(Math.round(s / 60)) : fmtDur(s)),
+
+  dist() { return parseDec(document.getElementById('tcDist').value); },
+
+  setMode(mode) {
+    this.mode = mode;
+    document.querySelectorAll('#tcModes .tc-mode').forEach(b =>
+      b.classList.toggle('tc-on', b.dataset.mode === mode));
+    document.getElementById('tcFinishIn').style.display = mode === 'finish' ? 'flex' : 'none';
+    document.getElementById('tcTargetIn').style.display = mode === 'target' ? 'flex' : 'none';
+    document.getElementById('tcGoalChips').style.display = mode === 'target' ? 'flex' : 'none';
+    this.render();
+  },
+
+  render() {
+    const km  = this.dist();
+    const out = document.getElementById('tcOut');
+    const wrap = document.getElementById('tcSplitsWrap');
+
+    // Which distance chip is live — exact match only, so a hand-typed 7 km highlights nothing
+    // rather than pretending to be the nearest preset.
+    document.querySelectorAll('#tcDistChips .tc-chip').forEach(c =>
+      c.classList.toggle('tc-chip-on', Math.abs(parseDec(c.dataset.km) - km) < 1e-9));
+
+    let paceSec = 0;
+    if (this.mode === 'finish') {
+      paceSec = mmSsToSecs(document.getElementById('tcPace').value);
+    } else {
+      const target = hmsToSecs(document.getElementById('tcTime').value);
+      if (km > 0 && target > 0) paceSec = target / km;
+      this.renderGoalChips(target, km);
+    }
+
+    if (!(km > 0) || !(paceSec > 0)) {
+      out.innerHTML = `<div class="tc-stat"><span class="tc-stat-v tc-lead">–</span><span class="tc-stat-l">${
+        this.mode === 'finish' ? 'fyll inn distanse og tempo' : 'fyll inn distanse og måltid'}</span></div>`;
+      wrap.style.display = 'none';
+      return;
+    }
+
+    const total = km * paceSec;
+    const kmh   = PaceConv.fmtKmh(PaceConv.kmhFromPace(paceSec));
+    out.innerHTML = this.mode === 'finish'
+      ? statHtml(fmtDur(Math.round(total)), 'sluttid', true) + statHtml(kmh + ' km/t', 'snittfart')
+      : statHtml(secsToMmSs(Math.round(paceSec)) + ' /km', 'nødvendig tempo', true) + statHtml(kmh + ' km/t', 'snittfart');
+
+    wrap.style.display = '';
+    document.getElementById('tcSplits').innerHTML = this.checkpoints(km).map(d => {
+      const label = Math.abs(d - Math.round(d)) < 1e-9 ? `${d} km` : `${(+d.toFixed(2))} km`;
+      return `<div class="pc-row"><span class="pc-p">${label}</span><span class="pc-k">${fmtDur(Math.round(d * paceSec))}</span></div>`;
+    }).join('');
+  },
+
+  renderGoalChips(target, km) {
+    const el = document.getElementById('tcGoalChips');
+    if (!(km > 0) || !(target > 0)) { el.innerHTML = ''; return; }
+    el.innerHTML = this.goalSteps(target).map(s =>
+      `<button type="button" class="tc-chip${s === target ? ' tc-chip-on' : ''}" data-secs="${s}">${this.goalLabel(s)}</button>`
+    ).join('');
+  },
+
+  init() {
+    const dist = document.getElementById('tcDist');
+    if (!dist) return;
+
+    // Reuse the app's canonical distance list so "Halvmaraton" means the same here as on the
+    // Distanse-PR card. A tool that disagreed with the table you compare it against would be worse
+    // than no presets at all.
+    document.getElementById('tcDistChips').innerHTML = BEST_EFFORT_DISTS.map(d =>
+      `<button type="button" class="tc-chip" data-km="${d.km}">${d.label}</button>`).join('');
+
+    document.getElementById('tcDistChips').addEventListener('click', e => {
+      const chip = e.target.closest('.tc-chip');
+      if (!chip) return;
+      dist.value = chip.dataset.km;
+      this.render();
+    });
+    document.getElementById('tcGoalChips').addEventListener('click', e => {
+      const chip = e.target.closest('.tc-chip');
+      if (!chip) return;
+      document.getElementById('tcTime').value = fmtDur(+chip.dataset.secs);
+      this.render();
+    });
+    document.getElementById('tcModes').addEventListener('click', e => {
+      const btn = e.target.closest('.tc-mode');
+      if (btn) this.setMode(btn.dataset.mode);
+    });
+
+    dist.addEventListener('input', () => this.render());
+    document.getElementById('tcTime').addEventListener('input', () => this.render());
+    bindPaceSpeed(document.getElementById('tcPace'), document.getElementById('tcKmh'), () => this.render());
+
+    this.setMode('finish');
+  },
+};
+
+const IntervalCalc = {
+  // 6 drag means 5 pauser. Getting this wrong misstates the block by a whole recovery, which is the
+  // arithmetic the card exists to remove — so the count is PRINTED, not just applied.
+  restCount: (reps, trailing) => Math.max(0, trailing ? reps : reps - 1),
+
+  read() {
+    const unit = document.getElementById('ivUnit').value;
+    return {
+      reps:     Math.floor(parseDec(document.getElementById('ivReps').value)),
+      val:      parseDec(document.getElementById('ivVal').value),
+      unit,
+      paceSec:  mmSsToSecs(document.getElementById('ivPace').value),
+      rest:     parseDec(document.getElementById('ivRest').value),
+      restUnit: document.getElementById('ivRestUnit').value,
+      trailing: document.getElementById('ivTrailRest').checked,
+    };
+  },
+
+  render() {
+    const i = this.read();
+    const hero = document.getElementById('ivHero');
+    const out  = document.getElementById('ivOut');
+
+    document.querySelectorAll('#ivValChips .tc-chip').forEach(c =>
+      c.classList.toggle('tc-chip-on', c.dataset.unit === i.unit && Math.abs(parseDec(c.dataset.val) - i.val) < 1e-9));
+
+    if (!(i.reps > 0) || !(i.val > 0) || !(i.paceSec > 0)) {
+      hero.className = 'iv-hero iv-empty';
+      hero.textContent = 'Fyll inn antall, lengde og tempo — så får du farten å stille inn og tiden per drag.';
+      out.innerHTML = '';
+      return;
+    }
+
+    // Distance-based and time-based are the same two numbers derived in opposite directions.
+    const repDist = i.unit === 'm'   ? i.val / 1000 : (i.val * 60) / i.paceSec;   // km
+    const repTime = i.unit === 'min' ? i.val * 60   : repDist * i.paceSec;        // s
+    const kmh     = PaceConv.fmtKmh(PaceConv.kmhFromPace(i.paceSec));
+    const rests   = this.restCount(i.reps, i.trailing);
+
+    hero.className = 'iv-hero';
+    hero.innerHTML = `Sett farten til ${kmh} km/t<span class="iv-hero-sep">·</span>Løp i ${secsToMmSs(Math.round(repTime))}`;
+
+    const workDist = i.reps * repDist, workTime = i.reps * repTime;
+    const stats = [
+      statHtml(secsToMmSs(Math.round(repTime)), 'per drag'),
+      // Metres under a kilometre: an interval is prescribed as "400 m", never "0.4 km", and a
+      // time-based rep reads as 525 m rather than 0.52 km.
+      statHtml(repDist < 1 ? Math.round(repDist * 1000) + ' m' : (+repDist.toFixed(2)) + ' km', 'lengde per drag'),
+      statHtml(secsToMmSs(Math.round(i.paceSec)) + ' /km', 'tempo'),
+      statHtml((+workDist.toFixed(2)) + ' km', 'arbeidsdistanse'),
+      statHtml(fmtDur(Math.round(workTime)), 'arbeidstid'),
+    ];
+
+    if (i.restUnit === 's') {
+      const restTime = i.rest * rests;
+      stats.push(statHtml(fmtDur(Math.round(restTime)), `pausetid (${rests} pauser)`));
+      stats.push(statHtml(fmtDur(Math.round(workTime + restTime)), 'hele blokka', true));
+    } else {
+      // Recovery given as DISTANCE: how long it takes depends on the pace you jog it at, which the
+      // card has not been told. An empty cell with the reason on it beats a number derived from a
+      // recovery pace nobody entered — the same rule the Distanse-PR card follows.
+      const restKm = (i.rest / 1000) * rests;
+      stats.push(statHtml(restKm < 1 ? Math.round(restKm * 1000) + ' m' : (+restKm.toFixed(2)) + ' km', `pausedistanse (${rests} pauser)`));
+      stats.push(statHtml('–', 'hele blokka — krever pausetempo', true));
+    }
+    out.innerHTML = stats.join('');
+  },
+
+  init() {
+    const reps = document.getElementById('ivReps');
+    if (!reps) return;
+
+    document.getElementById('ivValChips').innerHTML =
+      [200, 300, 400, 600, 800, 1000].map(m => `<button type="button" class="tc-chip" data-val="${m}" data-unit="m">${m} m</button>`).join('') +
+      [3, 4, 5].map(n => `<button type="button" class="tc-chip" data-val="${n}" data-unit="min">${n} min</button>`).join('');
+
+    document.getElementById('ivValChips').addEventListener('click', e => {
+      const chip = e.target.closest('.tc-chip');
+      if (!chip) return;
+      document.getElementById('ivVal').value  = chip.dataset.val;
+      document.getElementById('ivUnit').value = chip.dataset.unit;
+      this.render();
+    });
+
+    ['ivReps', 'ivVal', 'ivRest'].forEach(id =>
+      document.getElementById(id).addEventListener('input', () => this.render()));
+    ['ivUnit', 'ivRestUnit', 'ivTrailRest'].forEach(id =>
+      document.getElementById(id).addEventListener('change', () => this.render()));
+    bindPaceSpeed(document.getElementById('ivPace'), document.getElementById('ivKmh'), () => this.render());
+
+    this.render();
   },
 };
 
@@ -10322,7 +10719,11 @@ document.addEventListener('DOMContentLoaded', () => {
   Form.init();
   StravaImport.init();
   Settings.init();
-  PaceConv.init();   // static tool — renders once, reads nothing from Store
+  // Verktøy — all three are static tools that read nothing from Store, so they init once here and
+  // never need re-rendering when data changes.
+  PaceConv.init();
+  TimeCalc.init();
+  IntervalCalc.init();
   CustomLists.refreshDropdowns();
 
   // DetailPanel close

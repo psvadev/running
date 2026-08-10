@@ -61,3 +61,6 @@ jobs:
 
       - name: Races and additive .ics import
         run: python tests/test_race_events.py
+
+      - name: Verktoy calculators
+        run: python tests/test_calculators.py

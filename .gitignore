@@ -14,6 +14,7 @@ tests/*
 !tests/test_paceconv.py
 !tests/test_venue_fields.py
 !tests/test_race_events.py
+!tests/test_calculators.py
 # Screenshots. The repo is public and the app is full of real training data, so a debug capture
 # dropped in the folder must not be committable by accident — which nearly happened 2026-08-06 when
 # a Playwright script wrote its output here via a relative path.

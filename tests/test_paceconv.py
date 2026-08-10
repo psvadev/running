@@ -3,8 +3,11 @@
 Standalone, not in run_all.py (needs Playwright + WebKit):
     python tests/test_paceconv.py
 
-Pure arithmetic, so the assertions are hand-computable anchors — 6:00 = 10,0 km/t exactly,
-7:05 = 8,47 → 8,5, 7:30 = 8,0 exactly — plus the round-trip property and the two-way binding.
+Pure arithmetic, so the assertions are hand-computable anchors — 6:00 = 10.0 km/t exactly,
+7:05 = 8.47 → 8.5, 7:30 = 8.0 exactly — plus the round-trip property and the two-way binding.
+
+Asymmetric by design: output is formatted with a decimal POINT, while input accepts a point OR a
+comma. Lenient in, consistent out.
 """
 import pathlib, sys, tempfile
 sys.stdout.reconfigure(encoding='utf-8')
@@ -36,13 +39,18 @@ with sync_playwright() as p:
                    treningsplan:'Runna',varighet:1800,distanse:5,soner:[0,0,0,0,0]}],
         shoes:[], goals:{}, events:[], settings:{zones:[]}, lastUpdated:'' }))""")
     pg.goto(APP)
-    pg.evaluate("() => switchTab('plan')")
+    # 'tools', not 'plan': the card moved to the Verktøy tab 2026-08-09 when it stopped being the
+    # only tool. This suite failing on the move is correct — it is the card's address changing.
+    pg.evaluate("() => switchTab('tools')")
     pg.wait_for_timeout(300)
 
     # ---- pace -> km/t, anchors anyone can verify by hand
     print("== pace → km/t ==")
-    for pace, want in [("6:00", "10,0"), ("7:30", "8,0"), ("7:05", "8,5"),
-                       ("5:00", "12,0"), ("9:00", "6,7"), ("4:30", "13,3")]:
+    # Output uses a DECIMAL POINT, not the Norwegian comma — his explicit preference 2026-08-09
+    # (10.9 reads better than 10,9), and it matches what the dashboard's km/t charts already print.
+    # Input stays lenient: the km/t → pace block below still feeds commas and must keep working.
+    for pace, want in [("6:00", "10.0"), ("7:30", "8.0"), ("7:05", "8.5"),
+                       ("5:00", "12.0"), ("9:00", "6.7"), ("4:30", "13.3")]:
         pg.fill("#pcPace", pace)
         pg.wait_for_timeout(60)
         check(f"{pace} /km", pg.input_value("#pcKmh"), want)
@@ -55,10 +63,16 @@ with sync_playwright() as p:
         pg.wait_for_timeout(60)
         check(f"{kmh} km/t", pg.input_value("#pcPace"), want)
 
-    print("== both separators accepted ==")
+    print("== both separators accepted on INPUT, point on OUTPUT ==")
     pg.fill("#pcKmh", "8.5")
     pg.wait_for_timeout(60)
     check("a period works like a comma", pg.input_value("#pcPace"), "7:04")
+    # Make the output rule executable rather than a comment: a comma anywhere in a rendered speed
+    # is a regression, and the reference table is the biggest surface it could creep back into.
+    pg.fill("#pcPace", "7:05")
+    pg.wait_for_timeout(60)
+    check("no comma in the km/t output", "," in pg.input_value("#pcKmh"), False)
+    check("no comma anywhere in the table", "," in pg.inner_text("#pcTable"), False)
 
     # ---- Why there is no "nearest settable step" hint on the card.
     # A treadmill accepts 0.1 km/t, and pace = 3600/speed, so a FIXED speed step is worth
@@ -106,7 +120,11 @@ with sync_playwright() as p:
     check("...next row is 9:30", rows.nth(19).inner_text().split("\n")[0], "9:30")
 
     print("== column legend ==")
-    leg = pg.locator(".pc-legend")
+    # Scoped to this card: since 2026-08-09 the Tid og tempo card reuses .pc-legend for its split
+    # table, so a bare .pc-legend now matches two elements. The converter's card is the one holding
+    # #pcTable. This is a selector fix, not a behaviour change — the card itself is untouched.
+    CARD = ".card:has(#pcTable)"
+    leg = pg.locator(f"{CARD} .pc-legend")
     check("legend present", leg.count(), 1)
     legtxt = " ".join(leg.inner_text().split())
     check("names both units", ("min/km" in legtxt and "km/t" in legtxt), True)
@@ -114,7 +132,7 @@ with sync_playwright() as p:
     # It must sit ABOVE the multicol flow, not inside it — inside, a header lands at the top of the
     # first column only and never repeats. Left edges align so it reads as that table's header.
     geo = pg.evaluate("""() => {
-      const L = document.querySelector('.pc-legend').getBoundingClientRect();
+      const L = document.querySelector('.card:has(#pcTable) .pc-legend').getBoundingClientRect();
       const T = document.getElementById('pcTable').getBoundingClientRect();
       return { sameLeft: Math.abs(L.left - T.left) < 8, above: L.bottom <= T.top + 1,
                inside: !!document.querySelector('#pcTable .pc-legend') };
@@ -123,7 +141,7 @@ with sync_playwright() as p:
     check("legend sits above the table", geo["above"], True)
     check("legend aligns with the table's left edge", geo["sameLeft"], True)
     check("input labels carry the same icons",
-          [t.strip().split("\n")[0].strip() for t in pg.locator(".pc-field").all_inner_texts()],
+          [t.strip().split("\n")[0].strip() for t in pg.locator(f"{CARD} .pc-field").all_inner_texts()],
           ["⏱️ Tempo", "⚡ Fart"])
     # Not on every row: emoji cannot be muted, so 25 rows x 2 would shout over the numbers.
     check("no icons repeated in the rows", pg.locator("#pcTable .pc-row").first.inner_text().count("⏱"), 0)
