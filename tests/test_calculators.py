@@ -192,6 +192,27 @@ with sync_playwright() as b0:
     check("empty state, not zeros", "Fyll inn" in txt(pg, "#ivHero"), True)
     check("no stats while incomplete", txt(pg, "#ivOut"), "")
 
+    # Both unit groups stay visible and divided, never filtered — clicking across the divider is a
+    # one-click mode switch, and filtering would hide the time-based mode entirely.
+    pg.select_option("#ivUnit", "m")
+    pg.wait_for_timeout(100)
+    check("metre chips visible in metre mode", pg.locator("#ivValChips .tc-chip[data-unit='m']").count(), 6)
+    check("minute chips ALSO visible in metre mode", pg.locator("#ivValChips .tc-chip[data-unit='min']").count(), 3)
+    check("the two groups are divided", pg.locator("#ivValChips .tc-chip-sep").count(), 1)
+    pg.click("#ivValChips .tc-chip[data-val='4'][data-unit='min']")
+    pg.wait_for_timeout(120)
+    check("clicking across the divider switches the unit", pg.input_value("#ivUnit"), "min")
+    check("...and fills the value", pg.input_value("#ivVal"), "4")
+
+    # A placeholder must not read as a value: the card once showed 6 / 5:30 / 90 while saying
+    # "fyll inn", which is a contradiction. Weight is what separates them.
+    weights = pg.evaluate("""() => {
+      const s = getComputedStyle(document.getElementById('ivReps'), '::placeholder');
+      const v = getComputedStyle(document.getElementById('ivReps'));
+      return { ph: s.fontWeight, val: v.fontWeight, op: s.opacity };
+    }""")
+    check("placeholder is lighter than a real value", weights["ph"] != weights["val"], True)
+
     check("no page errors", errs, [])
     pg.close()
 

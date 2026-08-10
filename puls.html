@@ -161,6 +161,14 @@
   .pc-field select { background:var(--surface2); border:1px solid var(--border); color:var(--text);
                      border-radius:6px; padding:8px 6px; font:inherit; font-size:12px; }
   .pc-field select:focus { outline:none; border-color:var(--accent); }
+  /* Placeholders must not read as values. The inputs are 15px/600 and centred, so an unstyled
+     placeholder looked filled-in — a card showing 6 / 5:30 / 90 while saying "fyll inn" is a
+     contradiction the user hits immediately. */
+  .pc-field input::placeholder { color:var(--muted); font-weight:400; opacity:.55; }
+  /* Separates the metre chips from the minute chips. Both groups stay visible on purpose: clicking a
+     chip from the other group switches the unit for you, so it is a one-click mode change and the
+     time-based mode stays discoverable. The divider is what makes them read as two groups. */
+  .tc-chip-sep { align-self:stretch; width:1px; background:var(--border); margin:2px 6px; }
   .tc-help { font-size:12px; color:var(--muted); margin:0 0 14px; line-height:1.6; }
   .tc-modes { display:inline-flex; gap:2px; background:var(--surface2); border:1px solid var(--border);
               border-radius:8px; padding:2px; margin-bottom:16px; }
@@ -1193,8 +1201,36 @@
      implementation detail: these must answer for paces you have never run (a plan target, someone
      else's race, a goal you are not yet fit for). The moment one of them reads your sessions it
      becomes a derived surface and inherits every provenance question the dashboard has.
-     Ordered by expected use, with the reference table last as the occasional lookup. -->
+     Tempo ↔ km/t sits FIRST at his request (2026-08-09) — it is the quick lookup you open the tab
+     for, so it should not be scrolled past. The two calculators follow. -->
 <div class="panel" id="panel-tools" style="max-width:1200px;margin:0 auto">
+
+  <!-- Tempo ↔ km/t. Moved here from the bottom of Planlegging 2026-08-09 when it stopped being the
+       only tool. Unchanged apart from its address. -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Tempo ↔ km/t</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 14px">Planer og mål er i <b>tempo</b> (min/km), men en tredemølle stilles i <b>fart</b> (km/t). Skriv inn det ene, så følger det andre — og tabellen viser nabotempoene, så du ser hvor du ligger an.</p>
+    <div class="pc-io">
+      <label class="pc-field">⏱️ Tempo
+        <input type="text" id="pcPace" placeholder="7:05" inputmode="numeric" autocomplete="off">
+        <span class="pc-unit">/km</span>
+      </label>
+      <span class="pc-swap">↔</span>
+      <label class="pc-field">⚡ Fart
+        <input type="text" id="pcKmh" placeholder="8.5" inputmode="decimal" autocomplete="off">
+        <span class="pc-unit">km/t</span>
+      </label>
+    </div>
+    <!-- Legend sits ABOVE the table, not inside it: the table is a CSS multi-column flow, so a header
+         row placed within it would land at the top of the first column only, never repeat per column.
+         Deliberately not on every row either — emoji come from the emoji font and can't be muted, so
+         50 of them would shout over the numbers they're labelling. -->
+    <div class="pc-legend">⏱️ tempo <span class="pc-unit">min/km</span> <span class="pc-legend-sep">·</span> ⚡ fart <span class="pc-unit">km/t</span></div>
+    <div id="pcTable" class="pc-table"></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6">
+      Regnestykket gjelder <b>fart</b>, ikke opplevd innsats: utendørs jobber du mot luftmotstand, det gjør du ikke på beltet. De <b>1 % stigning</b> du kjører med er nettopp korreksjonen for det — og i ditt fartsområde er forskjellen uansett liten, så tallene her er en rimelig match begge veier.
+    </div>
+  </div>
 
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Tid og tempo</div>
@@ -1289,33 +1325,6 @@
 
     <div class="iv-hero" id="ivHero"></div>
     <div class="tc-out" id="ivOut"></div>
-  </div>
-
-  <!-- Tempo ↔ km/t. Moved here from the bottom of Planlegging 2026-08-09 when it stopped being the
-       only tool. Unchanged apart from its address. -->
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-title">Tempo ↔ km/t</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 14px">Planer og mål er i <b>tempo</b> (min/km), men en tredemølle stilles i <b>fart</b> (km/t). Skriv inn det ene, så følger det andre — og tabellen viser nabotempoene, så du ser hvor du ligger an.</p>
-    <div class="pc-io">
-      <label class="pc-field">⏱️ Tempo
-        <input type="text" id="pcPace" placeholder="7:05" inputmode="numeric" autocomplete="off">
-        <span class="pc-unit">/km</span>
-      </label>
-      <span class="pc-swap">↔</span>
-      <label class="pc-field">⚡ Fart
-        <input type="text" id="pcKmh" placeholder="8.5" inputmode="decimal" autocomplete="off">
-        <span class="pc-unit">km/t</span>
-      </label>
-    </div>
-    <!-- Legend sits ABOVE the table, not inside it: the table is a CSS multi-column flow, so a header
-         row placed within it would land at the top of the first column only, never repeat per column.
-         Deliberately not on every row either — emoji come from the emoji font and can't be muted, so
-         50 of them would shout over the numbers they're labelling. -->
-    <div class="pc-legend">⏱️ tempo <span class="pc-unit">min/km</span> <span class="pc-legend-sep">·</span> ⚡ fart <span class="pc-unit">km/t</span></div>
-    <div id="pcTable" class="pc-table"></div>
-    <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.6">
-      Regnestykket gjelder <b>fart</b>, ikke opplevd innsats: utendørs jobber du mot luftmotstand, det gjør du ikke på beltet. De <b>1 % stigning</b> du kjører med er nettopp korreksjonen for det — og i ditt fartsområde er forskjellen uansett liten, så tallene her er en rimelig match begge veier.
-    </div>
   </div>
 
 </div>
@@ -9555,8 +9564,12 @@ const IntervalCalc = {
     const reps = document.getElementById('ivReps');
     if (!reps) return;
 
+    // Both unit groups are always shown, divided rather than filtered. Filtering would cost a step
+    // (change the dropdown, THEN pick) and would hide the time-based mode from anyone who had not
+    // already found the dropdown. Clicking across the divider switches the unit for you.
     document.getElementById('ivValChips').innerHTML =
       [200, 300, 400, 600, 800, 1000].map(m => `<button type="button" class="tc-chip" data-val="${m}" data-unit="m">${m} m</button>`).join('') +
+      '<span class="tc-chip-sep"></span>' +
       [3, 4, 5].map(n => `<button type="button" class="tc-chip" data-val="${n}" data-unit="min">${n} min</button>`).join('');
 
     document.getElementById('ivValChips').addEventListener('click', e => {
