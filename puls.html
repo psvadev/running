@@ -132,6 +132,14 @@
   /* Planned-low week (deload/taper/syk/ferie), or no change: the number is still true, the
      judgement isn't. Also every delta during a covered week. */
   #weekNowCard .wk-flat { color: var(--muted); font-weight:600; }
+  /* Week plan, shown only while the week is still empty. Wraps rather than scrolls — at 402px a
+     five-session week is three lines, and three visible lines beat one line with four sessions
+     hidden off-screen. */
+  .wk-plan { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; font-size:12px; color:var(--muted); }
+  .wk-plan-lead { width:100%; font-size:10px; text-transform:uppercase; letter-spacing:.05em; margin-bottom:2px; }
+  .wk-plan-day { color:var(--muted); font-size:11px; }
+  .wk-plan-item.wk-plan-today { color:var(--text); font-weight:600; }
+  .wk-plan-item.wk-plan-today .wk-plan-day { color:var(--accent); }
 
   /* Tempo ↔ km/t converter */
   .pc-io { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
@@ -7999,6 +8007,42 @@ function renderPaceWeekChart(sessions) {
 // Takes the UNFILTERED array on purpose (like the Årsmål card): "this week" has to mean this week.
 // Following the År pills would make it read 0 km whenever a past year is selected — filtered, but
 // indistinguishable from broken.
+// The empty week is the one moment this card has nothing to say: no sessions means no stats and
+// nothing to compare against last week, so the space went to a sentence that only restated the
+// obvious. It now shows what you are SUPPOSED to run instead — the data is already loaded for the
+// "I dag" line above.
+//
+// It disappears the moment a real session exists, deliberately: once there are numbers, the numbers
+// are the better answer, and this card was trimmed down once already. This costs no permanent height.
+//
+// Falls back to the old sentence when nothing is planned — no active block, or a block with nothing
+// this week. Absence of a plan is NOT a rest week (only runs are imported from the .ics), so it must
+// not claim one. Same reason plannedToday() never says "Hviledag".
+function weekPlanHtml(today, absWk) {
+  const none = `<div style="font-size:12px;color:var(--muted)">Ingen økter ennå denne uken.</div>`;
+  const evt = activePlanEvent(today);
+  if (!evt) return none;
+  // Filtered by absWeekNum, the same week function the rest of this card uses — a second way of
+  // deciding "this week" is exactly how two surfaces start disagreeing.
+  const planned = plannedForBlock(evt.date, evt.endDate || null).filter(p => absWeekNum(p.date) === absWk);
+  if (!planned.length) return none;
+  // Excused (Syk/Ferie) left out, matching the "I dag" line — showing a plan you are excused from is
+  // the wrong signal, and it is the rule the streak nudge already follows.
+  const matchOf = matchPlannedSessions(planned);
+  const rows = planned.filter(p => plannedStatus(p, matchOf, today) !== 'excused');
+  if (!rows.length) return none;
+
+  const items = rows.map(p => {
+    const day = new Date(p.date).toLocaleDateString('nb-NO', { weekday: 'short' }).replace('.', '');
+    const what = [p.okttype, p.distance ? `${p.distance} km` : null].filter(Boolean).join(' · ');
+    const flavour = plannedTitle(p);            // '' for generic names like "Easy Run"
+    return `<span class="wk-plan-item${p.date === today ? ' wk-plan-today' : ''}">`
+      + `<span class="wk-plan-day">${escapeHtml(day.charAt(0).toUpperCase() + day.slice(1))}</span> `
+      + `${escapeHtml(what)}${flavour ? ` — ${escapeHtml(flavour)}` : ''}</span>`;
+  }).join('');
+  return `<div class="wk-plan"><span class="wk-plan-lead">Planlagt denne uken</span>${items}</div>`;
+}
+
 function renderWeekNow(allSessions) {
   const el = document.getElementById('weekNowCard');
   if (!el) return;
@@ -8049,7 +8093,7 @@ function renderWeekNow(allSessions) {
     </div>`;
 
   if (!thisWk.length) {
-    el.innerHTML = head + `<div style="font-size:12px;color:var(--muted)">Ingen økter ennå denne uken.</div>`;
+    el.innerHTML = head + weekPlanHtml(today, nowAbsWk);
     el.style.display = '';
     return;
   }

@@ -356,6 +356,87 @@ with sync_playwright() as p:
                   clip={"x": 0, "y": 0, "width": 402, "height": 520})
     pg.close()
 
+    # ── The empty week shows the PLAN instead of a sentence that says nothing ────────────────
+    #
+    # Requires history: with zero sessions ever, renderDashboard shows its fresh-install empty
+    # state and hides this card entirely, so a fixture with no sessions at all would assert
+    # against a hidden element and pass for the wrong reason.
+    print("== empty week -> planlagt denne uken ==")
+
+    # Monday 2026-08-10, the week the feature was built for. Absolute dates, so the block window
+    # and the planned days cannot drift with the real calendar.
+    EMPTY_WEEK = """
+    (cfg) => {
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [{ id:'old', dato:'2026-08-05', uke:'2026-32', oktnavn:'x', okttype:'Easy',
+                     treningsplan:'Runna', distanse:6, varighet:2100, tempo:350, soner:[0,0,0,0,0] }],
+        shoes: [], goals: {}, settings: { zones: [] },
+        events: cfg.events, plannedSessions: cfg.planned, lastUpdated: '' }));
+    }"""
+    BLOCK = [{"id": "p", "type": "plan", "title": "Runna 10K", "date": "2026-08-03", "endDate": "2026-10-01"}]
+    WEEK_PLAN = [
+        {"id": "a", "date": "2026-08-10", "okttype": "Easy",  "distance": 4.5, "title": ""},
+        {"id": "b", "date": "2026-08-12", "okttype": "Tempo", "distance": 7,   "title": ""},
+        {"id": "d", "date": "2026-08-16", "okttype": "Long",  "distance": 14,  "title": ""},
+        {"id": "e", "date": "2026-08-20", "okttype": "Tempo", "distance": 8,   "title": ""},  # next week
+    ]
+    MONDAY = """
+    (() => { const R = Date; const fixed = new R(2026, 7, 10, 12, 0, 0).getTime();
+      function F(...a){ return a.length ? new R(...a) : new R(fixed); }
+      F.prototype = R.prototype; F.now = () => fixed; F.parse = R.parse; F.UTC = R.UTC;
+      window.Date = F; })();
+    """
+
+    def week_card(events, planned, width=1280):
+        p = b.new_page(viewport={"width": width, "height": 900})
+        errs = []
+        p.on("pageerror", lambda e: errs.append(str(e)))
+        p.add_init_script(MONDAY)
+        p.goto(APP)
+        p.evaluate(EMPTY_WEEK, {"events": events, "planned": planned})
+        p.goto(APP)
+        p.evaluate("() => switchTab('dash')")
+        p.wait_for_timeout(500)
+        txt = " ".join(p.inner_text("#weekNowCard").split())
+        clipped = p.evaluate("""() => { const bad = [];
+            document.querySelectorAll('#weekNowCard div,#weekNowCard span').forEach(el => {
+              if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0) bad.push(el.className); });
+            return bad; }""")
+        p.close()
+        return txt, errs, clipped
+
+    txt, errs, _ = week_card(BLOCK, WEEK_PLAN)
+    check("lead line present", "PLANLAGT DENNE UKEN" in txt, True)
+    check("monday session listed", "Man Easy · 4.5 km" in txt, True)
+    check("wednesday session listed", "Ons Tempo · 7 km" in txt, True)
+    check("sunday session listed", "Søn Long · 14 km" in txt, True)
+    # THE SCOPING RULE: next week's session must not leak in. Same absWeekNum the rest of the card
+    # uses — a second way of deciding "this week" is how two surfaces start disagreeing.
+    check("next week's session excluded", "8 km" in txt, False)
+    check("old empty sentence gone", "Ingen økter ennå" in txt, False)
+    check("no page errors", errs, [])
+
+    # No plan at all, and a plan with nothing this week, BOTH fall back to the old sentence.
+    # Absence of a plan is not a rest week — only runs are imported from the .ics, so it must not
+    # claim one. Same reason plannedToday() never says "Hviledag".
+    txt, _, _ = week_card([], WEEK_PLAN)
+    check("no plan event -> old sentence", "Ingen økter ennå denne uken." in txt, True)
+    check("...and no plan list", "PLANLAGT" in txt, False)
+
+    txt, _, _ = week_card(BLOCK, [{"id": "z", "date": "2026-09-01", "okttype": "Easy", "distance": 5, "title": ""}])
+    check("block active but empty week -> old sentence", "Ingen økter ennå denne uken." in txt, True)
+    check("...still no rest-day claim", "Hviledag" in txt, False)
+
+    # Excused (Syk/Ferie) sessions are left out, matching the "I dag" line's rule.
+    SICK = BLOCK + [{"id": "s", "type": "illness", "title": "Syk", "date": "2026-08-11", "endDate": "2026-08-13"}]
+    txt, _, _ = week_card(SICK, WEEK_PLAN)
+    check("excused session hidden", "Ons Tempo · 7 km" in txt, False)
+    check("...but the rest still shown", "Man Easy · 4.5 km" in txt, True)
+
+    txt, _, clipped = week_card(BLOCK, WEEK_PLAN, width=402)
+    check("plan list unclipped at 402px", clipped, [])
+    check("...and still listed", "Søn Long · 14 km" in txt, True)
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
