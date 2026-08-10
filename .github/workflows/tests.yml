@@ -38,6 +38,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The steps below are named one per suite so a failure names itself in the log — but a hand
+      # written list rots. The pre-push hook's identical list went stale the first time a suite was
+      # added (test_calculators, 2026-08-09) and quietly ran four of five. That hook now globs; this
+      # one cannot, so it is guarded instead: every tests/test_*.py must be referenced by a step, or
+      # the job fails BEFORE the slow WebKit install. Counting would not be enough — five files and
+      # five steps can still be the wrong five.
+      - name: Guard - every suite is actually run
+        shell: pwsh
+        run: |
+          $wf = Get-Content .github/workflows/tests.yml -Raw
+          $missing = @(Get-ChildItem tests/test_*.py | Where-Object {
+            $wf -notmatch [regex]::Escape("python tests/$($_.Name)") } | ForEach-Object { $_.Name })
+          if ($missing.Count) {
+            Write-Host "::error::Suite(s) with no run step: $($missing -join ', '). Add a step to tests.yml."
+            exit 1
+          }
+          Write-Host "OK - all $((Get-ChildItem tests/test_*.py).Count) suites have a run step."
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
