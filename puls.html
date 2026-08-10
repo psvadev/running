@@ -7964,7 +7964,7 @@ function renderPaceWeekChart(sessions) {
       options:{
         plugins:{ legend:{display:false}, tooltip:{ callbacks:{
           title: items => fmtPaceKey(paceKeys[items[0].dataIndex]),
-          label: ctx => useKmh ? ctx.raw.toFixed(1)+' km/t' : secsToMmSs(Math.round(ctx.raw*60))+' /km',
+          label: ctx => useKmh ? PaceConv.fmtKmh(ctx.raw)+' km/t' : secsToMmSs(Math.round(ctx.raw*60))+' /km',
           afterBody: items => {
             const d = paceDetails[paceKeys[items[0].dataIndex]];
             if (!d) return [];
@@ -7972,7 +7972,7 @@ function renderPaceWeekChart(sessions) {
           }
         }}},
         scales:{
-          y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? v.toFixed(1) : secsToMmSs(Math.round(v*60))} },
+          y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? PaceConv.fmtKmh(v) : secsToMmSs(Math.round(v*60))} },
           x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
         },
         onClick: (evt, elements) => { if (elements.length && paceGroupBy === 'week') DetailPanel.openWeek(paceKeys[elements[0].index], Store.data.sessions); },
@@ -8011,7 +8011,7 @@ function renderWeekNow(allSessions) {
   const lastKm = lastWkSoFar.reduce((sum, s) => sum + (s.distanse || 0), 0);
   const { avgPace } = avgPaceHR(thisWk);
   const useKmh = paceUnit === 'kmh';
-  const paceTxt = avgPace ? (useKmh ? (3600 / avgPace).toFixed(1) + ' km/t' : secsToMmSs(avgPace) + ' /km') : '–';
+  const paceTxt = avgPace ? (useKmh ? PaceConv.fmtKmh(PaceConv.kmhFromPace(avgPace)) + ' km/t' : secsToMmSs(avgPace) + ' /km') : '–';
 
   // Today's planned session, in the space the header already had spare — so it costs no extra height
   // on the dashboard (it wraps to a second line only at phone width). Rendered here rather than as its
@@ -8103,7 +8103,7 @@ function renderWeekNow(allSessions) {
                    t => secsToHms(t)))}
       ${tile(paceTxt, 'snitt tempo',
              delta(avgPace, lastPace, false, 2, (d, better) => `${Math.abs(Math.round(d))} s ${better ? 'raskere' : 'tregere'}`,
-                   t => useKmh ? `${(3600 / t).toFixed(1)} km/t` : `${secsToMmSs(Math.round(t))} /km`))}
+                   t => useKmh ? `${PaceConv.fmtKmh(PaceConv.kmhFromPace(t))} km/t` : `${secsToMmSs(Math.round(t))} /km`))}
     </div>`;
 
   // Said once under the tiles rather than repeated in each: what every delta above is measured against.
@@ -8205,7 +8205,7 @@ function renderDashboard() {
     { label:'Totalt høydemeter', value: recs.totalHoyde ? recs.totalHoyde+' m' : '–', sub: recs.totalHoyde ? `${(recs.totalHoyde/8849).toFixed(2)}× Everest` : '' },
     { label:'Utendørs km', value: recs.totalOutdoorKm ? recs.totalOutdoorKm+' km' : '–', sub: recs.totalDist ? `${Math.round(recs.totalOutdoorKm/recs.totalDist*100)}% av totalt` : '' },
     { label:'Innendørs km', value: recs.totalIndoorKm ? recs.totalIndoorKm+' km' : '–', sub: recs.totalDist ? `${Math.round(recs.totalIndoorKm/recs.totalDist*100)}% av totalt` : '' },
-    { label:'Beste aerob eff.', value: recs.bestAerobEff ? recs.bestAerobEff.ae.toFixed(2) : '–', sub: recs.bestAerobEff ? `${(+recs.bestAerobEff.kmh).toFixed(1)} km/t · ${recs.bestAerobEff.gjsnittspuls} bpm · ${fmtDate(recs.bestAerobEff.dato)}` : '', color: recs.bestAerobEff ? (recs.bestAerobEff.ae >= 7 ? '#6c8fff' : recs.bestAerobEff.ae >= 5.5 ? 'var(--green)' : recs.bestAerobEff.ae >= 4 ? 'rgba(240,192,80,.9)' : '#f87171') : null, tooltip: 'Aerob effektivitet = fart ÷ puls × 100\nLav: < 4.0 · Moderat: 4.0–5.5 · God: 5.5–7.0 · Høy: > 7.0' },
+    { label:'Beste aerob eff.', value: recs.bestAerobEff ? recs.bestAerobEff.ae.toFixed(2) : '–', sub: recs.bestAerobEff ? `${PaceConv.fmtKmh(+recs.bestAerobEff.kmh)} km/t · ${recs.bestAerobEff.gjsnittspuls} bpm · ${fmtDate(recs.bestAerobEff.dato)}` : '', color: recs.bestAerobEff ? (recs.bestAerobEff.ae >= 7 ? '#6c8fff' : recs.bestAerobEff.ae >= 5.5 ? 'var(--green)' : recs.bestAerobEff.ae >= 4 ? 'rgba(240,192,80,.9)' : '#f87171') : null, tooltip: 'Aerob effektivitet = fart ÷ puls × 100\nLav: < 4.0 · Moderat: 4.0–5.5 · God: 5.5–7.0 · Høy: > 7.0' },
     { label:'Lavest gj.snittspuls', value: recs.lavPuls ? recs.lavPuls.gjsnittspuls+' bpm' : '–', sub: recs.lavPuls ? `${fmtDist(recs.lavPuls.distanse)} km · ${fmtDate(recs.lavPuls.dato)}` : '' },
     { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
     { label:'Nåværende streak', value: recs.currentStreak ? `${recs.currentStreak} uker` : '–', sub: recs.currentStreak > 1 ? 'på rad nå' : recs.currentStreak === 1 ? 'denne uken' : '', color: recs.currentStreak >= 6 ? '#6c8fff' : recs.currentStreak >= 3 ? 'var(--green)' : recs.currentStreak >= 1 ? 'rgba(240,192,80,.9)' : null },
@@ -8213,7 +8213,7 @@ function renderDashboard() {
 
   document.getElementById('paceRecordsGrid').innerHTML = [
     { label:'Beste tempo', value: recs.bestePace ? secsToMmSs(recs.bestePace.tempo)+' /km' : '–', sub: recs.bestePace ? fmtDate(recs.bestePace.dato) : '' },
-    { label:'Beste snitt km/t', value: recs.bestKmh ? recs.bestKmh.snittkmh.toFixed(1)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
+    { label:'Beste snitt km/t', value: recs.bestKmh ? PaceConv.fmtKmh(recs.bestKmh.snittkmh)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
     { label:'Beste Easy pace', value: recs.bestEasyPace ? secsToMmSs(recs.bestEasyPace.tempo)+' /km' : '–', sub: recs.bestEasyPace ? fmtDate(recs.bestEasyPace.dato) : '' },
     { label:'Beste Long pace', value: recs.bestLongPace ? secsToMmSs(recs.bestLongPace.tempo)+' /km' : '–', sub: recs.bestLongPace ? fmtDate(recs.bestLongPace.dato) : '' },
     { label:'Beste Tempo pace', value: recs.bestTempoPace ? secsToMmSs(recs.bestTempoPace.tempo)+' /km' : '–', sub: recs.bestTempoPace ? fmtDate(recs.bestTempoPace.dato) : '' },
