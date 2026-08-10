@@ -136,6 +136,8 @@
      five-session week is three lines, and three visible lines beat one line with four sessions
      hidden off-screen. */
   .wk-plan { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; font-size:12px; color:var(--muted); }
+  /* Under the stats it needs a rule above it; on an empty week it is the only content and doesn't. */
+  .wk-plan-rest { border-top:1px solid var(--border); margin-top:12px; padding-top:10px; }
   .wk-plan-lead { width:100%; font-size:10px; text-transform:uppercase; letter-spacing:.05em; margin-bottom:2px; }
   .wk-plan-day { color:var(--muted); font-size:11px; }
   .wk-plan-item.wk-plan-today { color:var(--text); font-weight:600; }
@@ -8018,8 +8020,21 @@ function renderPaceWeekChart(sessions) {
 // Falls back to the old sentence when nothing is planned — no active block, or a block with nothing
 // this week. Absence of a plan is NOT a rest week (only runs are imported from the .ics), so it must
 // not claim one. Same reason plannedToday() never says "Hviledag".
-function weekPlanHtml(today, absWk) {
-  const none = `<div style="font-size:12px;color:var(--muted)">Ingen økter ennå denne uken.</div>`;
+// Two modes, answering two different questions:
+//   'all'       — the empty week: what does this week look like? Everything not excused, including a
+//                 day already gone by, because on a blank week the whole shape is the useful answer.
+//   'remaining' — after the first run: what is still coming? PENDING only (today and later), so the
+//                 list shrinks through the week and disappears on its own once the plan is done. It
+//                 can never become permanent clutter, which is what earned it a place under the stats.
+//
+// 'remaining' deliberately drops OVERDUE sessions. A missed Monday is adherence information, and this
+// card does not make that judgement anywhere else — the week drill-down and the block adherence
+// already do. "Igjen" means still ahead, not still owed.
+function weekPlanHtml(today, absWk, mode) {
+  const remaining = mode === 'remaining';
+  // Only the empty week falls back to the sentence; under the stats, nothing left simply renders
+  // nothing rather than a heading over an empty row.
+  const none = remaining ? '' : `<div style="font-size:12px;color:var(--muted)">Ingen økter ennå denne uken.</div>`;
   const evt = activePlanEvent(today);
   if (!evt) return none;
   // Filtered by absWeekNum, the same week function the rest of this card uses — a second way of
@@ -8029,7 +8044,10 @@ function weekPlanHtml(today, absWk) {
   // Excused (Syk/Ferie) left out, matching the "I dag" line — showing a plan you are excused from is
   // the wrong signal, and it is the rule the streak nudge already follows.
   const matchOf = matchPlannedSessions(planned);
-  const rows = planned.filter(p => plannedStatus(p, matchOf, today) !== 'excused');
+  const rows = planned.filter(p => {
+    const st = plannedStatus(p, matchOf, today);
+    return remaining ? st === 'pending' : st !== 'excused';
+  });
   if (!rows.length) return none;
 
   const items = rows.map(p => {
@@ -8040,7 +8058,8 @@ function weekPlanHtml(today, absWk) {
       + `<span class="wk-plan-day">${escapeHtml(day.charAt(0).toUpperCase() + day.slice(1))}</span> `
       + `${escapeHtml(what)}${flavour ? ` — ${escapeHtml(flavour)}` : ''}</span>`;
   }).join('');
-  return `<div class="wk-plan"><span class="wk-plan-lead">Planlagt denne uken</span>${items}</div>`;
+  return `<div class="wk-plan${remaining ? ' wk-plan-rest' : ''}">`
+    + `<span class="wk-plan-lead">${remaining ? 'Igjen denne uken' : 'Planlagt denne uken'}</span>${items}</div>`;
 }
 
 function renderWeekNow(allSessions) {
@@ -8093,7 +8112,7 @@ function renderWeekNow(allSessions) {
     </div>`;
 
   if (!thisWk.length) {
-    el.innerHTML = head + weekPlanHtml(today, nowAbsWk);
+    el.innerHTML = head + weekPlanHtml(today, nowAbsWk, 'all');
     el.style.display = '';
     return;
   }
@@ -8171,7 +8190,9 @@ function renderWeekNow(allSessions) {
     footHtml = `<div class="wk-now-delta">mot samme tid forrige uke${why}</div>`;
   }
 
-  el.innerHTML = head + stats + footHtml;
+  // What is still ahead this week, under the stats. Renders nothing once the plan is done, so the
+  // card returns to exactly its trimmed form by the end of the week.
+  el.innerHTML = head + stats + footHtml + weekPlanHtml(today, nowAbsWk, 'remaining');
   el.style.display = '';
 }
 

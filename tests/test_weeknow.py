@@ -367,9 +367,10 @@ with sync_playwright() as p:
     # and the planned days cannot drift with the real calendar.
     EMPTY_WEEK = """
     (cfg) => {
+      const prior = { id:'old', dato:'2026-08-05', uke:'2026-32', oktnavn:'x', okttype:'Easy',
+                      treningsplan:'Runna', distanse:6, varighet:2100, tempo:350, soner:[0,0,0,0,0] };
       localStorage.setItem('lpl_cache', JSON.stringify({
-        sessions: [{ id:'old', dato:'2026-08-05', uke:'2026-32', oktnavn:'x', okttype:'Easy',
-                     treningsplan:'Runna', distanse:6, varighet:2100, tempo:350, soner:[0,0,0,0,0] }],
+        sessions: [prior].concat(cfg.extra || []),
         shoes: [], goals: {}, settings: { zones: [] },
         events: cfg.events, plannedSessions: cfg.planned, lastUpdated: '' }));
     }"""
@@ -380,20 +381,25 @@ with sync_playwright() as p:
         {"id": "d", "date": "2026-08-16", "okttype": "Long",  "distance": 14,  "title": ""},
         {"id": "e", "date": "2026-08-20", "okttype": "Tempo", "distance": 8,   "title": ""},  # next week
     ]
-    MONDAY = """
-    (() => { const R = Date; const fixed = new R(2026, 7, 10, 12, 0, 0).getTime();
-      function F(...a){ return a.length ? new R(...a) : new R(fixed); }
-      F.prototype = R.prototype; F.now = () => fixed; F.parse = R.parse; F.UTC = R.UTC;
-      window.Date = F; })();
-    """
+    def freeze_on(day):
+        return """
+        (() => { const R = Date; const fixed = new R(2026, 7, %d, 12, 0, 0).getTime();
+          function F(...a){ return a.length ? new R(...a) : new R(fixed); }
+          F.prototype = R.prototype; F.now = () => fixed; F.parse = R.parse; F.UTC = R.UTC;
+          window.Date = F; })();""" % day
 
-    def week_card(events, planned, width=1280):
+    def logged(n, date, km, secs):
+        return {"id": "s%d" % n, "dato": date, "uke": "2026-33", "oktnavn": "x", "okttype": "Easy",
+                "treningsplan": "Runna", "distanse": km, "varighet": secs,
+                "tempo": round(secs / km), "soner": [0, 0, 0, 0, 0]}
+
+    def week_card(events, planned, width=1280, day=10, extra=None):
         p = b.new_page(viewport={"width": width, "height": 900})
         errs = []
         p.on("pageerror", lambda e: errs.append(str(e)))
-        p.add_init_script(MONDAY)
+        p.add_init_script(freeze_on(day))
         p.goto(APP)
-        p.evaluate(EMPTY_WEEK, {"events": events, "planned": planned})
+        p.evaluate(EMPTY_WEEK, {"events": events, "planned": planned, "extra": extra or []})
         p.goto(APP)
         p.evaluate("() => switchTab('dash')")
         p.wait_for_timeout(500)
@@ -436,6 +442,37 @@ with sync_playwright() as p:
     txt, _, clipped = week_card(BLOCK, WEEK_PLAN, width=402)
     check("plan list unclipped at 402px", clipped, [])
     check("...and still listed", "Søn Long · 14 km" in txt, True)
+
+    # ── After the first run: what is LEFT, under the stats ──────────────────────────────────
+    #
+    # The list must SHRINK through the week and vanish on its own, which is what earns it a place
+    # below the stats — it can never become permanent clutter.
+    print("== remaining plan under the stats ==")
+    MON, WED = logged(1, "2026-08-10", 4.5, 1600), logged(2, "2026-08-12", 5, 1800)
+
+    txt, errs, _ = week_card(BLOCK, WEEK_PLAN, day=10, extra=[MON])
+    check("switches to 'igjen' once a run exists", "IGJEN DENNE UKEN" in txt, True)
+    check("...and the stats are there too", "4.5 km" in txt and "distanse" in txt, True)
+    check("done session drops off", "Man Easy" in txt, False)
+    check("what's ahead stays", "Ons Tempo · 7 km" in txt, True)
+    check("no page errors", errs, [])
+
+    txt, _, _ = week_card(BLOCK, WEEK_PLAN, day=14, extra=[MON, WED])
+    check("list shrinks as the week runs down", "Ons Tempo" in txt, False)
+    check("...leaving only what's ahead", "Søn Long · 14 km" in txt, True)
+
+    # Everything planned is done -> no heading over an empty row, the card returns to trimmed form.
+    txt, _, _ = week_card(BLOCK, WEEK_PLAN[:3], day=16,
+                          extra=[MON, WED, logged(3, "2026-08-16", 14, 4900)])
+    check("nothing left -> no list at all", "IGJEN" in txt, False)
+    check("...and no stray heading", "PLANLAGT" in txt, False)
+
+    # A MISSED Monday is 'overdue', not 'igjen'. This card makes no adherence judgement anywhere
+    # else — the week drill-down and block adherence do — so "igjen" must mean still AHEAD, never
+    # still owed.
+    txt, _, _ = week_card(BLOCK, WEEK_PLAN, day=12, extra=[WED])
+    check("overdue session is not listed as remaining", "Man Easy" in txt, False)
+    check("...while today and later still are", "Søn Long · 14 km" in txt, True)
 
     b.close()
 
