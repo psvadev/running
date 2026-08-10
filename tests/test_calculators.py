@@ -204,6 +204,23 @@ with sync_playwright() as b0:
     check("clicking across the divider switches the unit", pg.input_value("#ivUnit"), "min")
     check("...and fills the value", pg.input_value("#ivVal"), "4")
 
+    # The distance ladder: a pyramid holds ONE pace and varies the distance, so the belt setting never
+    # changes and only the rep times are missing. Driven by the pace alone — it must appear before the
+    # session is fully described, which is when you are still working out what to run.
+    fill(pg, "#ivReps", "")
+    fill(pg, "#ivVal", "")
+    fill(pg, "#ivPace", "5:30")
+    strip = txt(pg, "#ivStrip")
+    check("strip renders from the pace alone", "200 m 1:06" in strip, True)
+    for d, t in [("300 m", "1:39"), ("400 m", "2:12"), ("600 m", "3:18"),
+                 ("800 m", "4:24"), ("1000 m", "5:30")]:
+        check(f"ladder {d}", f"{d} {t}" in strip, True)
+    # .ivs-lead is text-transform:uppercase, and inner_text returns the RENDERED text — so this
+    # compares case-insensitively rather than against the source string.
+    check("strip names the pace it used", "5:30 /km" in strip.lower(), True)
+    fill(pg, "#ivPace", "")
+    check("no pace -> no strip", pg.locator("#ivStrip").is_visible(), False)
+
     # A placeholder must not read as a value: the card once showed 6 / 5:30 / 90 while saying
     # "fyll inn", which is a contradiction. Weight is what separates them.
     weights = pg.evaluate("""() => {

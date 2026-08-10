@@ -199,6 +199,11 @@
                       font-size:13px; font-weight:400; }
   .iv-check { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted);
               cursor:pointer; padding-bottom:8px; }
+  .iv-strip { border-top:1px solid var(--border); padding-top:12px; font-size:12px; color:var(--muted);
+              display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; }
+  .iv-strip .ivs-lead { width:100%; font-size:10px; text-transform:uppercase; letter-spacing:.05em;
+                        margin-bottom:2px; }
+  .iv-strip .ivs-t { color:var(--text); font-weight:600; }
   @media (max-width: 700px) { .iv-hero { font-size:16px; } .tc-stat-v.tc-lead { font-size:22px; } }
 
   /* Sko list rows — actions wrap to their own line when the card is too narrow (mobile) */
@@ -1325,6 +1330,11 @@
 
     <div class="iv-hero" id="ivHero"></div>
     <div class="tc-out" id="ivOut"></div>
+    <!-- Distance ladder at the entered pace. The card proper assumes a uniform session, but a pyramid
+         or a ladder normally holds ONE pace and varies the distance — so the belt setting never
+         changes and the only missing numbers are the rep times. This gives all of them at once.
+         It cannot help a session where the speed changes too; that needs the parked set builder. -->
+    <div class="iv-strip" id="ivStrip"></div>
   </div>
 
 </div>
@@ -9518,6 +9528,10 @@ const IntervalCalc = {
     document.querySelectorAll('#ivValChips .tc-chip').forEach(c =>
       c.classList.toggle('tc-chip-on', c.dataset.unit === i.unit && Math.abs(parseDec(c.dataset.val) - i.val) < 1e-9));
 
+    // Rendered from the pace ALONE, before the completeness check below: a pace is all it needs, and
+    // it is most useful while you are still working out what the session should be.
+    this.renderStrip(i.paceSec);
+
     if (!(i.reps > 0) || !(i.val > 0) || !(i.paceSec > 0)) {
       hero.className = 'iv-hero iv-empty';
       hero.textContent = 'Fyll inn antall, lengde og tempo — så får du farten å stille inn og tiden per drag.';
@@ -9558,6 +9572,19 @@ const IntervalCalc = {
       stats.push(statHtml('–', 'hele blokka — krever pausetempo', true));
     }
     out.innerHTML = stats.join('');
+  },
+
+  // Same distances as the chips, so the strip answers for exactly the reps you can pick.
+  STRIP_M: [200, 300, 400, 600, 800, 1000],
+
+  renderStrip(paceSec) {
+    const el = document.getElementById('ivStrip');
+    if (!el) return;
+    if (!(paceSec > 0)) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    el.style.display = '';
+    el.innerHTML = `<span class="ivs-lead">Ved ${secsToMmSs(Math.round(paceSec))} /km — for pyramider og stiger med samme fart</span>`
+      + this.STRIP_M.map(m =>
+          `<span>${m} m <span class="ivs-t">${secsToMmSs(Math.round((m / 1000) * paceSec))}</span></span>`).join('');
   },
 
   init() {
