@@ -82,3 +82,6 @@ jobs:
 
       - name: Verktoy calculators
         run: python tests/test_calculators.py
+
+      - name: Innsikter gating
+        run: python tests/test_insights.py

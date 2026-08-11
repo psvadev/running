@@ -6340,6 +6340,41 @@ function renderInsights(sessions) {
       priority: km >= urgentAt ? 4 : 3 });
   });
 
+  // Maks puls contradicted by your own runs. EVENT-gated like everything else here, and deliberately
+  // NOT a Rekorder tile: "høyeste toppuls" would be a number sitting unchanged for months, while the
+  // only moment that matters is when it CONTRADICTS the setting. That setting is load-bearing —
+  // every zone boundary is a percentage of it, so a max that is too low files tempo work as threshold
+  // and carries Treningsbelastning and PMC up with it.
+  //
+  // Learned the hard way 2026-08-11: Strava sat on an age-estimated 183 (220 − 37) while three logged
+  // runs had already peaked at 195, 188 and 187. Nothing said a word for months, and it surfaced only
+  // because he happened to ask an unrelated question about zones. The 10 km test was being scored as
+  // 55 % threshold plus 4 minutes anaerobic — a workout nobody can actually complete.
+  //
+  // TWO GATES, answering different questions, which is why they use different windows:
+  //   corroboration (ALL-TIME) — one reading is an optical-sensor spike, two is evidence. NOT
+  //     windowed: with a hard effort every six weeks, requiring two inside any sane window would make
+  //     the card depend on luck. Evidence accumulates for as long as it needs to.
+  //   recency (12 weeks) — at least one exceedance must be recent, so old evidence ages out and the
+  //     card cannot nag forever. That is what replaces a dismissal flag: nothing to store, nothing to
+  //     migrate, and it re-fires by itself the next time it is true.
+  // Reads qualitySessions, so a run already flagged Avvik for a faulty strap can never drive it —
+  // which is exactly what that flag is for.
+  const maxHrSet = Store.data.settings?.maxHR;
+  if (maxHrSet) {
+    const over = qualitySessions.filter(s => s.dato && s.toppuls > maxHrSet)
+      .sort((a, b) => b.dato.localeCompare(a.dato));
+    const peak = over.reduce((best, s) => Math.max(best, s.toppuls), 0);
+    // 3 bpm of headroom: a reading that merely grazes the limit is not worth acting on, and the
+    // action here ("go look at your log") is cheap enough that firing slightly early beats staying
+    // silent through a real 12 bpm error.
+    if (over.length >= 2 && peak >= maxHrSet + 3 && over[0].dato >= localISODaysAgo(84)) {
+      candidates.push({ icon:'⚠️', val:`${over.length} løp over maks puls`,
+        sub:`høyeste ${peak} bpm mot ${maxHrSet} satt · siste ${fmtDate(over[0].dato)} — sonene kan ligge for lavt`,
+        priority: 4 });
+    }
+  }
+
   // (The "heaviest 4-week block" computation that used to sit here was removed 2026-08-05: its
   // card went in the 2026-07-17 declutter — an abstract points figure nobody could read at a
   // glance — but the loop kept running on every dashboard render, producing a value nothing
