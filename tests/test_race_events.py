@@ -369,6 +369,65 @@ with sync_playwright() as b0:
     check("no mobile page errors", merr, [])
     pg.close()
 
+    # ── matchPlannedSessions gating ────────────────────────────────────────────────────────────
+    # Reported from real use 2026-08-12: "I dag: Long · 5 km ✓" on a day with no run. An ad-hoc
+    # Intervaller run logged the DAY BEFORE had matched the planned Long — it scored 110 (100 type
+    # penalty + 10 for a day early), which is terrible, but `if (best)` has no ceiling and it was the
+    # only eligible run in the week.
+    #
+    # WHY THE TIMING MADE IT WORSE, and why a plain "does it match" test would have missed it: the
+    # false 'done' exists ONLY while the session is still pending. Run the session and the real one
+    # scores ~0, wins, and the symptom vanishes. So the card lied exactly when it was supposed to be
+    # telling him what was left. Every case below is dated inside one Mon–Sun week (10.–16.08.2026).
+    print("\n== planned-session matching: what may complete a session ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    perr = []
+    pg.on("pageerror", lambda e: perr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.wait_for_timeout(400)
+
+    WED = '2026-08-12'
+
+    def matched(actual, planned_type='Long', planned_date=WED):
+        """True if `actual` completes a planned session. Calls the function directly — this is
+        matching logic, and routing it through the UI would test the renderer instead."""
+        pl = [{'id': 'p1', 'date': planned_date, 'okttype': planned_type, 'distance': 5, 'title': ''}]
+        a = {'id': 'a1', 'distanse': 5, 'varighet': 1800, 'treningsplan': 'Runna'}
+        a.update(actual)
+        return pg.evaluate("""([ses, pl]) => {
+          Store.data.sessions = ses;
+          return Object.keys(matchPlannedSessions(pl)).length > 0;
+        }""", [[a], pl])
+
+    # THE BUG: wrong type, one day early.
+    check("Tue intervals do NOT complete Wed's Long",
+          matched({'dato': '2026-08-11', 'okttype': 'Intervaller', 'distanse': 5.01}), False)
+    # ...and the grace it must not break: the same session, genuinely run a day early.
+    check("Tue Long DOES complete Wed's Long",
+          matched({'dato': '2026-08-11', 'okttype': 'Long'}), True)
+    # Swapping intensity on the day is a completed session, not a miss — score is also exactly 100,
+    # which is why a score ceiling cannot separate these two cases and the direction rule can.
+    check("Wed Tempo completes Wed's Long (swapped on the day)",
+          matched({'dato': WED, 'okttype': 'Tempo'}), True)
+    check("Thu Tempo completes Wed's Long (ran it late)",
+          matched({'dato': '2026-08-13', 'okttype': 'Tempo'}), True)
+    check("two days early is still out of range",
+          matched({'dato': '2026-08-10', 'okttype': 'Long'}), False)
+
+    # Egentrening means "not part of a programme", so it cannot complete the programme's session —
+    # even when type, date and distance all line up perfectly.
+    check("Egentrening cannot complete a planned session",
+          matched({'dato': WED, 'okttype': 'Long', 'treningsplan': 'Egentrening'}), False)
+    check("...the same run as Runna does", matched({'dato': WED, 'okttype': 'Long'}), True)
+    # A custom plan is still a programme — the filter excludes Egentrening by name rather than
+    # requiring 'Runna', so adding a plan in Innstillinger can't silently break adherence.
+    check("a custom plan still completes it",
+          matched({'dato': WED, 'okttype': 'Long', 'treningsplan': 'Egen plan X'}), True)
+
+    check("no page errors", perr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))

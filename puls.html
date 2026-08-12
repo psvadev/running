@@ -1834,8 +1834,24 @@ function plannedForBlock(startDate, endDate) {
 // distance), so a Friday session done Saturday still matches. A run only completes a planned
 // session if done on/after the planned day (1-day grace) and the same type is strongly preferred.
 // Returns { plannedId: actualId } without mutating stored objects.
+//
+// ⚠️ THE SCORE HAS NO CEILING, AND THAT IS LOAD-BEARING TO UNDERSTAND: `if (best)` accepts whatever
+// candidate scored lowest, however bad. A 100-point type mismatch still wins when it is the only
+// eligible run in the week. The two `return`s below are therefore the ONLY real gates — a threshold
+// cannot replace them, because a legitimate wrong-type match on the planned day also scores exactly
+// 100 (swapped Tempo for Easy — the session happened). Type and direction separate those cases;
+// a number cannot.
 function matchPlannedSessions(planned) {
-  const actuals = (Store.data.sessions || []).filter(s => s.dato);
+  // Egentrening is excluded: it means "not part of a programme", so it cannot complete a programme's
+  // session. Reported from real use 2026-08-12 — an ad-hoc run had marked a planned session done.
+  // Excluding by name rather than requiring 'Runna' keeps custom plans working.
+  //
+  // The cost, accepted deliberately: substituting your OWN session for the planned one and labelling
+  // it Egentrening now reads as a MISS. That is the better error — a false "done" says you are on
+  // track when you still owe the session, while a false miss understates adherence and the run still
+  // counts toward volume, distance and load everywhere else. Note the form defaults to Runna
+  // (DEFAULT_PLAN), so this can never turn a normally-logged session into a miss by omission.
+  const actuals = (Store.data.sessions || []).filter(s => s.dato && s.treningsplan !== 'Egentrening');
   const matchOf = {};
   const used = new Set();
   planned.forEach(p => {
@@ -1846,6 +1862,19 @@ function matchPlannedSessions(planned) {
       if (used.has(a.id) || absWeekNum(a.dato) !== wk) return;
       const dayDiff = (new Date(a.dato) - pd) / 86400000;
       if (dayDiff < -1.5) return;
+      // A run done BEFORE its planned day only counts when the TYPE matches. The early grace exists
+      // so you can run Wednesday's Long on Tuesday — but Tuesday's intervals are not Wednesday's Long
+      // done early, and without this the card claims a session is done before you have started it.
+      // Worst possible timing: the false "done" exists ONLY while the session is still pending, and
+      // it disappears the moment you actually run (the real session then scores ~0 and wins), so it
+      // misleads precisely when the card is meant to tell you what is left.
+      // A run done BEFORE its planned day only counts when the TYPE matches. The early grace exists
+      // so you can run Wednesday's Long on Tuesday — but Tuesday's intervals are not Wednesday's Long
+      // done early, and without this the card claims a session is done before you have started it.
+      // Worst possible timing: the false "done" exists ONLY while the session is still pending, and
+      // it disappears the moment you actually run (the real session then scores ~0 and wins), so it
+      // misleads precisely when the card is meant to tell you what is left.
+      if (dayDiff < 0 && a.okttype !== p.okttype) return;
       const typePenalty = a.okttype === p.okttype ? 0 : 100;
       const score = typePenalty + Math.abs(dayDiff) * 10 + Math.abs((a.distanse || 0) - p.distance);
       if (score < bestScore) { bestScore = score; best = a; }
