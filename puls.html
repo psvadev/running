@@ -424,16 +424,22 @@
   .weekly-table tfoot .wk-avg td { bottom: 34px; border-top: 2px solid var(--border); color: var(--muted); }
   .weekly-table tfoot .wk-tot td { bottom: 0; font-weight: 700; }
   /* The period you're currently in — findable at a glance in a table of identical rows. Border on the
-     first cell only, so the row keeps its height and nothing shifts. */
-  .weekly-table tr.wk-current td { background: color-mix(in srgb, var(--accent) 9%, transparent); font-weight: 600; }
+     first cell only, so the row keeps its height and nothing shifts.
+     ⚠️ 18%, and do NOT lower it back towards 10%. At 9% the accent composited to rgb(33,39,58) against
+     --surface, and --surface2 is rgb(34,37,54) — so the current row rendered as the SAME shade as the
+     sticky header, and as an ordinary `tr:hover`. A permanent state that looks like a transient one
+     reads as an accident. 18% clears both. */
+  .weekly-table tr.wk-current td { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
   .weekly-table tr.wk-current td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   /* Gap is deliberately wide: at 6px the tag read as part of the week label rather than a mark on the
      row. Only ever one row carries it, so a fixed offset can't drift out of line with its neighbours.
      Carries `.badge` in the markup for its pill geometry — as bare text it sat at the same size and
      weight as the column headers directly above and read as one of them. A tint gives it an object
      boundary; colour alone could not, since the problem was shape. Accent, not a new hue: the row's
-     left bar is already accent, so one colour keeps saying one thing — this is the current row. */
-  .weekly-table tr.wk-current .wk-current-tag { background: color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent); margin-left:14px; white-space:nowrap; }
+     left bar is already accent, so one colour keeps saying one thing — this is the current row.
+     The tint must stay ABOVE the row's own 18% — these two are coupled, so move them together or the
+     chip reads as a dent pressed into the row instead of a badge sitting on it. */
+  .weekly-table tr.wk-current .wk-current-tag { background: color-mix(in srgb, var(--accent) 30%, transparent); color:var(--accent); margin-left:14px; white-space:nowrap; }
 
   /* ── Toast ── */
   .toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:8px; font-size:13px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:toastIn .2s ease; pointer-events:none; }
