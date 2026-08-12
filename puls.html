@@ -427,7 +427,9 @@
      first cell only, so the row keeps its height and nothing shifts. */
   .weekly-table tr.wk-current td { background: color-mix(in srgb, var(--accent) 9%, transparent); font-weight: 600; }
   .weekly-table tr.wk-current td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
-  .weekly-table tr.wk-current .wk-current-tag { font-size:10px; font-weight:600; color:var(--accent); margin-left:6px; white-space:nowrap; }
+  /* Gap is deliberately wide: at 6px the tag read as part of the week label rather than a mark on the
+     row. Only ever one row carries it, so a fixed offset can't drift out of line with its neighbours. */
+  .weekly-table tr.wk-current .wk-current-tag { font-size:10px; font-weight:600; color:var(--accent); margin-left:14px; white-space:nowrap; }
 
   /* ── Toast ── */
   .toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:8px; font-size:13px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:toastIn .2s ease; pointer-events:none; }
