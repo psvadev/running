@@ -428,8 +428,12 @@
   .weekly-table tr.wk-current td { background: color-mix(in srgb, var(--accent) 9%, transparent); font-weight: 600; }
   .weekly-table tr.wk-current td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   /* Gap is deliberately wide: at 6px the tag read as part of the week label rather than a mark on the
-     row. Only ever one row carries it, so a fixed offset can't drift out of line with its neighbours. */
-  .weekly-table tr.wk-current .wk-current-tag { font-size:10px; font-weight:600; color:var(--accent); margin-left:14px; white-space:nowrap; }
+     row. Only ever one row carries it, so a fixed offset can't drift out of line with its neighbours.
+     Carries `.badge` in the markup for its pill geometry — as bare text it sat at the same size and
+     weight as the column headers directly above and read as one of them. A tint gives it an object
+     boundary; colour alone could not, since the problem was shape. Accent, not a new hue: the row's
+     left bar is already accent, so one colour keeps saying one thing — this is the current row. */
+  .weekly-table tr.wk-current .wk-current-tag { background: color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent); margin-left:14px; white-space:nowrap; }
 
   /* ── Toast ── */
   .toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:8px; font-size:13px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:toastIn .2s ease; pointer-events:none; }
@@ -8768,7 +8772,7 @@ function renderWeeklyOverviewTable(sessions) {
     const avgPace = ws.paceCount ? ws.paceSum/ws.paceCount : null;
     const isNow = k === currentKey;
     return `<tr${isNow ? ' class="wk-current"' : ''}>
-      <td>${fmtKey(k)}${isNow ? `<span class="wk-current-tag">${currentTag}</span>` : ''}</td>
+      <td>${fmtKey(k)}${isNow ? `<span class="badge wk-current-tag">${currentTag}</span>` : ''}</td>
       <td>${ws.sessions}</td>
       <td>${ws.dist.toFixed(1)} km</td>
       <td>${secsToHms(ws.time)}</td>
