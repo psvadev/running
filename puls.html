@@ -437,9 +437,12 @@
      weight as the column headers directly above and read as one of them. A tint gives it an object
      boundary; colour alone could not, since the problem was shape. Accent, not a new hue: the row's
      left bar is already accent, so one colour keeps saying one thing — this is the current row.
-     The tint must stay ABOVE the row's own 18% — these two are coupled, so move them together or the
-     chip reads as a dent pressed into the row instead of a badge sitting on it. */
-  .weekly-table tr.wk-current .wk-current-tag { background: color-mix(in srgb, var(--accent) 30%, transparent); color:var(--accent); margin-left:14px; white-space:nowrap; }
+     ⚠️ DARKER than the row it sits on, mixed against --bg rather than tinted over the row. Every other
+     badge here is dark-ground-plus-bright-text (.badge-easy #1a3a2a/green, .badge-tempo #3a2a1a/yellow);
+     a light chip inverted that and washed the label out. Darkening the TEXT is not the fix either —
+     at rgb(61,78,131) even pure black text reaches only 2.6:1, under the 4.5:1 this 11px label needs,
+     so the ground has to go dark and the text stay accent. */
+  .weekly-table tr.wk-current .wk-current-tag { background: color-mix(in srgb, var(--accent) 16%, var(--bg)); color:var(--accent); margin-left:14px; white-space:nowrap; }
 
   /* ── Toast ── */
   .toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:8px; font-size:13px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,.4); animation:toastIn .2s ease; pointer-events:none; }
