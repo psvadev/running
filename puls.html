@@ -152,9 +152,9 @@
   /* Invalid time entry. The paired field going blank is easy to miss, and worse, "silently cleared"
      and "not filled in yet" look identical — so the field that is actually wrong says so itself.
      Must beat the focus border, because the error matters most while you are still typing in it.
-     Note `.pc-field input.bad-time` alone TIES `.pc-field input:focus` at 0,2,1 and wins only on
+     Note `.pc-field input.bad-input` alone TIES `.pc-field input:focus` at 0,2,1 and wins only on
      source order; the explicit :focus selector makes that independent of where the rule sits. */
-  .pc-field input.bad-time, .pc-field input.bad-time:focus { border-color:var(--danger); }
+  .pc-field input.bad-input, .pc-field input.bad-input:focus { border-color:var(--danger); }
   .pc-unit { font-size:11px; color:var(--muted); }
   .pc-swap { color:var(--muted); font-size:14px; padding-bottom:8px; }
   /* column-count, not grid: the list reads top-to-bottom then continues in the next column, which is
@@ -9525,15 +9525,15 @@ const PaceConv = {
     // event, so the two can't ping-pong.
     pace.addEventListener('input', () => {
       const s = mmSsToSecs(pace.value);
-      markTimeInput(pace, s);
       kmh.value = s > 0 ? this.fmtKmh(this.kmhFromPace(s)) : '';
+      markInvalidInput(kmh);
       this.render(s);
     });
     kmh.addEventListener('input', () => {
       const k = parseDec(kmh.value);
       const s = k > 0 ? Math.round(this.paceFromKmh(k)) : 0;
       pace.value = s > 0 ? secsToMmSs(s) : '';
-      markTimeInput(pace, s);
+      markInvalidInput(pace);
       this.render(s);
     });
     this.render(0);
@@ -9551,17 +9551,41 @@ const PaceConv = {
 
 // Every speed input in the app accepts a comma or a point; every speed OUTPUT is a point (see
 // PaceConv.fmtKmh). Lenient in, consistent out — kept in one function so the two can't drift.
+// A trailing "." is allowed so a decimal can be TYPED without the field flashing invalid mid-entry.
+const DEC_RE = /^-?(\d+(\.\d*)?|\.\d+)$/;
+
 function parseDec(str) {
-  const n = parseFloat(String(str == null ? '' : str).replace(',', '.'));
+  // Leniency means "comma or point", not "ignore the rest". parseFloat stops at the first bad
+  // character and keeps what it already read, so "10abc" silently converted as 10 — a calculator
+  // answering confidently from a typo. All callers are Verktøy fields and chip datasets (never the
+  // save path), so rejecting outright is contained.
+  const s = String(str == null ? '' : str).trim().replace(',', '.');
+  if (!DEC_RE.test(s)) return 0;
+  const n = parseFloat(s);
   return isFinite(n) ? n : 0;
 }
 
-// Empty is NOT an error — a blank field is the starting state, not a mistake. Only a non-empty value
-// that parses to nothing gets marked, which lets one rule cover every way of being wrong (letters,
-// "10:84", "10:9999"): they all land on 0. Called from the speed side too, so fixing the entry there
-// clears a stale mark rather than leaving a red border on a field that is now correct.
-function markTimeInput(el, secs) {
-  if (el) el.classList.toggle('bad-time', !!el.value.trim() && !(secs > 0));
+// One validity rule for every Verktøy input, so pace and speed cannot disagree about what "wrong"
+// looks like. Which parser applies is derived from the placeholder (a ':' means it is a time), the
+// same signal the tests use — a field added later is covered without new wiring.
+// Empty is NOT an error: a blank field is the starting state, not a mistake.
+// ⚠️ The number branch tests the FORMAT, not the value. Testing the value would flag a legitimate 0
+// — no pause between reps is a real answer — while still missing nothing that matters.
+function markInvalidInput(el) {
+  if (!el) return;
+  const v = el.value.trim();
+  const ok = !v || ((el.placeholder || '').includes(':')
+    ? (el.id === 'tcTime' ? strictHmsToSecs(v) : mmSsToSecs(v)) > 0
+    : DEC_RE.test(v.replace(',', '.')));
+  el.classList.toggle('bad-input', !ok);
+}
+
+// Typed input marks itself; the two binders below also call markInvalidInput directly, because
+// writing .value programmatically fires no input event and would otherwise strand a stale border on
+// a field that has just been corrected from the other side.
+function initToolValidation() {
+  document.querySelectorAll('#panel-tools input').forEach(el =>
+    el.addEventListener('input', () => markInvalidInput(el)));
 }
 
 // Two-way pace/speed binding, extracted because all three cards need it and each handler must write
@@ -9571,15 +9595,15 @@ function bindPaceSpeed(paceEl, kmhEl, onChange) {
   if (!paceEl || !kmhEl) return;
   paceEl.addEventListener('input', () => {
     const s = mmSsToSecs(paceEl.value);
-    markTimeInput(paceEl, s);
     kmhEl.value = s > 0 ? PaceConv.fmtKmh(PaceConv.kmhFromPace(s)) : '';
+    markInvalidInput(kmhEl);
     onChange();
   });
   kmhEl.addEventListener('input', () => {
     const k = parseDec(kmhEl.value);
     const s = k > 0 ? Math.round(PaceConv.paceFromKmh(k)) : 0;
     paceEl.value = s > 0 ? secsToMmSs(s) : '';
-    markTimeInput(paceEl, s);
+    markInvalidInput(paceEl);
     onChange();
   });
 }
@@ -9641,9 +9665,7 @@ const TimeCalc = {
     if (this.mode === 'finish') {
       paceSec = mmSsToSecs(document.getElementById('tcPace').value);
     } else {
-      const timeEl = document.getElementById('tcTime');
-      const target = strictHmsToSecs(timeEl.value);
-      markTimeInput(timeEl, target);
+      const target = strictHmsToSecs(document.getElementById('tcTime').value);
       if (km > 0 && target > 0) paceSec = target / km;
       this.renderGoalChips(target, km);
     }
@@ -10983,6 +11005,8 @@ document.addEventListener('DOMContentLoaded', () => {
   PaceConv.init();
   TimeCalc.init();
   IntervalCalc.init();
+  // After the three, so it attaches to every field they own without each having to remember to.
+  initToolValidation();
   CustomLists.refreshDropdowns();
 
   // DetailPanel close

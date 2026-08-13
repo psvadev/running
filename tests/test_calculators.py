@@ -313,7 +313,7 @@ with sync_playwright() as b0:
     fill(pg, "#pcPace", "6:15")
     check("...and a valid one still converts", pg.evaluate("() => document.getElementById('pcKmh').value"), "9.6")
     # Visual feedback: clearing the paired field is easy to miss, and looks the same as "not filled in".
-    bad = "() => document.getElementById('pcPace').classList.contains('bad-time')"
+    bad = "() => document.getElementById('pcPace').classList.contains('bad-input')"
     fill(pg, "#pcPace", "10:84")
     check("invalid pace is marked", pg.evaluate(bad), True)
     fill(pg, "#pcPace", "6:15")
@@ -330,6 +330,26 @@ with sync_playwright() as b0:
     check("red border wins over the focus border",
           pg.evaluate("() => getComputedStyle(document.getElementById('pcPace')).borderTopColor"),
           "rgb(224, 85, 85)")
+    # Reported from real use: the speed field took a letter without complaint while pace went red, and
+    # "10abc" converted as 10. Pace and speed must not disagree about what "wrong" looks like.
+    badk = "() => document.getElementById('pcKmh').classList.contains('bad-input')"
+    fill(pg, "#pcPace", "")
+    fill(pg, "#pcKmh", "abc")
+    check("invalid speed is marked too", pg.evaluate(badk), True)
+    check("...and clears the pace field", pg.evaluate("() => document.getElementById('pcPace').value"), "")
+    fill(pg, "#pcKmh", "10abc")
+    check("trailing junk is not silently kept", pg.evaluate("() => parseDec('10abc')"), 0)
+    check("...and is marked", pg.evaluate(badk), True)
+    fill(pg, "#pcKmh", "10,5")
+    check("a comma is still accepted", pg.evaluate(badk), False)
+    check("...and converts", pg.evaluate("() => parseDec('10,5')"), 10.5)
+    # A decimal must be TYPEABLE: "10." is a transient state, not an error to flash red at.
+    fill(pg, "#pcKmh", "10.")
+    check("a half-typed decimal is not an error", pg.evaluate(badk), False)
+    # The number branch checks FORMAT, not value — 0 pause between reps is a real answer.
+    fill(pg, "#ivRest", "0")
+    check("a legitimate 0 is not flagged", pg.evaluate(
+        "() => document.getElementById('ivRest').classList.contains('bad-input')"), False)
     check("pace fields cannot hold more than mm:ss", pg.evaluate("""
     () => [...document.querySelectorAll('#panel-tools input')]
             .filter(i => (i.placeholder || '').includes(':'))
