@@ -294,6 +294,31 @@ with sync_playwright() as b0:
     check("no mobile page errors", merr, [])
     pg.close()
 
+    # ---- invalid time entry
+    # Reported from real use: "10:9999" answered 0.3 km/t and "10:84" silently became 11:24. Seconds
+    # have to be seconds; anything else is 0, which every caller already treats as "no value".
+    print("== invalid mm:ss is rejected, not reinterpreted ==")
+    pg = b.new_page()
+    boot(pg)
+    for src, want in [("6:15", 375), ("6", 360), ("0:45", 45),
+                      ("10:84", 0), ("10:9999", 0), ("10:60", 0), ("abc", 0), ("6:-5", 0)]:
+        check(f"mmSsToSecs({src!r})", pg.evaluate(f"() => mmSsToSecs({src!r})"), want)
+    for src, want in [("29:30", 1770), ("1:45:00", 6300), ("29:99", 0), ("1:75:00", 0)]:
+        check(f"strictHmsToSecs({src!r})", pg.evaluate(f"() => strictHmsToSecs({src!r})"), want)
+    # The SHARED parser must stay lenient: it also reads the form's zone/Varighet fields and a Strava
+    # import path, so tightening it would change what gets SAVED. Pinned so that stays a deliberate act.
+    check("hmsToSecs itself is untouched", pg.evaluate("() => hmsToSecs('29:99')"), 1839)
+    fill(pg, "#pcPace", "10:84")
+    check("invalid pace clears the speed field", pg.evaluate("() => document.getElementById('pcKmh').value"), "")
+    fill(pg, "#pcPace", "6:15")
+    check("...and a valid one still converts", pg.evaluate("() => document.getElementById('pcKmh').value"), "9.6")
+    check("pace fields cannot hold more than mm:ss", pg.evaluate("""
+    () => [...document.querySelectorAll('#panel-tools input')]
+            .filter(i => (i.placeholder || '').includes(':'))
+            .every(i => i.maxLength > 0 && i.maxLength <= 7)
+    """), True)
+    pg.close()
+
     # ---- mobile keyboards
     # Reported from real use: every mm:ss field was unusable on iOS. inputmode="numeric" renders a
     # digits-only pad with no colon, so a pace could not be typed at all. Derived from the placeholder

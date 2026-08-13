@@ -1250,7 +1250,7 @@
              fields keep "decimal" because that pad DOES carry a separator. Do not "fix" this by
              switching to decimal and parsing "." as a colon — that silently redefines 6.5, which
              already parses as 6.5 minutes (6:30), to mean 6:05. -->
-        <input type="text" id="pcPace" placeholder="7:05" inputmode="text" autocomplete="off">
+        <input type="text" id="pcPace" placeholder="7:05" inputmode="text" maxlength="5" autocomplete="off">
         <span class="pc-unit">/km</span>
       </label>
       <span class="pc-swap">↔</span>
@@ -1291,7 +1291,7 @@
 
     <div class="pc-io" id="tcFinishIn">
       <label class="pc-field">⏱️ Tempo
-        <input type="text" id="tcPace" placeholder="6:15" inputmode="text" autocomplete="off">
+        <input type="text" id="tcPace" placeholder="6:15" inputmode="text" maxlength="5" autocomplete="off">
         <span class="pc-unit">/km</span>
       </label>
       <span class="pc-swap">↔</span>
@@ -1303,7 +1303,7 @@
 
     <div class="pc-io" id="tcTargetIn" style="display:none">
       <label class="pc-field">🎯 Måltid
-        <input type="text" id="tcTime" placeholder="29:30" inputmode="text" autocomplete="off">
+        <input type="text" id="tcTime" placeholder="29:30" inputmode="text" maxlength="7" autocomplete="off">
       </label>
     </div>
     <!-- Round numbers bracketing whatever is in the box — NOT derived from your PRs, which would make
@@ -1338,7 +1338,7 @@
 
     <div class="pc-io">
       <label class="pc-field">⏱️ Tempo
-        <input type="text" id="ivPace" placeholder="5:30" inputmode="text" autocomplete="off">
+        <input type="text" id="ivPace" placeholder="5:30" inputmode="text" maxlength="5" autocomplete="off">
         <span class="pc-unit">/km</span>
       </label>
       <span class="pc-swap">↔</span>
@@ -1679,6 +1679,17 @@ function hmsToSecs(str) {
   return parts[0] || 0;
 }
 
+// Strict h:mm:ss / mm:ss, for hand-typed calculator fields only. `hmsToSecs` itself stays lenient on
+// purpose: it also parses the form's zone and Varighet inputs and a Strava import path, so tightening
+// it would change the SAVE path — a different blast radius, and a separate decision from rejecting a
+// typo in a calculator. Same rule as mmSsToSecs: a segment after the first must be a real 0-59.
+function strictHmsToSecs(str) {
+  if (!str) return 0;
+  const parts = String(str).trim().split(':');
+  if (parts.slice(1).some(p => !/^\d{1,2}$/.test(p) || +p >= 60)) return 0;
+  return hmsToSecs(str);
+}
+
 function secsToMmSs(s) {
   if (!s && s !== 0) return '';
   const m = Math.floor(s / 60);
@@ -1690,7 +1701,11 @@ function mmSsToSecs(str) {
   if (!str) return 0;
   const parts = str.trim().split(':').map(Number);
   if (parts.some(isNaN)) return 0; // a non-numeric segment (typo) must not store NaN
-  if (parts.length === 2) return parts[0]*60 + parts[1];
+  // Seconds must BE seconds. Without this, "10:84" quietly became 11:24 and "10:9999" a 2h56 pace
+  // reading 0.3 km/t — a number so wrong it looks like a bug in the converter rather than a typo.
+  // 0 means "no usable value", which every caller already treats as empty, so an invalid entry
+  // blanks the paired field instead of answering confidently with nonsense.
+  if (parts.length === 2) return (parts[1] < 0 || parts[1] >= 60) ? 0 : parts[0]*60 + parts[1];
   return parts[0]*60 || 0;
 }
 
@@ -9608,7 +9623,7 @@ const TimeCalc = {
     if (this.mode === 'finish') {
       paceSec = mmSsToSecs(document.getElementById('tcPace').value);
     } else {
-      const target = hmsToSecs(document.getElementById('tcTime').value);
+      const target = strictHmsToSecs(document.getElementById('tcTime').value);
       if (km > 0 && target > 0) paceSec = target / km;
       this.renderGoalChips(target, km);
     }
