@@ -10644,7 +10644,12 @@ document.addEventListener('DOMContentLoaded', () => {
        <p>Chrome eller Edge gir automatisk fillagring uten disse stegene. Google Drive-synk (alle nettlesere) og Strava er valgfritt og kan settes opp i ${settingsLink}.</p>`;
 
   // Tab switching
-  const VALID_TABS = ['form','dash','atlas','log','plan','settings'];
+  // ⚠️ DERIVED from the DOM, never hand-listed. As a literal array this silently went stale when the
+  // 🧮 Verktøy tab shipped: 'tools' was missing, so #tools failed the check and every reload or
+  // back/forward on that tab bounced to the form. Nothing threw — an unknown hash is indistinguishable
+  // from a hand-typed one, so the fallback did exactly what it was written to do. Adding a tab must
+  // not require remembering a second place.
+  const VALID_TABS = [...document.querySelectorAll('.tab')].map(t => t.dataset.tab);
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => switchTab(tab.dataset.tab));
   });

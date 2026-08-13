@@ -294,6 +294,29 @@ with sync_playwright() as b0:
     check("no mobile page errors", merr, [])
     pg.close()
 
+    # ---- deep link + history
+    # Reported from real use: reloading on #tools landed on the form. VALID_TABS was a hand-written
+    # array that never gained 'tools', so the hash failed validation and fell back. Nothing threw.
+    # Note `boot()` calls switchTab('tools') directly, so every check above passed while the ROUTE
+    # into the tab was broken — arriving at a panel and rendering it are separate things to test.
+    print("== deep link to #tools ==")
+    pg = b.new_page()
+    derr = []
+    pg.on("pageerror", lambda e: derr.append(str(e)))
+    pg.goto(APP + "#tools")
+    pg.wait_for_timeout(400)
+    check("hash survives the load", pg.evaluate("() => location.hash"), "#tools")
+    check("tools panel is the active one",
+          pg.evaluate("() => document.querySelector('.panel.active')?.id"), "panel-tools")
+    # Derived from the DOM, so it can never again list fewer tabs than exist.
+    check("every tab is a valid deep-link target", pg.evaluate("""
+    () => [...document.querySelectorAll('.tab')].map(t => t.dataset.tab)
+            .filter(name => { location.hash = '#' + name;
+                              return document.querySelector('.panel.active')?.id !== 'panel-' + name; })
+    """), [])
+    check("no deep-link page errors", derr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
