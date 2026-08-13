@@ -8408,8 +8408,10 @@ function renderDashboard() {
   // whereas an indoor marathon estimate is simply not applicable.
   const prognose = computePerfCurve(Store.data.sessions, distPRs);
   document.getElementById('prognoseSection').style.display = prognose.length ? '' : 'none';
+  // Same empty cell as the Distanse-PR table above (`venueCell`): a bare gap read as a rendering
+  // fault rather than a deliberate omission, and the two cards sit adjacent, so they must agree.
   const progCell = (icon, e) => !e
-    ? '<span class="t3-effort t3-venue"></span>'
+    ? `<span class="t3-effort t3-venue t3-empty">${icon} –</span>`
     : `<span class="t3-effort t3-venue t3-first">${icon} <b>${secsToHms(e.t)}</b> <span class="t3-date">${secsToMmSs(e.pace)} /km</span></span>`;
 
   document.getElementById('prognoseList').innerHTML = `<div class="top3-list">
@@ -8432,8 +8434,17 @@ function renderDashboard() {
     return `${venueLabel} fra ${lbl}${d ? ` (${fmtDate(d)})` : ''}`;
   };
   const anchorParts = [anchorNote('ute', '🏃 Ute'), anchorNote('inne', '⚙️ Inne')].filter(Boolean);
+  // A dash has FOUR possible causes here — already measured and nothing maximal to beat it, an
+  // estimate no faster than the real time, too far below the anchor to extrapolate down, or indoor
+  // past INNE_MAX_PROGNOSE_KM — so the reason is stated once for the section rather than per cell.
+  // A per-cell reason would mean `project` returning a cause instead of null, which changes the pure
+  // function's shape and drags prognose_port.py along for a purely cosmetic gain. Shown only when a
+  // dash is actually on screen, so the card never explains something that isn't there.
+  const emptyNote = prognose.some(r => !r.ute || !r.inne)
+    ? ' Tomt felt = ingen prognose som slår tiden du allerede har løpt, eller for langt fra nærmeste anker.'
+    : '';
   document.getElementById('prognoseAnchors').textContent = !anchorParts.length ? ''
-    : `${anchorParts.join(' · ')}. Usikkerheten øker jo lenger unna ankeret distansen ligger.`;
+    : `${anchorParts.join(' · ')}. Usikkerheten øker jo lenger unna ankeret distansen ligger.${emptyNote}`;
 
   renderFormkurve();
 
