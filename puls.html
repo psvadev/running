@@ -8440,11 +8440,14 @@ function renderDashboard() {
   // A per-cell reason would mean `project` returning a cause instead of null, which changes the pure
   // function's shape and drags prognose_port.py along for a purely cosmetic gain. Shown only when a
   // dash is actually on screen, so the card never explains something that isn't there.
+  // UI copy says "distansen over" and never "anker" — the term is ours, not a runner's, and the
+  // "fra 10 km (17.06.2026)" above already names the thing it would refer to. Code and comments
+  // keep the word (`anchorLabel`, `anchorsFor`); only what the user reads avoids it.
   const emptyNote = prognose.some(r => !r.ute || !r.inne)
-    ? ' Tomt felt = ingen prognose som slår tiden du allerede har løpt, eller for langt fra nærmeste anker.'
+    ? ' Tomt felt = ingen prognose som slår tiden du allerede har løpt, eller for langt unna til at et estimat gir mening.'
     : '';
   document.getElementById('prognoseAnchors').textContent = !anchorParts.length ? ''
-    : `${anchorParts.join(' · ')}. Usikkerheten øker jo lenger unna ankeret distansen ligger.${emptyNote}`;
+    : `${anchorParts.join(' · ')}. Jo lenger unna denne distansen, desto mer usikker er prognosen.${emptyNote}`;
 
   renderFormkurve();
 
