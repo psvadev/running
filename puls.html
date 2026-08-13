@@ -1245,7 +1245,12 @@
     <p style="font-size:12px;color:var(--muted);margin:0 0 14px">Planer og mål er i <b>tempo</b> (min/km), men en tredemølle stilles i <b>fart</b> (km/t). Skriv inn det ene, så følger det andre — og tabellen viser nabotempoene, så du ser hvor du ligger an.</p>
     <div class="pc-io">
       <label class="pc-field">⏱️ Tempo
-        <input type="text" id="pcPace" placeholder="7:05" inputmode="numeric" autocomplete="off">
+        <!-- inputmode="text", NOT numeric: iOS renders numeric as a digits-only pad with no colon,
+             which makes every mm:ss field unusable on the phone (reported from real use). The km/t
+             fields keep "decimal" because that pad DOES carry a separator. Do not "fix" this by
+             switching to decimal and parsing "." as a colon — that silently redefines 6.5, which
+             already parses as 6.5 minutes (6:30), to mean 6:05. -->
+        <input type="text" id="pcPace" placeholder="7:05" inputmode="text" autocomplete="off">
         <span class="pc-unit">/km</span>
       </label>
       <span class="pc-swap">↔</span>
@@ -1286,7 +1291,7 @@
 
     <div class="pc-io" id="tcFinishIn">
       <label class="pc-field">⏱️ Tempo
-        <input type="text" id="tcPace" placeholder="6:15" inputmode="numeric" autocomplete="off">
+        <input type="text" id="tcPace" placeholder="6:15" inputmode="text" autocomplete="off">
         <span class="pc-unit">/km</span>
       </label>
       <span class="pc-swap">↔</span>
@@ -1298,7 +1303,7 @@
 
     <div class="pc-io" id="tcTargetIn" style="display:none">
       <label class="pc-field">🎯 Måltid
-        <input type="text" id="tcTime" placeholder="29:30" inputmode="numeric" autocomplete="off">
+        <input type="text" id="tcTime" placeholder="29:30" inputmode="text" autocomplete="off">
       </label>
     </div>
     <!-- Round numbers bracketing whatever is in the box — NOT derived from your PRs, which would make
@@ -1333,7 +1338,7 @@
 
     <div class="pc-io">
       <label class="pc-field">⏱️ Tempo
-        <input type="text" id="ivPace" placeholder="5:30" inputmode="numeric" autocomplete="off">
+        <input type="text" id="ivPace" placeholder="5:30" inputmode="text" autocomplete="off">
         <span class="pc-unit">/km</span>
       </label>
       <span class="pc-swap">↔</span>

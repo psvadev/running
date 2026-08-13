@@ -294,6 +294,26 @@ with sync_playwright() as b0:
     check("no mobile page errors", merr, [])
     pg.close()
 
+    # ---- mobile keyboards
+    # Reported from real use: every mm:ss field was unusable on iOS. inputmode="numeric" renders a
+    # digits-only pad with no colon, so a pace could not be typed at all. Derived from the placeholder
+    # rather than a list of ids, so a time field added later is covered without editing this check.
+    print("== mobile keyboard per field type ==")
+    pg = b.new_page()
+    boot(pg)
+    check("no mm:ss field uses the digits-only pad", pg.evaluate("""
+    () => [...document.querySelectorAll('#panel-tools input')]
+            .filter(i => (i.placeholder || '').includes(':') && i.inputMode === 'numeric')
+            .map(i => i.id)
+    """), [])
+    # The km/t pad is fine and must stay: iOS puts a separator key on the decimal pad.
+    check("speed fields keep the decimal pad", pg.evaluate("""
+    () => [...document.querySelectorAll('#panel-tools input')]
+            .filter(i => /^\\d+\\.\\d+$/.test(i.placeholder || ''))
+            .every(i => i.inputMode === 'decimal')
+    """), True)
+    pg.close()
+
     # ---- deep link + history
     # Reported from real use: reloading on #tools landed on the form. VALID_TABS was a hand-written
     # array that never gained 'tools', so the hash failed validation and fell back. Nothing threw.
