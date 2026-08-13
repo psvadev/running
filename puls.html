@@ -9446,13 +9446,21 @@ const StravaBestEfforts = {
 // targets are in min/km, and km/t is the thing being derived — even at the treadmill, where you know
 // the pace you want and need the speed to dial in.
 const PaceConv = {
-  // 4:30 covers his fastest (400 m PR ≈ 4:37/km); 12:00 reaches walk-break territory. The step
-  // coarsens below 9:00 — 15-second resolution on a walking pace is precision that means nothing.
+  // 4:00 → 15:00, and both ends land on a round km/t: 4:00 is exactly 15.0 km/t, 15:00 exactly 4.0.
+  // The bottom reaches the 4 km/t Runna dials for treadmill recovery walks — a table that omits a
+  // speed you actually set is failing at its only job.
+  // ⚠️ Was 4:30, chosen to cover a 400 m PR of ≈4:37/km — then that PR fell to 4:13/km (11.08.2026)
+  // and the table no longer reached his own interval paces. A bound derived from a personal best is
+  // stale the moment the best improves, so 4:00 is set with headroom rather than fitted to today.
+  // The step coarsens twice, and the second tier is NOT cosmetic: pace = 3600/speed, so a fixed
+  // 0.1 km/t step buys more pace the slower you go. At a 30 s step, 13:30 and 14:30 round-trip
+  // through one-decimal km/t with >8 s of drift, breaking the 6 s tolerance test_paceconv asserts.
+  // 60 s past 12:00 skips exactly those rows — 13:00/14:00/15:00 all return within 3 s.
   _rows: null,
   rows() {
     if (this._rows) return this._rows;
     const out = [];
-    for (let s = 270; s <= 720; s += (s < 540 ? 15 : 30)) out.push(s);
+    for (let s = 240; s <= 900; s += (s < 540 ? 15 : s < 720 ? 30 : 60)) out.push(s);
     this._rows = out;
     return out;
   },

@@ -108,16 +108,20 @@ with sync_playwright() as p:
     # ---- the table
     print("== reference table ==")
     rows = pg.locator("#pcTable .pc-row")
-    check("row count", rows.count(), 25)
+    check("row count", rows.count(), 30)
     first = rows.first.inner_text().split("\n")
     last = rows.last.inner_text().split("\n")
-    check("starts at 4:30", first[0], "4:30")
-    check("ends at 12:00", last[0], "12:00")
+    # 4:00, not 4:30: the old bound was fitted to a 400 m PR that has since been beaten (4:13/km,
+    # 11.08.2026), which left his own interval paces off the bottom of the table.
+    # 15:00 reaches the 4 km/t Runna dials for treadmill recovery walks. Both ends are round in km/t
+    # too: 4:00 = 15.0, 15:00 = 4.0.
+    check("starts at 4:00", first[0], "4:00")
+    check("ends at 15:00", last[0], "15:00")
     check("step is 0:15 in the running range",
-          rows.nth(1).inner_text().split("\n")[0], "4:45")
-    # 9:00 is row index 18; the next must be 9:30, not 9:15
-    check("step coarsens to 0:30 below 9:00", rows.nth(18).inner_text().split("\n")[0], "9:00")
-    check("...next row is 9:30", rows.nth(19).inner_text().split("\n")[0], "9:30")
+          rows.nth(1).inner_text().split("\n")[0], "4:15")
+    # 9:00 is row index 20; the next must be 9:30, not 9:15
+    check("step coarsens to 0:30 below 9:00", rows.nth(20).inner_text().split("\n")[0], "9:00")
+    check("...next row is 9:30", rows.nth(21).inner_text().split("\n")[0], "9:30")
 
     print("== column legend ==")
     # Scoped to this card: since 2026-08-09 the Tid og tempo card reuses .pc-legend for its split
@@ -143,7 +147,7 @@ with sync_playwright() as p:
     check("input labels carry the same icons",
           [t.strip().split("\n")[0].strip() for t in pg.locator(f"{CARD} .pc-field").all_inner_texts()],
           ["⏱️ Tempo", "⚡ Fart"])
-    # Not on every row: emoji cannot be muted, so 25 rows x 2 would shout over the numbers.
+    # Not on every row: emoji cannot be muted, so 30 rows x 2 would shout over the numbers.
     check("no icons repeated in the rows", pg.locator("#pcTable .pc-row").first.inner_text().count("⏱"), 0)
 
     print("== nearest row highlights ==")
