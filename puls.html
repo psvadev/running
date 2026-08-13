@@ -1748,36 +1748,39 @@ function tsvIsoWeek(dateStr) {
   return `${yr}-${String(wk).padStart(2,'0')}`;
 }
 
+// ONE list, not two. The header and the row builder used to be separate arrays that had to stay the
+// same length and the same order, with nothing enforcing either — add a field to the row, forget the
+// header, and every column after it shifts by one in a file you would only notice was wrong while
+// reading it in Excel. Pairing the name with its accessor makes that divergence unrepresentable
+// rather than merely tested for. (Same defect shape as the hand-written VALID_TABS that broke the
+// #tools deep link; that one could be derived from the DOM, this one cannot, so it is fused instead.)
+const TSV_COLS = [
+  ['Dato',           s => { const [y,m,d] = s.dato.split('-'); return `${parseInt(m)}/${parseInt(d)}/${y}`; }],
+  ['Uke',            s => tsvIsoWeek(s.dato)],
+  ['Øktnavn',        s => s.oktnavn || ''],
+  ['Økt-type',       s => s.okttype || ''],
+  ['Treningsplan',   s => s.treningsplan || ''],
+  ['Løpetype',       s => s.løpetype === 'treadmill' ? 'Tredemølle' : 'Utendørs'],
+  ['Varighet',       s => s.varighet ? secsToHms(s.varighet) : ''],
+  ['Distanse (km)',  s => s.distanse != null ? s.distanse.toFixed(2) : ''],
+  ['Gj.snittspuls',  s => s.gjsnittspuls || ''],
+  ['Toppuls',        s => s.toppuls || ''],
+  // Generated, so the five can never disagree with each other about format or order.
+  ...[0,1,2,3,4].map(i => [`Sone${i+1} (min)`, s => secsToHms((s.soner || [])[i] || 0)]),
+  ['Kalorier',       s => s.kalorier || ''],
+  ['Tempo (min/km)', s => s.tempo ? secsToMmSs(s.tempo) : ''],
+  ['Snitt km/t',     s => s.snittkmh != null ? s.snittkmh.toFixed(1) : ''],
+  ['Stigning (%)',   s => s.stigning != null ? s.stigning : ''],
+  ['Høydemeter (m)', s => s.hoydeMeter != null ? s.hoydeMeter : ''],
+  ['Sko',            s => s.sko || ''],
+  ['RPE',            s => s.rpe || ''],
+  ['Land',           s => s.land || ''],
+];
+
 function formatSessionTsv(sessions) {
-  const HDR = ['Dato','Uke','Øktnavn','Økt-type','Treningsplan','Løpetype','Varighet',
-    'Distanse (km)','Gj.snittspuls','Toppuls','Sone1 (min)','Sone2 (min)',
-    'Sone3 (min)','Sone4 (min)','Sone5 (min)','Kalorier','Tempo (min/km)',
-    'Snitt km/t','Stigning (%)','Høydemeter (m)','Sko','RPE','Land'].join('\t');
+  const HDR = TSV_COLS.map(c => c[0]).join('\t');
   const blocks = sessions.map(s => {
-    const soner = s.soner || [0,0,0,0,0];
-    const [y,m,d] = s.dato.split('-');
-    const dataRow = [
-      `${parseInt(m)}/${parseInt(d)}/${y}`,
-      tsvIsoWeek(s.dato),
-      s.oktnavn || '',
-      s.okttype || '',
-      s.treningsplan || '',
-      s.løpetype === 'treadmill' ? 'Tredemølle' : 'Utendørs',
-      s.varighet ? secsToHms(s.varighet) : '',
-      s.distanse != null ? s.distanse.toFixed(2) : '',
-      s.gjsnittspuls || '',
-      s.toppuls || '',
-      secsToHms(soner[0]||0), secsToHms(soner[1]||0), secsToHms(soner[2]||0),
-      secsToHms(soner[3]||0), secsToHms(soner[4]||0),
-      s.kalorier || '',
-      s.tempo ? secsToMmSs(s.tempo) : '',
-      s.snittkmh != null ? s.snittkmh.toFixed(1) : '',
-      s.stigning != null ? s.stigning : '',
-      s.hoydeMeter != null ? s.hoydeMeter : '',
-      s.sko || '',
-      s.rpe || '',
-      s.land || '',
-    ].join('\t');
+    const dataRow = TSV_COLS.map(c => c[1](s)).join('\t');
     const distLabel = s.distanse ? ` | ${parseFloat(s.distanse.toFixed(2)).toString()} km` : '';
     const hdr = `=== ${s.dato}${s.oktnavn ? ` | ${s.oktnavn}` : ''}${distLabel} ===`;
     const metaParts = [];
