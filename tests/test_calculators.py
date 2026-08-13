@@ -312,6 +312,24 @@ with sync_playwright() as b0:
     check("invalid pace clears the speed field", pg.evaluate("() => document.getElementById('pcKmh').value"), "")
     fill(pg, "#pcPace", "6:15")
     check("...and a valid one still converts", pg.evaluate("() => document.getElementById('pcKmh').value"), "9.6")
+    # Visual feedback: clearing the paired field is easy to miss, and looks the same as "not filled in".
+    bad = "() => document.getElementById('pcPace').classList.contains('bad-time')"
+    fill(pg, "#pcPace", "10:84")
+    check("invalid pace is marked", pg.evaluate(bad), True)
+    fill(pg, "#pcPace", "6:15")
+    check("...and unmarked once valid", pg.evaluate(bad), False)
+    fill(pg, "#pcPace", "")
+    check("empty is not an error", pg.evaluate(bad), False)
+    # Fixing it from the SPEED side must clear a stale mark, or a corrected field keeps a red border.
+    fill(pg, "#pcPace", "abc")
+    fill(pg, "#pcKmh", "10.0")
+    check("speed-side fix clears the mark", pg.evaluate(bad), False)
+    # The error must be visible WHILE typing, so it has to beat .pc-field input:focus. --danger #e05555.
+    fill(pg, "#pcPace", "10:84")
+    pg.focus("#pcPace")
+    check("red border wins over the focus border",
+          pg.evaluate("() => getComputedStyle(document.getElementById('pcPace')).borderTopColor"),
+          "rgb(224, 85, 85)")
     check("pace fields cannot hold more than mm:ss", pg.evaluate("""
     () => [...document.querySelectorAll('#panel-tools input')]
             .filter(i => (i.placeholder || '').includes(':'))

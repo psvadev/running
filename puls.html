@@ -149,6 +149,12 @@
   .pc-field input { width:80px; background:var(--surface2); border:1px solid var(--border); color:var(--text);
                     border-radius:6px; padding:8px 10px; font:inherit; font-size:15px; font-weight:600; text-align:center; }
   .pc-field input:focus { outline:none; border-color:var(--accent); }
+  /* Invalid time entry. The paired field going blank is easy to miss, and worse, "silently cleared"
+     and "not filled in yet" look identical — so the field that is actually wrong says so itself.
+     Must beat the focus border, because the error matters most while you are still typing in it.
+     Note `.pc-field input.bad-time` alone TIES `.pc-field input:focus` at 0,2,1 and wins only on
+     source order; the explicit :focus selector makes that independent of where the rule sits. */
+  .pc-field input.bad-time, .pc-field input.bad-time:focus { border-color:var(--danger); }
   .pc-unit { font-size:11px; color:var(--muted); }
   .pc-swap { color:var(--muted); font-size:14px; padding-bottom:8px; }
   /* column-count, not grid: the list reads top-to-bottom then continues in the next column, which is
@@ -9519,6 +9525,7 @@ const PaceConv = {
     // event, so the two can't ping-pong.
     pace.addEventListener('input', () => {
       const s = mmSsToSecs(pace.value);
+      markTimeInput(pace, s);
       kmh.value = s > 0 ? this.fmtKmh(this.kmhFromPace(s)) : '';
       this.render(s);
     });
@@ -9526,6 +9533,7 @@ const PaceConv = {
       const k = parseDec(kmh.value);
       const s = k > 0 ? Math.round(this.paceFromKmh(k)) : 0;
       pace.value = s > 0 ? secsToMmSs(s) : '';
+      markTimeInput(pace, s);
       this.render(s);
     });
     this.render(0);
@@ -9548,6 +9556,14 @@ function parseDec(str) {
   return isFinite(n) ? n : 0;
 }
 
+// Empty is NOT an error — a blank field is the starting state, not a mistake. Only a non-empty value
+// that parses to nothing gets marked, which lets one rule cover every way of being wrong (letters,
+// "10:84", "10:9999"): they all land on 0. Called from the speed side too, so fixing the entry there
+// clears a stale mark rather than leaving a red border on a field that is now correct.
+function markTimeInput(el, secs) {
+  if (el) el.classList.toggle('bad-time', !!el.value.trim() && !(secs > 0));
+}
+
 // Two-way pace/speed binding, extracted because all three cards need it and each handler must write
 // ONLY to the other field — setting .value programmatically fires no input event, so they can't
 // ping-pong. Same pattern PaceConv.init uses; this is the reusable form of it.
@@ -9555,6 +9571,7 @@ function bindPaceSpeed(paceEl, kmhEl, onChange) {
   if (!paceEl || !kmhEl) return;
   paceEl.addEventListener('input', () => {
     const s = mmSsToSecs(paceEl.value);
+    markTimeInput(paceEl, s);
     kmhEl.value = s > 0 ? PaceConv.fmtKmh(PaceConv.kmhFromPace(s)) : '';
     onChange();
   });
@@ -9562,6 +9579,7 @@ function bindPaceSpeed(paceEl, kmhEl, onChange) {
     const k = parseDec(kmhEl.value);
     const s = k > 0 ? Math.round(PaceConv.paceFromKmh(k)) : 0;
     paceEl.value = s > 0 ? secsToMmSs(s) : '';
+    markTimeInput(paceEl, s);
     onChange();
   });
 }
@@ -9623,7 +9641,9 @@ const TimeCalc = {
     if (this.mode === 'finish') {
       paceSec = mmSsToSecs(document.getElementById('tcPace').value);
     } else {
-      const target = strictHmsToSecs(document.getElementById('tcTime').value);
+      const timeEl = document.getElementById('tcTime');
+      const target = strictHmsToSecs(timeEl.value);
+      markTimeInput(timeEl, target);
       if (km > 0 && target > 0) paceSec = target / km;
       this.renderGoalChips(target, km);
     }
