@@ -66,6 +66,11 @@
   button:hover { opacity: .85; }
   .btn-primary { background: var(--accent); color: #fff; }
   .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  /* Until 2026-08-13 there was no :disabled rule at all, so a disabled button was PIXEL-IDENTICAL to a
+     live one — same background, same text colour, opacity 1, and cursor:pointer still inviting a click.
+     Two controls already relied on `disabled` ("Kopier valgte", "Analyser alle Strava-økter") and both
+     silently did nothing when pressed. Measured, not assumed. */
+  button:disabled { opacity: .45; cursor: not-allowed; }
   .btn-danger { background: var(--danger); color: #fff; }
   .btn-sm { padding: 5px 10px; font-size: 12px; }
   .btn-icon { background: transparent; padding: 4px 8px; color: var(--muted); }
@@ -1396,9 +1401,13 @@
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <span class="form-section-title" style="margin-bottom:0;border:none">Pulssoner (BPM-grenser)</span>
-      <span style="display:flex;gap:8px">
+      <!-- wrap: at 402px the hint would otherwise push the buttons off the card -->
+      <span style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
         <button class="btn-secondary btn-sm" id="btnAutoZones">⚡ Auto-beregn fra maks puls</button>
         <button class="btn-secondary btn-sm" id="btnStravaZones">📥 Fra Strava</button>
+        <!-- Sits BESIDE the button it explains. The existing profileMsg is four rows down next to
+             "Lagre profil", so an error about this button appeared nowhere near it. -->
+        <span id="stravaZonesMsg" style="font-size:11px;color:var(--muted)"></span>
       </span>
     </div>
     <div id="zoneEditor" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -9050,9 +9059,34 @@ function computePerfCurve(sessions, distPRs) {
     .filter(r => r.ute || r.inne);
 }
 
+// Every Strava-gated control, decided in ONE place — the precondition used to be answered three
+// different ways (hidden · disabled · looks-live-then-complains-on-click) for the same condition.
+// The rule, split by scope: **whole SECTIONS hide** (dead weight in a form you are not using),
+// **individual BUTTONS inside an always-visible card stay put and go disabled** — hiding a lone button
+// makes the app look like it cannot do the thing at all.
+// ⚠️ The reason is rendered as TEXT, never a title tooltip: there is no hover on a phone, and a dimmed
+// button with no explanation is a worse dead end there than a button that complains when tapped.
+const STRAVA_HINT = 'Koble til Strava i Innstillinger først';
+
 function updateStravaFetchVisibility() {
+  const on = StravaIO.isSignedIn();
   const el = document.getElementById('stravaFetchSection');
-  if (el) el.style.display = (StravaIO.isSignedIn() && !Form.editId) ? '' : 'none';
+  if (el) el.style.display = (on && !Form.editId) ? '' : 'none';
+
+  [['btnSyncBestEfforts', 'bestEffortsSyncMsg'], ['btnStravaZones', 'stravaZonesMsg']].forEach(([b, m]) => {
+    const btn = document.getElementById(b), msg = document.getElementById(m);
+    if (btn) btn.disabled = !on;
+    if (!msg) return;
+    // Only ever clear text this function wrote. These spans also carry live sync progress, and a
+    // re-render mid-batch would otherwise wipe "Skanner … 340 aktiviteter" off the screen.
+    if (!on) msg.textContent = STRAVA_HINT;
+    else if (msg.textContent === STRAVA_HINT) msg.textContent = '';
+  });
+
+  // An <a> ignores `disabled`, and this one routes into the same runBatch() — so hide it rather than
+  // leave the one clickable path into a job that cannot run.
+  const rescan = document.getElementById('btnForceRescanBE');
+  if (rescan) rescan.style.display = on ? '' : 'none';
 }
 
 const StravaImport = {
@@ -9934,6 +9968,9 @@ const Settings = {
     this.loadProfileFields();
     this.loadConsistencyFields();
     this.loadContinuityFields();
+    // Strava-gated buttons live in this tab, so re-derive them whenever it renders — not only on
+    // connect/disconnect, which is the only other thing that calls it.
+    updateStravaFetchVisibility();
     this.renderEventList();
     this.renderRaceHistory();
     this.renderPlannedList();

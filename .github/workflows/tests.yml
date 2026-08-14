@@ -85,3 +85,6 @@ jobs:
 
       - name: Innsikter gating
         run: python tests/test_insights.py
+
+      - name: Strava-gated controls
+        run: python tests/test_strava_gating.py
