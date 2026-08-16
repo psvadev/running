@@ -8406,14 +8406,24 @@ function renderDashboard() {
     { label:'Nåværende streak', value: recs.currentStreak ? `${recs.currentStreak} uker` : '–', sub: recs.currentStreak > 1 ? 'på rad nå' : recs.currentStreak === 1 ? 'denne uken' : '', color: recs.currentStreak >= 6 ? '#6c8fff' : recs.currentStreak >= 3 ? 'var(--green)' : recs.currentStreak >= 1 ? 'rgba(240,192,80,.9)' : null },
   ].map(recCardHtml).join('');
 
+  // Labels carry no "pace": the section heading above already says Pace, so repeating it on every
+  // card was redundant — and the repetition was hiding a collision. "Beste tempo" (best pace of any
+  // run) sat two cards from "Beste Tempo pace" (best pace among Tempo sessions): one word, two
+  // meanings, same row. Dropping the suffix removes the ambiguous word entirely instead of
+  // disambiguating it, so "Beste Tempo" can now only mean the økttype. His call 2026-08-15.
+  // `Beste snitt km/t` keeps its unit — it is the only card not in min/km.
+  //
+  // Steady is skipped ON PURPOSE, not forgotten: it was a catch-all bucket for early runs that fit
+  // no other type, so a "best Steady pace" describes nothing in particular. Named here rather than
+  // filtered silently, because the previous version's problem was exactly an omission nobody could
+  // tell from a decision.
+  const PACE_CARD_SKIP = ['Steady'];
+  const paceCard = (label, s) => ({ label, value: s ? secsToMmSs(s.tempo)+' /km' : '–', sub: s ? fmtDate(s.dato) : '' });
   document.getElementById('paceRecordsGrid').innerHTML = [
-    { label:'Beste tempo', value: recs.bestePace ? secsToMmSs(recs.bestePace.tempo)+' /km' : '–', sub: recs.bestePace ? fmtDate(recs.bestePace.dato) : '' },
+    paceCard('Beste totalt', recs.bestePace),
     { label:'Beste snitt km/t', value: recs.bestKmh ? PaceConv.fmtKmh(recs.bestKmh.snittkmh)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
-    { label:'Beste Easy pace', value: recs.bestEasyPace ? secsToMmSs(recs.bestEasyPace.tempo)+' /km' : '–', sub: recs.bestEasyPace ? fmtDate(recs.bestEasyPace.dato) : '' },
-    { label:'Beste Long pace', value: recs.bestLongPace ? secsToMmSs(recs.bestLongPace.tempo)+' /km' : '–', sub: recs.bestLongPace ? fmtDate(recs.bestLongPace.dato) : '' },
-    { label:'Beste Tempo pace', value: recs.bestTempoPace ? secsToMmSs(recs.bestTempoPace.tempo)+' /km' : '–', sub: recs.bestTempoPace ? fmtDate(recs.bestTempoPace.dato) : '' },
-    { label:'Beste Test pace', value: recs.bestTestPace ? secsToMmSs(recs.bestTestPace.tempo)+' /km' : '–', sub: recs.bestTestPace ? fmtDate(recs.bestTestPace.dato) : '' },
-    { label:'Beste Race pace', value: recs.bestRacePace ? secsToMmSs(recs.bestRacePace.tempo)+' /km' : '–', sub: recs.bestRacePace ? fmtDate(recs.bestRacePace.dato) : '' },
+    ...CORE_OKTTYPER.filter(t => !PACE_CARD_SKIP.includes(t))
+                    .map(t => paceCard(`Beste ${t}`, recs.bestPaceByType[t])),
   ].map(recCardHtml).join('');
 
   // Distanse-PR: one row per distance, Ute (Strava best effort) beside Inne (treadmill).
@@ -8859,7 +8869,12 @@ function renderWeeklyOverviewTable(sessions) {
 
 function computeRecords(sessions) {
   let bestePace=null, longestDist=null, longestTime=null, bestKmh=null;
-  let bestEasyPace=null, bestLongPace=null, bestTempoPace=null, bestTestPace=null, bestRacePace=null, bestAerobEff=null, lavPuls=null;
+  let bestAerobEff=null, lavPuls=null;
+  // Per-type pace bests keyed BY økttype, not five hand-named variables. The old form covered Easy,
+  // Long, Tempo, Test and Race — so Intervaller had no card from the day it shipped, and the row
+  // silently disagreed with CORE_OKTTYPER with nothing able to notice. Keying by the value that
+  // actually arrives also covers custom types without touching this function again.
+  const bestPaceByType = {};
   let bestHoyde=null;
   let totalDist=0, totalTime=0, totalHoyde=0, totalOutdoorKm=0, totalIndoorKm=0;
   const weekKm = {}, monthKm = {}, absWeekKm = {};
@@ -8878,11 +8893,8 @@ function computeRecords(sessions) {
     if (!s.utenforAnalyse) {
       if (s.tempo && (!bestePace || s.tempo < bestePace.tempo)) bestePace=s;
       if (s.snittkmh && (!bestKmh || s.snittkmh > bestKmh.snittkmh)) bestKmh=s;
-      if (s.okttype==='Easy'  && s.tempo && (!bestEasyPace   || s.tempo < bestEasyPace.tempo))   bestEasyPace=s;
-      if (s.okttype==='Long'  && s.tempo && (!bestLongPace|| s.tempo < bestLongPace.tempo)) bestLongPace=s;
-      if (s.okttype==='Tempo' && s.tempo && (!bestTempoPace  || s.tempo < bestTempoPace.tempo))   bestTempoPace=s;
-      if (s.okttype==='Test'  && s.tempo && (!bestTestPace   || s.tempo < bestTestPace.tempo))    bestTestPace=s;
-      if (s.okttype==='Race'  && s.tempo && (!bestRacePace   || s.tempo < bestRacePace.tempo))    bestRacePace=s;
+      if (s.okttype && s.tempo && (!bestPaceByType[s.okttype] || s.tempo < bestPaceByType[s.okttype].tempo))
+        bestPaceByType[s.okttype] = s;
       const kmh = s.snittkmh || (s.distanse && s.varighet > 0 ? +(s.distanse / (s.varighet / 3600)).toFixed(2) : 0);
       if (s.okttype==='Easy' && s.gjsnittspuls > 0 && kmh > 0) {
         const ae = +(kmh / s.gjsnittspuls * 100).toFixed(2);
@@ -8929,7 +8941,7 @@ function computeRecords(sessions) {
   }
   // NB: distance PRs are no longer computed here — see computeDistancePRs(), which splits
   // them by venue instead of bracketing whole runs (a 5.41 km run is not a 5 km time).
-  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, totalHoyde, totalOutdoorKm:+totalOutdoorKm.toFixed(1), totalIndoorKm:+totalIndoorKm.toFixed(1), besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestEasyPace, bestLongPace, bestTempoPace, bestTestPace, bestRacePace, bestHoyde, bestAerobEff, lavPuls };
+  return { bestePace, longestDist, longestTime, bestKmh, totalDist, totalTime, totalHoyde, totalOutdoorKm:+totalOutdoorKm.toFixed(1), totalIndoorKm:+totalIndoorKm.toFixed(1), besteUke, besteUkeKm:+besteUkeKm.toFixed(1), besteMåned, besteMånedKm:+besteMånedKm.toFixed(1), beste4Blokk:+beste4Blokk.toFixed(1), snittKmUke, longestStreak:maxStreak, currentStreak, bestPaceByType, bestHoyde, bestAerobEff, lavPuls };
 }
 
 // Formkurve: every Test/Race normalized to a Riegel 5K-equivalent time so tests at
