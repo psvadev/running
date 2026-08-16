@@ -425,6 +425,68 @@ with sync_playwright() as b0:
     check("a custom plan still completes it",
           matched({'dato': WED, 'okttype': 'Long', 'treningsplan': 'Egen plan X'}), True)
 
+    # ── which planned session gets the credit ──────────────────────────────────────────────────
+    # Reported 2026-08-15. The gates above decide WHETHER a run may complete a session; this is the
+    # separate question of WHICH one gets it when several compete, and it was wrong.
+    #
+    # Planned sessions used to be walked in DATE order, each claiming the best still-free run before
+    # any later session got a look. Miss one session mid-week and everything after it shifts: with a
+    # Mon/Wed/Fri plan and Monday skipped, Easy claimed Wednesday's intervals (score 100),
+    # Intervaller claimed Friday's long, and Long — the session actually run — reported as missed.
+    #
+    # ⚠️ THE COUNT WAS RIGHT THE WHOLE TIME, which is why nothing looked broken: 2 of 3 either way.
+    # Only the attribution was wrong, and attribution is exactly what the card uses to say what you
+    # still owe. A test asserting "how many matched" would have passed throughout — assert WHICH.
+    print("\n== which planned session gets the credit ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    aerr = []
+    pg.on("pageerror", lambda e: aerr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.wait_for_timeout(400)
+
+    # One Mon/Wed/Fri week: 10.08 Easy · 12.08 Intervaller · 14.08 Long.
+    PLAN = [{'id': 'e', 'date': '2026-08-10', 'okttype': 'Easy', 'distance': 5, 'title': ''},
+            {'id': 'i', 'date': '2026-08-12', 'okttype': 'Intervaller', 'distance': 6, 'title': ''},
+            {'id': 'l', 'date': '2026-08-14', 'okttype': 'Long', 'distance': 12, 'title': ''}]
+
+    def credits(runs):
+        """{plannedId: 'Type@DD' or 'MISS'} — names WHICH run each planned session claimed."""
+        ses = [{'id': f'a{n}', 'dato': d, 'okttype': t, 'distanse': km, 'varighet': 1800,
+                'treningsplan': 'Runna'} for n, (d, t, km) in enumerate(runs)]
+        return pg.evaluate("""([ses, pl]) => {
+          Store.data.sessions = ses;
+          const m = matchPlannedSessions(pl);
+          const by = {}; ses.forEach(s => by[s.id] = s.okttype + '@' + s.dato.slice(8));
+          const out = {}; pl.forEach(p => out[p.id] = m[p.id] ? by[m[p.id]] : 'MISS');
+          return out;
+        }""", [ses, PLAN])
+
+    check("full week: each session gets its own run",
+          credits([('2026-08-10', 'Easy', 5), ('2026-08-12', 'Intervaller', 6), ('2026-08-14', 'Long', 12)]),
+          {'e': 'Easy@10', 'i': 'Intervaller@12', 'l': 'Long@14'})
+    # THE BUG: Monday skipped. Easy used to claim Wednesday's intervals and cascade from there.
+    check("missed Monday does not shift the rest of the week",
+          credits([('2026-08-12', 'Intervaller', 6), ('2026-08-14', 'Long', 12)]),
+          {'e': 'MISS', 'i': 'Intervaller@12', 'l': 'Long@14'})
+    check("skipped mid-week session is the one reported missing",
+          credits([('2026-08-10', 'Easy', 5), ('2026-08-14', 'Long', 12)]),
+          {'e': 'Easy@10', 'i': 'MISS', 'l': 'Long@14'})
+    check("one run all week goes to the session it actually was",
+          credits([('2026-08-14', 'Long', 12)]),
+          {'e': 'MISS', 'i': 'MISS', 'l': 'Long@14'})
+    # Displacement must still work — this is the common case and was never broken.
+    check("Friday's long run on Saturday still completes it",
+          credits([('2026-08-10', 'Easy', 5), ('2026-08-12', 'Intervaller', 6), ('2026-08-15', 'Long', 12)]),
+          {'e': 'Easy@10', 'i': 'Intervaller@12', 'l': 'Long@15'})
+    # A genuine substitution still counts: nothing else that week, wrong type, on the planned day.
+    check("substituted session on the planned day still counts",
+          credits([('2026-08-12', 'Tempo', 6)]),
+          {'e': 'MISS', 'i': 'Tempo@12', 'l': 'MISS'})
+
+    check("no attribution page errors", aerr, [])
+    pg.close()
+
     check("no page errors", perr, [])
     pg.close()
 

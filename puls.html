@@ -1888,12 +1888,15 @@ function plannedForBlock(startDate, endDate) {
 // session if done on/after the planned day (1-day grace) and the same type is strongly preferred.
 // Returns { plannedId: actualId } without mutating stored objects.
 //
-// ⚠️ THE SCORE HAS NO CEILING, AND THAT IS LOAD-BEARING TO UNDERSTAND: `if (best)` accepts whatever
-// candidate scored lowest, however bad. A 100-point type mismatch still wins when it is the only
-// eligible run in the week. The two `return`s below are therefore the ONLY real gates — a threshold
+// ⚠️ THE SCORE HAS NO CEILING, AND THAT IS LOAD-BEARING TO UNDERSTAND: any surviving pair can be
+// claimed, however bad it scores. A 100-point type mismatch still wins when it is the only eligible
+// run left in the week. The two `return`s below are therefore the ONLY real gates — a threshold
 // cannot replace them, because a legitimate wrong-type match on the planned day also scores exactly
 // 100 (swapped Tempo for Easy — the session happened). Type and direction separate those cases;
 // a number cannot.
+//
+// What the score DOES decide is the order pairs are claimed in — see the comment inside. That is a
+// different job from gating, and conflating the two is what produced both bugs here so far.
 function matchPlannedSessions(planned) {
   // Egentrening is excluded: it means "not part of a programme", so it cannot complete a programme's
   // session. Reported from real use 2026-08-12 — an ad-hoc run had marked a planned session done.
@@ -1905,14 +1908,29 @@ function matchPlannedSessions(planned) {
   // counts toward volume, distance and load everywhere else. Note the form defaults to Runna
   // (DEFAULT_PLAN), so this can never turn a normally-logged session into a miss by omission.
   const actuals = (Store.data.sessions || []).filter(s => s.dato && s.treningsplan !== 'Egentrening');
-  const matchOf = {};
-  const used = new Set();
+
+  // Every eligible (planned, actual) pair in one list, scored, then claimed BEST-FIRST.
+  //
+  // ⚠️ Assignment order is the whole point, and walking `planned` in date order was the bug
+  // (found 2026-08-15). Each planned session used to claim the best run still free before any later
+  // session got a look — so miss one session mid-week and every later one is credited to the wrong
+  // slot, with the LAST session of the week reported as the miss. Realistic week, Mon/Wed/Fri plan,
+  // Monday skipped: Easy claimed Wednesday's intervals (score 100), Intervaller claimed Friday's
+  // long, and Long — the one actually run — showed as missed. The counts stayed right the whole
+  // time; only the attribution was wrong, which is worse, because the card's job is to say what you
+  // still owe.
+  //
+  // Sorting by the score needs no extra rule: a type mismatch costs 100 and the worst in-week day
+  // gap costs 60, so exact pairs already sort ahead of substitutions. An earlier "exact matches in a
+  // first pass" design was dropped for exactly that reason — it hard-coded a priority the formula
+  // already expresses, and would have decided the in-between cases (same type but far apart vs
+  // different type but same day) by bucket instead of by score.
+  const pairs = [];
   planned.forEach(p => {
     const wk = absWeekNum(p.date);
     const pd = new Date(p.date);
-    let best = null, bestScore = Infinity;
     actuals.forEach(a => {
-      if (used.has(a.id) || absWeekNum(a.dato) !== wk) return;
+      if (absWeekNum(a.dato) !== wk) return;
       const dayDiff = (new Date(a.dato) - pd) / 86400000;
       if (dayDiff < -1.5) return;
       // A run done BEFORE its planned day only counts when the TYPE matches. The early grace exists
@@ -1921,18 +1939,23 @@ function matchPlannedSessions(planned) {
       // Worst possible timing: the false "done" exists ONLY while the session is still pending, and
       // it disappears the moment you actually run (the real session then scores ~0 and wins), so it
       // misleads precisely when the card is meant to tell you what is left.
-      // A run done BEFORE its planned day only counts when the TYPE matches. The early grace exists
-      // so you can run Wednesday's Long on Tuesday — but Tuesday's intervals are not Wednesday's Long
-      // done early, and without this the card claims a session is done before you have started it.
-      // Worst possible timing: the false "done" exists ONLY while the session is still pending, and
-      // it disappears the moment you actually run (the real session then scores ~0 and wins), so it
-      // misleads precisely when the card is meant to tell you what is left.
       if (dayDiff < 0 && a.okttype !== p.okttype) return;
       const typePenalty = a.okttype === p.okttype ? 0 : 100;
-      const score = typePenalty + Math.abs(dayDiff) * 10 + Math.abs((a.distanse || 0) - p.distance);
-      if (score < bestScore) { bestScore = score; best = a; }
+      pairs.push({ pid: p.id, aid: a.id,
+        score: typePenalty + Math.abs(dayDiff) * 10 + Math.abs((a.distanse || 0) - p.distance) });
     });
-    if (best) { matchOf[p.id] = best.id; used.add(best.id); }
+  });
+
+  // Ties broken by id so the result is deterministic — two identical runs in a week must not depend
+  // on array order for which planned session they land on.
+  pairs.sort((x, y) => x.score - y.score || x.pid.localeCompare(y.pid) || x.aid.localeCompare(y.aid));
+
+  const matchOf = {};
+  const usedActual = new Set();
+  pairs.forEach(({ pid, aid }) => {
+    if (matchOf[pid] || usedActual.has(aid)) return;
+    matchOf[pid] = aid;
+    usedActual.add(aid);
   });
   return matchOf;
 }
