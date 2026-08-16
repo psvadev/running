@@ -8446,7 +8446,15 @@ function renderDashboard() {
     // "Raskeste økt", not "Beste totalt" (vague about what was totalled) and not "alle økter" —
     // this card excludes Avvik-flagged runs like every other quality record, so a label promising
     // *alle* would be the one card overstating its own scope.
-    paceCard('Raskeste økt', recs.bestePace),
+    //
+    // The sub-line names the ØKTTYPE, and that is what stops this card being a duplicate: the number
+    // will normally also sit on one of the type cards beside it, so without the type it is the same
+    // fact twice. With it, this is the only card answering *which kind of session produces your
+    // fastest running* — an answer that moves as fitness shifts (intervals now, a Test or Race
+    // later). It also covers the two categories that have no card of their own: Steady, and any
+    // custom type — so if one of those ever tops the row it says so rather than appearing unsourced.
+    { ...paceCard('Raskeste økt', recs.bestePace),
+      sub: recs.bestePace ? `${recs.bestePace.okttype || 'ukjent type'} · ${fmtDate(recs.bestePace.dato)}` : '' },
     { label:'Beste snitt km/t', value: recs.bestKmh ? PaceConv.fmtKmh(recs.bestKmh.snittkmh)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
     ...CORE_OKTTYPER.filter(t => !PACE_CARD_SKIP.includes(t))
                     .map(t => paceCard(`Beste ${t}`, recs.bestPaceByType[t])),
