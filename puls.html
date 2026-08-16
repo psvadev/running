@@ -8420,7 +8420,10 @@ function renderDashboard() {
   const PACE_CARD_SKIP = ['Steady'];
   const paceCard = (label, s) => ({ label, value: s ? secsToMmSs(s.tempo)+' /km' : '–', sub: s ? fmtDate(s.dato) : '' });
   document.getElementById('paceRecordsGrid').innerHTML = [
-    paceCard('Beste totalt', recs.bestePace),
+    // "Raskeste økt", not "Beste totalt" (vague about what was totalled) and not "alle økter" —
+    // this card excludes Avvik-flagged runs like every other quality record, so a label promising
+    // *alle* would be the one card overstating its own scope.
+    paceCard('Raskeste økt', recs.bestePace),
     { label:'Beste snitt km/t', value: recs.bestKmh ? PaceConv.fmtKmh(recs.bestKmh.snittkmh)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
     ...CORE_OKTTYPER.filter(t => !PACE_CARD_SKIP.includes(t))
                     .map(t => paceCard(`Beste ${t}`, recs.bestPaceByType[t])),
