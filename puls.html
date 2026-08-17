@@ -120,7 +120,11 @@
   .wk-now-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
   .wk-now-head .wk-now-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
   .wk-now-head .wk-now-wk { font-size:11px; color:var(--muted); }
-  .wk-now-head .wk-now-plan { font-size:11px; color:var(--muted); }
+  /* Today's session is the loudest thing on the card. It sits in the header's spare space, but it
+     answers the question the card exists for, and it is the ONLY surface that shows today once the
+     session is done — the list below runs in 'remaining' mode by then and has dropped it. Size stays
+     11px so the baseline-aligned header row keeps its rhythm; weight and colour carry the emphasis. */
+  .wk-now-head .wk-now-plan { font-size:11px; color:var(--text); font-weight:600; }
   .wk-now-head .wk-now-plan-done { color:var(--green); opacity:.85; }
   .wk-now-head .wk-now-go { margin-left:auto; font-size:11px; color:var(--muted); }
   .wk-now-stats { display:flex; flex-wrap:wrap; gap:10px; }
@@ -137,15 +141,22 @@
   /* Planned-low week (deload/taper/syk/ferie), or no change: the number is still true, the
      judgement isn't. Also every delta during a covered week. */
   #weekNowCard .wk-flat { color: var(--muted); font-weight:600; }
-  /* Week plan, shown only while the week is still empty. Wraps rather than scrolls — at 402px a
-     five-session week is three lines, and three visible lines beat one line with four sessions
-     hidden off-screen. */
+  /* The week's plan, every session, all week. Wraps rather than scrolls — at 402px a five-session
+     week is three lines, and three visible lines beat one line with four sessions hidden off-screen. */
   .wk-plan { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; font-size:12px; color:var(--muted); }
   /* Under the stats it needs a rule above it; on an empty week it is the only content and doesn't. */
   .wk-plan-rest { border-top:1px solid var(--border); margin-top:12px; padding-top:10px; }
   .wk-plan-lead { width:100%; font-size:10px; text-transform:uppercase; letter-spacing:.05em; margin-bottom:2px; }
   .wk-plan-day { color:var(--muted); font-size:11px; }
-  .wk-plan-item.wk-plan-today { color:var(--text); font-weight:600; }
+  /* Three states, same green and same .85 as the header's ✓ so one language covers both lines.
+     Overdue dims rather than strikes through: a strikethrough reads as CANCELLED, and a missed
+     session is not cancelled. Pending is the base style — it needs no rule. */
+  .wk-plan-item.wk-plan-done { color:var(--green); opacity:.85; }
+  .wk-plan-item.wk-plan-overdue { opacity:.5; }
+  /* Today is a locator inside the week, not the loudest thing on the card — the header line owns
+     that now. The accent day name alone is enough to find your place; weighting the whole item put
+     two bold copies of the same session three lines apart. Stays 0,3,0 so it outranks .wk-plan-day
+     and survives whichever state class the item is also carrying. */
   .wk-plan-item.wk-plan-today .wk-plan-day { color:var(--accent); }
 
   /* Tempo ↔ km/t converter */
@@ -8157,52 +8168,51 @@ function renderPaceWeekChart(sessions) {
 // obvious. It now shows what you are SUPPOSED to run instead — the data is already loaded for the
 // "I dag" line above.
 //
-// It disappears the moment a real session exists, deliberately: once there are numbers, the numbers
-// are the better answer, and this card was trimmed down once already. This costs no permanent height.
-//
 // Falls back to the old sentence when nothing is planned — no active block, or a block with nothing
 // this week. Absence of a plan is NOT a rest week (only runs are imported from the .ics), so it must
 // not claim one. Same reason plannedToday() never says "Hviledag".
-// Two modes, answering two different questions:
-//   'all'       — the empty week: what does this week look like? Everything not excused, including a
-//                 day already gone by, because on a blank week the whole shape is the useful answer.
-//   'remaining' — after the first run: what is still coming? PENDING only (today and later), so the
-//                 list shrinks through the week and disappears on its own once the plan is done. It
-//                 can never become permanent clutter, which is what earned it a place under the stats.
 //
-// 'remaining' deliberately drops OVERDUE sessions. A missed Monday is adherence information, and this
-// card does not make that judgement anywhere else — the week drill-down and the block adherence
-// already do. "Igjen" means still ahead, not still owed.
-function weekPlanHtml(today, absWk, mode) {
-  const remaining = mode === 'remaining';
-  // Only the empty week falls back to the sentence; under the stats, nothing left simply renders
-  // nothing rather than a heading over an empty row.
-  const none = remaining ? '' : `<div style="font-size:12px;color:var(--muted)">Ingen økter ennå denne uken.</div>`;
+// ONE list, the whole week, all week long — the heading says "Planlagt denne uken" and that is what it
+// shows. It used to filter to PENDING once any run existed, so a done session vanished and mid-week you
+// could not tell whether the week started with three sessions or one. The shrinking list was defended
+// as never becoming permanent clutter; the standing cost is real (a finished week sits there all green
+// until Monday) and was accepted deliberately in exchange for the card meaning what its label says.
+//
+// Because the list now reads as THE WEEK, dropping a missed session would be a lie the old version
+// could not tell — absence used to mean "already dealt with", and would now mean "never existed". So
+// overdue is shown too, and this card does make that judgement, which it previously left to the week
+// drill-down and block adherence. Same ✓ / ✗ / ○ vocabulary as the Planlagte økter card, so the two
+// surfaces state one truth in one language.
+//
+// Excused (Syk/Ferie) stays hidden, matching the "I dag" line and the streak nudge: showing a plan you
+// are excused from is the wrong signal, and it is why the count divides by the rows that survive that
+// filter rather than by everything planned — one clock for numerator and denominator.
+function weekPlanHtml(today, absWk, underStats) {
+  // Under the stats a missing plan renders nothing rather than a heading over an empty row; on the
+  // empty week the sentence is the card's only content.
+  const none = underStats ? '' : `<div style="font-size:12px;color:var(--muted)">Ingen økter ennå denne uken.</div>`;
   const evt = activePlanEvent(today);
   if (!evt) return none;
   // Filtered by absWeekNum, the same week function the rest of this card uses — a second way of
   // deciding "this week" is exactly how two surfaces start disagreeing.
   const planned = plannedForBlock(evt.date, evt.endDate || null).filter(p => absWeekNum(p.date) === absWk);
   if (!planned.length) return none;
-  // Excused (Syk/Ferie) left out, matching the "I dag" line — showing a plan you are excused from is
-  // the wrong signal, and it is the rule the streak nudge already follows.
   const matchOf = matchPlannedSessions(planned);
-  const rows = planned.filter(p => {
-    const st = plannedStatus(p, matchOf, today);
-    return remaining ? st === 'pending' : st !== 'excused';
-  });
+  const rows = planned.map(p => ({ p, st: plannedStatus(p, matchOf, today) })).filter(r => r.st !== 'excused');
   if (!rows.length) return none;
+  const MARK = { done: '✓', overdue: '✗', pending: '○' };
 
-  const items = rows.map(p => {
+  const items = rows.map(({ p, st }) => {
     const day = new Date(p.date).toLocaleDateString('nb-NO', { weekday: 'short' }).replace('.', '');
     const what = [p.okttype, p.distance ? `${p.distance} km` : null].filter(Boolean).join(' · ');
     const flavour = plannedTitle(p);            // '' for generic names like "Easy Run"
-    return `<span class="wk-plan-item${p.date === today ? ' wk-plan-today' : ''}">`
-      + `<span class="wk-plan-day">${escapeHtml(day.charAt(0).toUpperCase() + day.slice(1))}</span> `
+    return `<span class="wk-plan-item wk-plan-${st}${p.date === today ? ' wk-plan-today' : ''}">`
+      + `${MARK[st]} <span class="wk-plan-day">${escapeHtml(day.charAt(0).toUpperCase() + day.slice(1))}</span> `
       + `${escapeHtml(what)}${flavour ? ` — ${escapeHtml(flavour)}` : ''}</span>`;
   }).join('');
-  return `<div class="wk-plan${remaining ? ' wk-plan-rest' : ''}">`
-    + `<span class="wk-plan-lead">${remaining ? 'Igjen denne uken' : 'Planlagt denne uken'}</span>${items}</div>`;
+  const done = rows.filter(r => r.st === 'done').length;
+  return `<div class="wk-plan${underStats ? ' wk-plan-rest' : ''}">`
+    + `<span class="wk-plan-lead">Planlagt denne uken · ${done}/${rows.length}</span>${items}</div>`;
 }
 
 function renderWeekNow(allSessions) {
@@ -8255,7 +8265,7 @@ function renderWeekNow(allSessions) {
     </div>`;
 
   if (!thisWk.length) {
-    el.innerHTML = head + weekPlanHtml(today, nowAbsWk, 'all');
+    el.innerHTML = head + weekPlanHtml(today, nowAbsWk, false);
     el.style.display = '';
     return;
   }
@@ -8333,9 +8343,8 @@ function renderWeekNow(allSessions) {
     footHtml = `<div class="wk-now-delta">mot samme tid forrige uke${why}</div>`;
   }
 
-  // What is still ahead this week, under the stats. Renders nothing once the plan is done, so the
-  // card returns to exactly its trimmed form by the end of the week.
-  el.innerHTML = head + stats + footHtml + weekPlanHtml(today, nowAbsWk, 'remaining');
+  // The week's plan and how far through it you are, under the stats.
+  el.innerHTML = head + stats + footHtml + weekPlanHtml(today, nowAbsWk, true);
   el.style.display = '';
 }
 

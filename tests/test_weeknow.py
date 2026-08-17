@@ -388,8 +388,11 @@ with sync_playwright() as p:
           F.prototype = R.prototype; F.now = () => fixed; F.parse = R.parse; F.UTC = R.UTC;
           window.Date = F; })();""" % day
 
-    def logged(n, date, km, secs):
-        return {"id": "s%d" % n, "dato": date, "uke": "2026-33", "oktnavn": "x", "okttype": "Easy",
+    # okttype matters: matchPlannedSessions claims pairs best-score-first, so which planned session a
+    # run credits depends on its type, not only its date. A fixture that leaves it at Easy cannot
+    # produce an overdue session at all — the run just slides onto the earlier Easy slot.
+    def logged(n, date, km, secs, okttype="Easy"):
+        return {"id": "s%d" % n, "dato": date, "uke": "2026-33", "oktnavn": "x", "okttype": okttype,
                 "treningsplan": "Runna", "distanse": km, "varighet": secs,
                 "tempo": round(secs / km), "soner": [0, 0, 0, 0, 0]}
 
@@ -413,6 +416,7 @@ with sync_playwright() as p:
 
     txt, errs, _ = week_card(BLOCK, WEEK_PLAN)
     check("lead line present", "PLANLAGT DENNE UKEN" in txt, True)
+    check("count starts at nothing done", "· 0/3" in txt, True)
     check("monday session listed", "Man Easy · 4.5 km" in txt, True)
     check("wednesday session listed", "Ons Tempo · 7 km" in txt, True)
     check("sunday session listed", "Søn Long · 14 km" in txt, True)
@@ -443,36 +447,72 @@ with sync_playwright() as p:
     check("plan list unclipped at 402px", clipped, [])
     check("...and still listed", "Søn Long · 14 km" in txt, True)
 
-    # ── After the first run: what is LEFT, under the stats ──────────────────────────────────
+    # ── The WHOLE week, all week long, under the stats ──────────────────────────────────────
     #
-    # The list must SHRINK through the week and vanish on its own, which is what earns it a place
-    # below the stats — it can never become permanent clutter.
-    print("== remaining plan under the stats ==")
+    # The heading says "Planlagt denne uken", so the list is the week — not what is left of it. It
+    # used to filter to pending once any run existed, which meant a done session vanished and
+    # mid-week you could not tell whether the week started with three sessions or one.
+    print("== full week plan under the stats ==")
     MON, WED = logged(1, "2026-08-10", 4.5, 1600), logged(2, "2026-08-12", 5, 1800)
 
     txt, errs, _ = week_card(BLOCK, WEEK_PLAN, day=10, extra=[MON])
-    check("switches to 'igjen' once a run exists", "IGJEN DENNE UKEN" in txt, True)
-    check("...and the stats are there too", "4.5 km" in txt and "distanse" in txt, True)
-    check("done session drops off", "Man Easy" in txt, False)
-    check("what's ahead stays", "Ons Tempo · 7 km" in txt, True)
+    check("one heading in both layouts", "PLANLAGT DENNE UKEN" in txt, True)
+    check("...never the old 'igjen'", "IGJEN" in txt, False)
+    check("...with the stats alongside it", "4.5 km" in txt and "distanse" in txt, True)
+    check("done session STAYS, ticked", "✓ Man Easy · 4.5 km" in txt, True)
+    check("what is ahead stays, open", "○ Ons Tempo · 7 km" in txt, True)
+    check("count reads done over planned", "· 1/3" in txt, True)
     check("no page errors", errs, [])
 
+    # Today stays findable THROUGH its state class. The accent day name is the only marker left on
+    # today's row — the bold moved to the header line — so if a state class ever outranks it, the
+    # locator disappears silently and every row looks alike. Monday here is both today and done.
+    p = b.new_page(viewport={"width": 1280, "height": 900})
+    p.add_init_script(freeze_on(10))
+    p.goto(APP)
+    p.evaluate(EMPTY_WEEK, {"events": BLOCK, "planned": WEEK_PLAN, "extra": [MON]})
+    p.goto(APP)
+    p.evaluate("() => switchTab('dash')")
+    p.wait_for_timeout(500)
+    style = p.evaluate("""() => {
+        const it = document.querySelector('.wk-plan-item.wk-plan-today');
+        const cs = getComputedStyle(it), day = getComputedStyle(it.querySelector('.wk-plan-day'));
+        return { item: cs.color, weight: cs.fontWeight, day: day.color }; }""")
+    p.close()
+    check("today's day name is accent, not the state colour", style["day"], "rgb(108, 143, 255)")
+    check("...while the row itself carries the done green", style["item"], "rgb(76, 175, 135)")
+    check("...and the row is no longer bold", int(style["weight"]) < 600, True)
+
+    # Mid-week the count is the whole point: it cannot be read off a list that has dropped its
+    # finished rows.
     txt, _, _ = week_card(BLOCK, WEEK_PLAN, day=14, extra=[MON, WED])
-    check("list shrinks as the week runs down", "Ons Tempo" in txt, False)
-    check("...leaving only what's ahead", "Søn Long · 14 km" in txt, True)
+    check("both finished sessions still listed", txt.count("✓"), 2)
+    check("...and the count follows", "· 2/3" in txt, True)
+    check("...with the last one still ahead", "○ Søn Long · 14 km" in txt, True)
 
-    # Everything planned is done -> no heading over an empty row, the card returns to trimmed form.
+    # A finished week does NOT disappear. That standing height is the accepted cost of the heading
+    # meaning what it says — it reads 3/3 with nothing open and nothing missed.
     txt, _, _ = week_card(BLOCK, WEEK_PLAN[:3], day=16,
-                          extra=[MON, WED, logged(3, "2026-08-16", 14, 4900)])
-    check("nothing left -> no list at all", "IGJEN" in txt, False)
-    check("...and no stray heading", "PLANLAGT" in txt, False)
+                          extra=[MON, WED, logged(3, "2026-08-16", 14, 4900, "Long")])
+    check("finished week still shown", "PLANLAGT DENNE UKEN" in txt, True)
+    check("...reading 3/3", "· 3/3" in txt, True)
+    check("...nothing open or missed left", txt.count("○") + txt.count("✗"), 0)
 
-    # A MISSED Monday is 'overdue', not 'igjen'. This card makes no adherence judgement anywhere
-    # else — the week drill-down and block adherence do — so "igjen" must mean still AHEAD, never
-    # still owed.
-    txt, _, _ = week_card(BLOCK, WEEK_PLAN, day=12, extra=[WED])
-    check("overdue session is not listed as remaining", "Man Easy" in txt, False)
+    # A MISSED session is shown, not dropped. Once the list claims to be the week, absence would read
+    # as "never planned" — the one thing the old shrinking list could not get wrong, and the reason
+    # this card now makes an adherence judgement it used to leave to the week drill-down.
+    # The Wednesday run is a TEMPO here so it credits Wednesday's planned Tempo; as an Easy it would
+    # score better against Monday's Easy and leave nothing overdue at all.
+    txt, _, _ = week_card(BLOCK, WEEK_PLAN, day=12, extra=[logged(4, "2026-08-12", 7, 2400, "Tempo")])
+    check("missed monday is listed", "✗ Man Easy · 4.5 km" in txt, True)
+    check("...not counted as done", "· 1/3" in txt, True)
     check("...while today and later still are", "Søn Long · 14 km" in txt, True)
+
+    # Excused leaves the DENOMINATOR too — numerator and denominator come off the same filtered rows,
+    # so the count can never divide by a session the card refuses to show.
+    txt, _, _ = week_card(SICK, WEEK_PLAN, day=12, extra=[MON])
+    check("excused session stays hidden", "Ons Tempo" in txt, False)
+    check("...and out of the count", "· 1/2" in txt, True)
 
     b.close()
 
