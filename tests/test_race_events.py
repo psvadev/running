@@ -289,10 +289,24 @@ with sync_playwright() as b0:
     check("...naming the count and the span", 'klare til import' in pg.locator('#plannedImportMsg').inner_text(), True)
     check("...and what it would replace", 'beholdes' in pg.locator('#plannedImportMsg').inner_text()
           or 'erstattes' in pg.locator('#plannedImportMsg').inner_text(), True)
+    # Skipped rows carry a DATE RANGE, not just a count: a count cannot distinguish a complete older
+    # plan from a pruned remnant of one, and importing a remnant would measure that block's adherence
+    # against half its real plan. Needs a file that actually HAS pre-block entries — the one above has
+    # none, so asserting the span against it would have passed or failed for the wrong reason.
+    tmp_pre = os.path.join(tempfile.gettempdir(), 'puls_test_runna_pre.ics')
+    pathlib.Path(tmp_pre).write_text(ics([('2026-06-20', '5 km Easy Run', 'EASY_RUN'),
+                                          ('2026-07-01', '8 km Long Run', 'LONG_RUN'),
+                                          ('2026-08-05', '5 km Easy Run', 'EASY_RUN')]), encoding='utf-8')
+    pg.set_input_files('#runnaIcsFile', tmp_pre)
+    pg.wait_for_timeout(700)
+    ptxt = pg.locator('#plannedImportMsg').inner_text()
+    check("skipped rows are counted", '2 økter fra tidligere blokker' in ptxt, True)
+    check("...and carry a date span, not just a count", '(20.06.2026 – 01.07.2026)' in ptxt, True)
     # Cancelling must leave the store exactly as it was, not half-applied.
     pg.click('#btnCancelIcs')
     pg.wait_for_timeout(200)
     check("cancel writes nothing", stored(), OLD)
+    os.remove(tmp_pre)
     check("...and clears the preview", pg.locator('#plannedImportMsg').inner_text().strip(), '')
 
     pg.set_input_files('#runnaIcsFile', tmp)

@@ -10579,12 +10579,17 @@ const Settings = {
       const scoped = active ? parsed.filter(p => p.date >= active.date) : parsed;
       if (!scoped.length) { this._importError(`Fant ${parsed.length} økter, men ingen innenfor den aktive blokken (fra ${fmtDate(active.date)}).`); return; }
       const plan = this._planImport(scoped);
-      this.pendingImport = { scoped, skipped: parsed.length - scoped.length };
+      // The skipped rows get a DATE RANGE, not just a count. A count alone cannot tell you whether an
+      // older block's plan is complete in the file or a pruned remnant of it — and importing a remnant
+      // would give that block an adherence figure measured against half its real plan, which reads as
+      // authoritative and flatters you. Compare this span against the block's own dates.
+      const skippedRows = parsed.filter(p => !scoped.includes(p)).sort((a, b) => a.date.localeCompare(b.date));
+      this.pendingImport = { scoped, skipped: skippedRows.length };
       msg.style.color = 'var(--text)';
       msg.innerHTML = `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--surface2)">
         <div><strong>${scoped.length} planlagte løpeøkter</strong> klare til import · ${fmtDate(plan.first)} – ${fmtDate(plan.last)}</div>
         <div style="color:var(--muted);margin-top:3px">${
-          this.pendingImport.skipped ? `${this.pendingImport.skipped} økter fra tidligere blokker hoppes over. ` : ''
+          skippedRows.length ? `${skippedRows.length} økter fra tidligere blokker hoppes over (${fmtDate(skippedRows[0].date)} – ${fmtDate(skippedRows[skippedRows.length - 1].date)}). ` : ''
         }${plan.replaced ? `${plan.replaced} eksisterende økter i dette datospennet erstattes. ` : ''
         }${plan.kept.length ? `${plan.kept.length} økter utenfor spennet beholdes. ` : ''}Strength og ad-hoc-løp hoppes over.</div>
         <div style="display:flex;gap:8px;margin-top:9px">
