@@ -10532,6 +10532,37 @@ const Settings = {
 
   plannedExpanded: false,
 
+  // ADDITIVE: replace exactly the date range this import covers and keep everything outside it.
+  // The import used to overwrite plannedSessions wholesale, which silently destroyed every other
+  // block's planned-vs-actual record — plannedForBlock still window-bounded correctly, the rows
+  // were simply gone.
+  //
+  // The range comes from the IMPORT, not from the active block. Anchoring it on `active.date` was
+  // the same bug one step narrower: importing the NEXT block's plan while the current block is
+  // still active wiped the current block, because the range then started at the current block's
+  // beginning and swallowed rows the import never touched. Setting the next plan up before the
+  // old one ends is normal, so that path is not exotic.
+  //
+  // No dedupe needed — kept rows lie strictly outside [first, last] and imported rows strictly
+  // inside, so re-importing a block still replaces it cleanly. A mid-block re-import whose .ics
+  // no longer carries the completed days leaves those earlier rows in place, which is what we
+  // want: they are real planned sessions and they hold that block's adherence history.
+  //
+  // ⚠️ ONE function, used by the preview to DESCRIBE and by the commit to APPLY. A preview computed
+  // separately from the action it previews is a lie waiting to happen.
+  _planImport(scoped) {
+    const first = scoped[0].date, last = scoped[scoped.length - 1].date;
+    const existing = Store.data.plannedSessions || [];
+    const kept = existing.filter(p => p.date < first || p.date > last);
+    return { first, last, kept, replaced: existing.length - kept.length,
+             next: kept.concat(scoped).sort((a, b) => a.date.localeCompare(b.date)) };
+  },
+
+  // Picking a file used to write immediately — the only destructive control here that never asked,
+  // while Fjern importerte and Nullstill both confirm. It also made "how many sessions from older
+  // blocks are in this file?" a question you could only answer by performing the write.
+  pendingImport: null,
+
   importRunnaIcs(e) {
     const file = e.target.files && e.target.files[0];
     const msg = document.getElementById('plannedImportMsg');
@@ -10540,42 +10571,55 @@ const Settings = {
     reader.onload = () => {
       let parsed;
       try { parsed = parseRunnaIcs(reader.result); }
-      catch (err) { msg.style.color = 'var(--danger)'; msg.textContent = 'Kunne ikke lese .ics-filen.'; return; }
-      if (!parsed.length) { msg.style.color = 'var(--danger)'; msg.textContent = 'Fant ingen planlagte løpeøkter i filen. Er det riktig Runna-.ics?'; return; }
+      catch (err) { this._importError('Kunne ikke lese .ics-filen.'); return; }
+      if (!parsed.length) { this._importError('Fant ingen planlagte løpeøkter i filen. Er det riktig Runna-.ics?'); return; }
       // Scope to the active training block (Plan event): keep only sessions on/after the block's
       // start, so completed sessions from older finished blocks don't flood in.
       const active = activePlanEvent(localISODate());
       const scoped = active ? parsed.filter(p => p.date >= active.date) : parsed;
-      if (!scoped.length) { msg.style.color = 'var(--danger)'; msg.textContent = `Fant ${parsed.length} økter, men ingen innenfor den aktive blokken (fra ${fmtDate(active.date)}).`; return; }
-      // ADDITIVE: replace exactly the date range this import covers and keep everything outside it.
-      // The import used to overwrite plannedSessions wholesale, which silently destroyed every other
-      // block's planned-vs-actual record — plannedForBlock still window-bounded correctly, the rows
-      // were simply gone.
-      //
-      // The range comes from the IMPORT, not from the active block. Anchoring it on `active.date` was
-      // the same bug one step narrower: importing the NEXT block's plan while the current block is
-      // still active wiped the current block, because the range then started at the current block's
-      // beginning and swallowed rows the import never touched. Setting the next plan up before the
-      // old one ends is normal, so that path is not exotic.
-      //
-      // No dedupe needed — kept rows lie strictly outside [first, last] and imported rows strictly
-      // inside, so re-importing a block still replaces it cleanly. A mid-block re-import whose .ics
-      // no longer carries the completed days leaves those earlier rows in place, which is what we
-      // want: they are real planned sessions and they hold that block's adherence history.
-      const first = scoped[0].date, last = scoped[scoped.length - 1].date;
-      const kept = (Store.data.plannedSessions || []).filter(p => p.date < first || p.date > last);
-      Store.data.plannedSessions = kept.concat(scoped).sort((a, b) => a.date.localeCompare(b.date));
-      FileIO.save();
-      this.plannedExpanded = false;
-      this.renderPlannedList();
-      const skipped = parsed.length - scoped.length;
-      msg.style.color = 'var(--green)';
-      msg.textContent = `Importerte ${scoped.length} planlagte løpeøkter (${fmtDate(first)} – ${fmtDate(last)})${skipped ? `, hoppet over ${skipped} fra tidligere blokker` : ''}. Strength og ad-hoc-løp ble hoppet over.`
-        + (kept.length ? ` ${kept.length} økter fra andre blokker ble beholdt.` : '');
+      if (!scoped.length) { this._importError(`Fant ${parsed.length} økter, men ingen innenfor den aktive blokken (fra ${fmtDate(active.date)}).`); return; }
+      const plan = this._planImport(scoped);
+      this.pendingImport = { scoped, skipped: parsed.length - scoped.length };
+      msg.style.color = 'var(--text)';
+      msg.innerHTML = `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--surface2)">
+        <div><strong>${scoped.length} planlagte løpeøkter</strong> klare til import · ${fmtDate(plan.first)} – ${fmtDate(plan.last)}</div>
+        <div style="color:var(--muted);margin-top:3px">${
+          this.pendingImport.skipped ? `${this.pendingImport.skipped} økter fra tidligere blokker hoppes over. ` : ''
+        }${plan.replaced ? `${plan.replaced} eksisterende økter i dette datospennet erstattes. ` : ''
+        }${plan.kept.length ? `${plan.kept.length} økter utenfor spennet beholdes. ` : ''}Strength og ad-hoc-løp hoppes over.</div>
+        <div style="display:flex;gap:8px;margin-top:9px">
+          <button class="btn-primary btn-sm" id="btnConfirmIcs">Importer ${scoped.length} økter</button>
+          <button class="btn-secondary btn-sm" id="btnCancelIcs">Avbryt</button>
+        </div></div>`;
+      document.getElementById('btnConfirmIcs').addEventListener('click', () => this.confirmRunnaIcs());
+      document.getElementById('btnCancelIcs').addEventListener('click', () => { this.pendingImport = null; msg.innerHTML = ''; });
     };
-    reader.onerror = () => { msg.style.color = 'var(--danger)'; msg.textContent = 'Kunne ikke lese filen.'; };
+    reader.onerror = () => this._importError('Kunne ikke lese filen.');
     reader.readAsText(file);
     e.target.value = ''; // allow re-selecting the same file next time
+  },
+
+  _importError(text) {
+    this.pendingImport = null;
+    const msg = document.getElementById('plannedImportMsg');
+    msg.style.color = 'var(--danger)';
+    msg.textContent = text;
+  },
+
+  confirmRunnaIcs() {
+    if (!this.pendingImport) return;
+    const { scoped, skipped } = this.pendingImport;
+    // Recomputed from the same function the preview used, so what is written is what was described.
+    const plan = this._planImport(scoped);
+    Store.data.plannedSessions = plan.next;
+    FileIO.save();
+    this.pendingImport = null;
+    this.plannedExpanded = false;
+    this.renderPlannedList();
+    const msg = document.getElementById('plannedImportMsg');
+    msg.style.color = 'var(--green)';
+    msg.textContent = `Importerte ${scoped.length} planlagte løpeøkter (${fmtDate(plan.first)} – ${fmtDate(plan.last)})${skipped ? `, hoppet over ${skipped} fra tidligere blokker` : ''}. Strength og ad-hoc-løp ble hoppet over.`
+      + (plan.kept.length ? ` ${plan.kept.length} økter fra andre blokker ble beholdt.` : '');
   },
 
   clearPlanned() {

@@ -282,6 +282,24 @@ with sync_playwright() as b0:
     pg.set_input_files('#runnaIcsFile', tmp)
     pg.wait_for_timeout(700)
 
+    # ── THE PREVIEW WRITES NOTHING ──────────────────────────────────────────────────────────
+    # Picking the file used to import on the spot. It is the only destructive control on this card
+    # that never asked, and it made "what is in this file?" answerable only by performing the write.
+    check("picking a file only previews", stored(), OLD)
+    check("...naming the count and the span", 'klare til import' in pg.locator('#plannedImportMsg').inner_text(), True)
+    check("...and what it would replace", 'beholdes' in pg.locator('#plannedImportMsg').inner_text()
+          or 'erstattes' in pg.locator('#plannedImportMsg').inner_text(), True)
+    # Cancelling must leave the store exactly as it was, not half-applied.
+    pg.click('#btnCancelIcs')
+    pg.wait_for_timeout(200)
+    check("cancel writes nothing", stored(), OLD)
+    check("...and clears the preview", pg.locator('#plannedImportMsg').inner_text().strip(), '')
+
+    pg.set_input_files('#runnaIcsFile', tmp)
+    pg.wait_for_timeout(700)
+    pg.click('#btnConfirmIcs')
+    pg.wait_for_timeout(500)
+
     check("the earlier block's rows SURVIVE the import",
           stored(), OLD + ['2026-08-05', '2026-08-07', '2026-08-10'])
     check("the finished block still resolves its plan",
@@ -313,6 +331,8 @@ with sync_playwright() as b0:
                                       ('2026-08-12', '9 km Tempo Run', 'TEMPO')]), encoding='utf-8')
     pg.set_input_files('#runnaIcsFile', tmp)
     pg.wait_for_timeout(700)
+    pg.click('#btnConfirmIcs')
+    pg.wait_for_timeout(500)
     check("re-import replaces its own block cleanly",
           stored(), OLD + ['2026-08-05', '2026-08-12'])
     check("...and still leaves the earlier block alone",
@@ -356,6 +376,8 @@ with sync_playwright() as b0:
                                        ('2026-08-26', '10 km Long Run', 'LONG_RUN')]), encoding='utf-8')
     pg.set_input_files('#runnaIcsFile', tmp2)
     pg.wait_for_timeout(700)
+    pg.click('#btnConfirmIcs')
+    pg.wait_for_timeout(500)
 
     check("the ACTIVE block's plan survives an import that never touched its dates",
           pg.evaluate("() => plannedForBlock('2026-07-01','2026-08-20').map(p => p.date)"), CUR)
