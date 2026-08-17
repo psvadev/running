@@ -1856,13 +1856,27 @@ function parseRunnaIcs(text) {
     const uid = field('UID');
     if (!/_PLAN_WORKOUT-/.test(uid) || /NON_PLAN/.test(uid)) return; // plan sessions (upcoming OR completed); skip ad-hoc non-plan runs
     const summary = field('SUMMARY');
-    const distM = summary.match(/([\d]+(?:\.\d+)?)\s*km/i);
-    if (!distM) return;                                  // runs carry a km distance in the SUMMARY; strength does not
+    const desc = field('DESCRIPTION')
+      .replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+    // A run carries a km distance and strength does not — that is the test, but WHERE the distance
+    // lives depends on the event. Upcoming sessions put it in the SUMMARY ("🏃 7.5km Easy Run •
+    // 7.5km"). A COMPLETED session with a NAMED workout has none there at all ("🏃 400m Repeats")
+    // and carries it in the description instead ("📊 Summary: Distance: 4.27km").
+    //
+    // ⚠️ Reading only the SUMMARY silently dropped every completed named interval session — 10 of
+    // them across a real 17-week block, which made that plan look like 23 sessions instead of 33 and
+    // read as Runna having pruned its own feed. Strength events carry no distance ANYWHERE, so the
+    // fallback cannot let them in; that was verified against a real .ics, not assumed.
+    //
+    // The description distance is what was actually RUN, not what was prescribed, so a completed
+    // named session imports its actual distance as its planned one. Slightly wrong, and much better
+    // than losing the session.
+    const distM = summary.match(/([\d]+(?:\.\d+)?)\s*km/i)
+               || desc.match(/Distance:\s*([\d.]+)\s*km/i);
+    if (!distM) return;
     const dtM = field('DTSTART').match(/(\d{4})(\d{2})(\d{2})/);
     if (!dtM) return;
     const date = `${dtM[1]}-${dtM[2]}-${dtM[3]}`;
-    const desc = field('DESCRIPTION')
-      .replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
     const label = (desc.split('\n')[0].split('•')[0] || '').trim();  // upcoming first line = "Easy Run"; completed = "📊 Summary:"
     const token = (uid.match(/_plan_week_\d+_([A-Z_]+?)_\d+/) || [])[1] || '';
     // Type: exact upcoming label → UID token → fuzzy phrase. Completed events carry no label/token, so the fuzzy pass

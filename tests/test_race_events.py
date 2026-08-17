@@ -257,6 +257,43 @@ with sync_playwright() as b0:
     check("no page errors", eerr, [])
     pg.close()
 
+    # ── 2b. WHERE THE DISTANCE LIVES ────────────────────────────────────────────────────────
+    # A run carries a km distance and strength does not — but an UPCOMING session puts it in the
+    # SUMMARY while a COMPLETED session with a NAMED workout ("400m Repeats") has none there and
+    # carries it in the description. Reading only the SUMMARY dropped every completed named interval
+    # session: 10 across a real 17-week block, making a 33-session plan look like 23.
+    print("== parseRunnaIcs: distance in SUMMARY or in DESCRIPTION ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    boot(pg, 'plan')
+    MIXED = "\r\n".join([
+        "BEGIN:VCALENDAR", "VERSION:2.0",
+        # upcoming run — distance in the SUMMARY, as before
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d1_plan_week_1_EASY_RUN_0",
+        "DTSTART;VALUE=DATE:20260810", "SUMMARY:\U0001F3C3 7.5km Easy Run • 7.5km",
+        "DESCRIPTION:Easy Run • 7.5km • 50m - 55m", "END:VEVENT",
+        # completed NAMED workout — nothing in the SUMMARY, distance in the description
+        "BEGIN:VEVENT", "UID:COMPLETED_PLAN_WORKOUT-abc123",
+        "DTSTART;VALUE=DATE:20260812", "SUMMARY:\U0001F3C3 400m Repeats",
+        "DESCRIPTION:\U0001F4CA Summary:\\nDistance: 4.27km\\nTime: 34:36\\nAvg Pace: 8:05 /km"
+        "\\n\\n\U0001F4CB Description:\\n1.5km warm up then 8 x 400m repeats", "END:VEVENT",
+        # strength — no distance ANYWHERE, so the fallback must not let it in
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d3_plan_week_1_LEGS_AND_CORE_0",
+        "DTSTART;VALUE=DATE:20260813", "SUMMARY:\U0001F3CB️ Legs & Core Strength • 25m - 35m",
+        "DESCRIPTION:Legs & Core Strength • 25m - 35m", "END:VEVENT",
+        # ad-hoc non-plan run — excluded by UID regardless of where its distance sits
+        "BEGIN:VEVENT", "UID:COMPLETED_NON_PLAN_WORKOUT-xyz",
+        "DTSTART:20260814T170000Z", "SUMMARY:\U0001F3C3 Evening Run",
+        "DESCRIPTION:\U0001F4CA Summary:\\nDistance: 6.10km", "END:VEVENT",
+        "END:VCALENDAR"])
+    got = pg.evaluate("(t) => parseRunnaIcs(t).map(p => [p.date, p.okttype, p.distance])", MIXED)
+    check("upcoming run kept (distance in SUMMARY)", ['2026-08-10', 'Easy', 7.5] in got, True)
+    check("completed NAMED workout kept (distance in DESCRIPTION)",
+          ['2026-08-12', 'Intervaller', 4.27] in got, True)
+    check("strength still excluded — no distance anywhere", len(got), 2)
+    check("...and the ad-hoc non-plan run too, despite having one",
+          any(d == '2026-08-14' for d, _, _ in got), False)
+    pg.close()
+
     # ── 3. THE IMPORT INVARIANT ─────────────────────────────────────────────────────────────
     print("== additive .ics import ==")
     pg = b.new_page(viewport={"width": 1280, "height": 900})
