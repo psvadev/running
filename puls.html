@@ -158,6 +158,8 @@
      two bold copies of the same session three lines apart. Stays 0,3,0 so it outranks .wk-plan-day
      and survives whichever state class the item is also carrying. */
   .wk-plan-item.wk-plan-today .wk-plan-day { color:var(--accent); }
+  /* Past-block index rows in Planlagte økter — a link, so it has to feel like one on hover. */
+  .planned-block-row:hover { background:var(--surface2); }
 
   /* Tempo ↔ km/t converter */
   .pc-io { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
@@ -2034,6 +2036,16 @@ function plannedStatus(p, matchOf, today) {
 // 'excused' (Syk/Ferie) both leave the denominator.
 function plannedDueList(planned, matchOf, today) {
   return planned.filter(p => { const s = plannedStatus(p, matchOf, today); return s === 'done' || s === 'overdue'; });
+}
+// One block's adherence, in one place. The Planlegging card computes this for the block it is showing
+// AND for every block in its index — two encodings of "how much of this plan did I do" would be the
+// codebase's standard defect shape, and here they would sit inches apart on screen.
+// `pct` is null when nothing is due yet: 0% and "no sessions have come due" are different statements.
+function plannedAdherence(rows, today) {
+  const matchOf = matchPlannedSessions(rows);
+  const due = plannedDueList(rows, matchOf, today);
+  const done = due.filter(p => matchOf[p.id]).length;
+  return { matchOf, due, done, pct: due.length ? Math.round(done / due.length * 100) : null };
 }
 
 // ── Land (countries run in) ──────────────────────────────────────────────
@@ -10584,33 +10596,55 @@ const Settings = {
     const clearBtn = document.getElementById('btnClearPlanned');
     if (!listEl) return;
     const today = localISODate();
-    // Imports are additive, so the store holds every block ever imported. This card is about the plan
-    // you are running NOW — older blocks surface in their own block detail view. With no Plan event
-    // covering today (between blocks) fall back to everything, or the card would just empty out.
-    const active = activePlanEvent(today);
     const all = (Store.data.plannedSessions || []);
-    const planned = (active ? plannedForBlock(active.date, active.endDate || null) : all.slice())
-      .sort((a, b) => a.date.localeCompare(b.date));
     if (clearBtn) clearBtn.style.display = all.length ? '' : 'none';
+
+    // ONE block's sessions, never a merged bucket. Imports are additive, so the store holds every
+    // block ever imported; this card shows the block you are running now — or, between blocks, the
+    // most recent one — and indexes the rest as a single row each. It used to fall back to showing
+    // EVERYTHING between blocks, which is fine at one block and unreadable at five, and which also
+    // made the adherence line silently become an all-time figure under a per-block label.
+    //
+    // ⚠️ Windows come from computeBlocks, not from the Plan event directly, and that fixes a second
+    // thing: `plannedForBlock(start, null)` is unbounded, so an event with NO endDate swallowed every
+    // later block too — importing the next plan before the current one ended merged both lists while
+    // a block was still active. computeBlocks already bounds a block at the next plan's start and
+    // leaves only the last one open.
+    //
+    // The grouping below is the real work; rendering each row as an expandable sub-list instead of a
+    // link is presentation on top of it, if that is ever wanted.
+    const groups = computeBlocks(Store.data.sessions || [])
+      .map(b => ({ b, rows: plannedForBlock(b.startDate, b.endIsOpen ? null : b.endDate) }))
+      .filter(g => g.rows.length);
+    const activeEvt = activePlanEvent(today);
+    const activeGroup = (activeEvt && groups.find(g => g.b.startDate === activeEvt.date)) || null;
+    // Between blocks, fall to the LATEST-STARTING block rather than the latest finished one: with the
+    // next plan already imported (normal — you set it up before the old block ends) what is coming is
+    // the more useful answer than what is done, and the finished block drops into the index below.
+    const current = activeGroup || groups[groups.length - 1] || null;
+    const others = groups.filter(g => g !== current).reverse();     // newest first
+    // No Plan event at all — a plan can be imported without registering the block — leaves nothing to
+    // scope to, so show what there is rather than an empty card.
+    const planned = (current ? current.rows : all.slice()).sort((a, b) => a.date.localeCompare(b.date));
     if (!planned.length) {
       adhEl.innerHTML = '';
-      // "Ingen plan importert ennå" would be false when earlier blocks' plans are still stored —
-      // say which of the two it is.
-      listEl.innerHTML = `<p style="color:var(--muted);font-size:13px">${all.length
-        ? `Ingen plan importert for den aktive blokken. ${all.length} økter fra tidligere blokker er bevart og vises i sin egen blokkvisning.`
-        : 'Ingen plan importert ennå.'}</p>`;
+      listEl.innerHTML = `<p style="color:var(--muted);font-size:13px">Ingen plan importert ennå.</p>`;
       return;
     }
-    const matchOf = matchPlannedSessions(planned);
-    const pastDue = plannedDueList(planned, matchOf, today);
-    const done = pastDue.filter(p => matchOf[p.id]).length;
+    const { matchOf, due: pastDue, done, pct } = plannedAdherence(planned, today);
     const excused = planned.filter(p => plannedStatus(p, matchOf, today) === 'excused').length;
     const excusedTxt = excused ? ` · ${excused} unntatt (Syk/Ferie)` : '';
+    // Between blocks the list is a block you are not currently running, so name it — and say WHICH
+    // way, because "9 økter i planen, ingen forfalte" reads as broken for a finished block and as
+    // obvious for an upcoming one. While a block is active the card header already says so and a
+    // title would only repeat the hero card above.
+    const lead = (current && current !== activeGroup)
+      ? `<div style="font-size:11px;color:var(--muted);margin-bottom:3px">${
+          current.b.startDate > today ? 'Neste blokk' : 'Siste blokk'} · ${escapeHtml(current.b.title)}</div>` : '';
     if (!pastDue.length) {
-      adhEl.innerHTML = `<div style="font-size:13px;color:var(--muted)">Ingen forfalte økter ennå · ${planned.length} økter i planen${excusedTxt}</div>`;
+      adhEl.innerHTML = lead + `<div style="font-size:13px;color:var(--muted)">Ingen forfalte økter ennå · ${planned.length} økter i planen${excusedTxt}</div>`;
     } else {
-      const pct = Math.round(done / pastDue.length * 100);
-      adhEl.innerHTML = `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">· ${planned.length} totalt i planen${excusedTxt}</span></div>`;
+      adhEl.innerHTML = lead + `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">· ${planned.length} totalt i planen${excusedTxt}</span></div>`;
     }
     const COLLAPSE_N = 10;
     const overflow = planned.length - COLLAPSE_N;
@@ -10629,6 +10663,29 @@ const Settings = {
       </div>`;
     }).join('');
     if (overflow > 0) html += `<button class="btn-secondary btn-sm" id="btnTogglePlanned" style="align-self:flex-start;margin-top:8px">${this.plannedExpanded ? '▴ Vis færre' : `▾ Vis alle (${planned.length})`}</button>`;
+
+    // Every other block, one row each: title + its own adherence, opening the block drill-down that
+    // already exists rather than a second inline copy of it. Flat in the number of BLOCKS, not
+    // sessions, so five finished plans is five rows and never a 240-row bucket.
+    if (others.length) {
+      html += `<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Andre blokker</div>`
+        + others.map(g => {
+          const a = plannedAdherence(g.rows, today);
+          // No sessions came due in a block (imported and abandoned before its first session) is not
+          // 0% — say nothing rather than assert a number the data cannot support.
+          const score = a.pct === null ? `${g.rows.length} økter` : `${a.done} av ${a.due.length} · ${a.pct}%`;
+          const col = a.pct === null ? 'var(--muted)' : a.pct >= 85 ? 'var(--green)' : a.pct >= 60 ? 'var(--text)' : 'var(--muted)';
+          return `<div class="planned-block-row" data-block="${toSafeAttr(g.b)}"
+              onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))"
+              style="display:flex;align-items:center;gap:10px;font-size:13px;padding:7px 0;cursor:pointer">
+            <span style="color:var(--muted);flex-shrink:0">›</span>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(g.b.title)}</span>
+            <span style="color:${col};flex-shrink:0;font-weight:500">${score}</span>
+          </div>`;
+        }).join('')
+        + `</div>`;
+    }
     listEl.innerHTML = html;
     const tb = document.getElementById('btnTogglePlanned');
     if (tb) tb.addEventListener('click', () => { this.plannedExpanded = !this.plannedExpanded; this.renderPlannedList(); });

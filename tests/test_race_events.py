@@ -267,9 +267,13 @@ with sync_playwright() as b0:
     stored = lambda: pg.evaluate("() => Store.data.plannedSessions.map(p => p.date)")
     OLD = ['2026-06-03', '2026-06-10', '2026-07-14']
     check("seeded with the finished block's plan", stored(), OLD)
-    check("card scopes to the active block (no rows yet)", pg.locator('#plannedList > div').count(), 0)
-    check("...and says so rather than 'ingen plan importert'",
-          'tidligere blokker' in pg.locator('#plannedList').inner_text(), True)
+    # The active block has no imported plan yet, so the card falls back to the most recent block that
+    # HAS one — never to a merged bucket of every block ever imported, which is what it used to do and
+    # what stops being readable after a few plans.
+    check("falls back to the most recent block with a plan", pg.locator('#plannedList > div').count(), 3)
+    check("...and names which block that is", 'Siste blokk · Runna 5K' in pg.locator('#plannedAdherence').inner_text(), True)
+    check("...with no index, since it is the only block with a plan",
+          'ANDRE BLOKKER' in pg.locator('#plannedList').inner_text().upper(), False)
 
     tmp = os.path.join(tempfile.gettempdir(), 'puls_test_runna.ics')
     pathlib.Path(tmp).write_text(ics([('2026-08-05', '5 km Easy Run',  'EASY_RUN'),
@@ -284,7 +288,25 @@ with sync_playwright() as b0:
           pg.evaluate("() => plannedForBlock('2026-06-01','2026-07-15').map(p => p.date)"), OLD)
     check("the message says what was kept",
           'beholdt' in pg.locator('#plannedImportMsg').inner_text(), True)
-    check("card shows only the active block", pg.locator('#plannedList > div').count(), 3)
+    # THE SCOPING RULE: the session list is ONE block's, and every other block collapses to a single
+    # index row. Flat in the number of blocks, not sessions — five finished plans is five rows.
+    check("session rows are the active block's only", pg.locator('.planned-block-row').count()
+          and pg.locator('#plannedList > div').count() - 1, 3)
+    check("the earlier block becomes ONE index row", pg.locator('.planned-block-row').count(), 1)
+    check("...naming it", 'Runna 5K' in pg.locator('.planned-block-row').inner_text(), True)
+    check("...with its OWN adherence, not the active block's",
+          '0 av 3' in pg.locator('.planned-block-row').inner_text(), True)
+    # The headline counts THIS block (3), never the 6 now in the store. Before the scoping change it
+    # widened to every block ever imported the moment no block was active, under the same label.
+    check("...and the adherence line counts this block only",
+          '3 økter i planen' in pg.locator('#plannedAdherence').inner_text(), True)
+    # It opens the drill-down that already exists rather than a second inline copy of it.
+    pg.locator('.planned-block-row').click()
+    pg.wait_for_timeout(400)
+    check("clicking it opens that block's drill-down",
+          'Runna 5K' in pg.locator('#detailTitle').inner_text(), True)
+    pg.evaluate("() => DetailPanel.close()")
+    pg.wait_for_timeout(200)
 
     # re-importing the SAME block replaces it rather than duplicating
     pathlib.Path(tmp).write_text(ics([('2026-08-05', '6 km Easy Run', 'EASY_RUN'),
