@@ -1852,12 +1852,14 @@ function formatSessionTsv(sessions) {
     if (s.utenforAnalyse) metaParts.push('[Avvik]');
     if (!(s.soner?.some(z => z > 0))) metaParts.push('[Uten pulsdata]');
     if (s.beskrivelse) metaParts.push(`[Øktbeskrivelse]\n${s.beskrivelse}`);
-    // Before the notes on purpose: notes sit immediately above the data row so a session's own words
-    // stay next to its numbers, which is the whole reason for the block format.
-    const analysis = sessionAnalysisLines(s);
-    if (analysis) metaParts.push(analysis);
     if (s.notater) metaParts.push(s.notater);
-    return metaParts.length ? `${hdr}\n\n${metaParts.join('\n\n')}\n\n${dataRow}` : `${hdr}\n${dataRow}`;
+    // Everything a human wrote sits ABOVE the data row, everything derived from Strava sits BELOW it:
+    // the row and the analysis are one machine-measured group, read together. Notes keep their place
+    // immediately above the row — that adjacency is the reason this block format exists — so putting
+    // the analysis underneath costs nothing and stops it splitting the description from the note.
+    const analysis = sessionAnalysisLines(s);
+    const body = metaParts.length ? `${hdr}\n\n${metaParts.join('\n\n')}\n\n${dataRow}` : `${hdr}\n${dataRow}`;
+    return analysis ? `${body}\n\n${analysis}` : body;
   });
   return [HDR, ...blocks].join('\n\n');
 }

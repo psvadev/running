@@ -139,13 +139,20 @@ with sync_playwright() as pw:
     check("...and does print the cadence", "Kadens: 159 spm" in out["cadOnly"], True)
     check("a session with no analysis gets no block", "[Analyse]" in out["none"], False)
 
-    # ── Placement: notes stay closest to the data row ───────────────────────────────────────
-    # The block format exists so a session's own words sit next to its numbers. Analysis is derived
-    # and goes above them, never between the note and the row it belongs to.
-    print("== analysis sits above the notes, notes above the row ==")
+    # ── Placement: written above the row, measured below it ─────────────────────────────────
+    # Everything a human wrote goes above the data row; everything derived from Strava goes below it,
+    # so the row and its analysis read as one machine-measured group. Notes keep their place
+    # immediately above the row — that adjacency is why this block format exists at all.
+    print("== notes above the data row, analysis below it ==")
     w = out["withNote"]
-    check("analysis before notes", w.index("[Analyse]") < w.index("Kjentes tungt."), True)
-    check("notes before the data row", w.index("Kjentes tungt.") < w.index("Runna Easy\tEasy"), True)
+    # The data row STARTS with the formatted date, not the session name — an earlier version of this
+    # check anchored on "Runna Easy" and matched mid-row, so it measured a gap that was really the
+    # row's own first two fields.
+    ROW = "8/10/2026\t2026-33"
+    check("notes come before the data row", w.index("Kjentes tungt.") < w.index(ROW), True)
+    check("analysis comes after it", w.index(ROW) < w.index("[Analyse]"), True)
+    check("...and nothing at all separates note from row",
+          w.split("Kjentes tungt.")[1].startswith("\n\n" + ROW), True)
 
     check("no page errors", errs, [])
     b.close()
