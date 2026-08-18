@@ -10613,11 +10613,35 @@ const Settings = {
   //
   // ⚠️ ONE function, used by the preview to DESCRIBE and by the commit to APPLY. A preview computed
   // separately from the action it previews is a lie waiting to happen.
+  //
+  // ⚠️⚠️ RANGES ARE PER BLOCK, NEVER ONE SPAN ACROSS BLOCKS. An import covering two blocks with a gap
+  // between them would, under a single [first, last], delete everything in that gap — a third block
+  // the import never mentioned. That is the exact shape of both earlier data-loss bugs here, one
+  // level up: the first replaced everything, the second replaced from the wrong anchor. Each block
+  // the import touches gets its own range; a block it does not touch is not read and not written.
+  //
+  // Each row is assigned to exactly ONE block, so a row landing on a boundary date between two
+  // adjacent blocks cannot be claimed twice and written twice.
   _planImport(scoped) {
-    const first = scoped[0].date, last = scoped[scoped.length - 1].date;
+    const blocks = computeBlocks(Store.data.sessions || []);
     const existing = Store.data.plannedSessions || [];
-    const kept = existing.filter(p => p.date < first || p.date > last);
-    return { first, last, kept, replaced: existing.length - kept.length,
+    const groups = new Map();
+    scoped.forEach(p => {
+      const b = blocks.find(bb => p.date >= bb.startDate && (bb.endIsOpen || p.date <= bb.endDate));
+      const key = b ? b.startDate : '*';                 // '*' = no registered block (no Plan events)
+      if (!groups.has(key)) groups.set(key, { block: b, rows: [] });
+      groups.get(key).rows.push(p);
+    });
+    const spans = [...groups.values()].map(g => {
+      const rows = g.rows.slice().sort((a, b) => a.date.localeCompare(b.date));
+      const first = rows[0].date, last = rows[rows.length - 1].date;
+      return { title: g.block ? g.block.title : '', first, last, rows,
+               replaced: existing.filter(p => p.date >= first && p.date <= last).length };
+    }).sort((a, b) => a.first.localeCompare(b.first));
+    const inAnySpan = p => spans.some(s => p.date >= s.first && p.date <= s.last);
+    const kept = existing.filter(p => !inAnySpan(p));
+    return { spans, kept, replaced: existing.length - kept.length,
+             first: spans[0].first, last: spans[spans.length - 1].last,
              next: kept.concat(scoped).sort((a, b) => a.date.localeCompare(b.date)) };
   },
 
@@ -10636,11 +10660,18 @@ const Settings = {
       try { parsed = parseRunnaIcs(reader.result); }
       catch (err) { this._importError('Kunne ikke lese .ics-filen.'); return; }
       if (!parsed.length) { this._importError('Fant ingen planlagte løpeøkter i filen. Er det riktig Runna-.ics?'); return; }
-      // Scope to the active training block (Plan event): keep only sessions on/after the block's
-      // start, so completed sessions from older finished blocks don't flood in.
-      const active = activePlanEvent(localISODate());
-      const scoped = active ? parsed.filter(p => p.date >= active.date) : parsed;
-      if (!scoped.length) { this._importError(`Fant ${parsed.length} økter, men ingen innenfor den aktive blokken (fra ${fmtDate(active.date)}).`); return; }
+      // Scope to EVERY registered training block, not only the active one. The old rule kept sessions
+      // on/after the *active* block's start, which existed to stop a finished block's sessions
+      // flooding a card that showed everything — a card that now shows one block and collapses the
+      // rest to a row, so the flood it guarded against no longer exists. Keeping it meant a finished
+      // block's plan could never be imported at all, even when the feed still carried it in full.
+      //
+      // Rows inside no registered block are still skipped: without a Plan event there is nothing to
+      // scope them to, and they would land as orphans no later import could ever replace.
+      const blocks = computeBlocks(Store.data.sessions || []);
+      const inABlock = p => blocks.some(b => p.date >= b.startDate && (b.endIsOpen || p.date <= b.endDate));
+      const scoped = blocks.length ? parsed.filter(inABlock) : parsed;
+      if (!scoped.length) { this._importError(`Fant ${parsed.length} økter, men ingen innenfor en registrert treningsblokk. Registrer blokken under Hendelser først.`); return; }
       const plan = this._planImport(scoped);
       // The skipped rows get a DATE RANGE, not just a count. A count alone cannot tell you whether an
       // older block's plan is complete in the file or a pruned remnant of it — and importing a remnant
@@ -10648,13 +10679,21 @@ const Settings = {
       // authoritative and flatters you. Compare this span against the block's own dates.
       const skippedRows = parsed.filter(p => !scoped.includes(p)).sort((a, b) => a.date.localeCompare(b.date));
       this.pendingImport = { scoped, skipped: skippedRows.length };
+      // One line per block, because that is what the write does — a single summary line would hide
+      // that each block is replaced within its own range and the others are untouched.
+      const spanLines = plan.spans.map(s =>
+        `<div style="display:flex;gap:8px;margin-top:2px"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${
+          escapeHtml(s.title || 'Uten blokk')}</span><span style="color:var(--muted);flex-shrink:0">${
+          s.rows.length} økter · ${fmtDate(s.first)} – ${fmtDate(s.last)} · ${
+          s.replaced ? `${s.replaced} erstattes` : 'ingen erstattes'}</span></div>`).join('');
       msg.style.color = 'var(--text)';
       msg.innerHTML = `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--surface2)">
-        <div><strong>${scoped.length} planlagte løpeøkter</strong> klare til import · ${fmtDate(plan.first)} – ${fmtDate(plan.last)}</div>
-        <div style="color:var(--muted);margin-top:3px">${
-          skippedRows.length ? `${skippedRows.length} økter fra tidligere blokker hoppes over (${fmtDate(skippedRows[0].date)} – ${fmtDate(skippedRows[skippedRows.length - 1].date)}). ` : ''
-        }${plan.replaced ? `${plan.replaced} eksisterende økter i dette datospennet erstattes. ` : ''
-        }${plan.kept.length ? `${plan.kept.length} økter utenfor spennet beholdes. ` : ''}Strength og ad-hoc-løp hoppes over.</div>
+        <div><strong>${scoped.length} planlagte løpeøkter</strong> klare til import · ${
+          plan.spans.length > 1 ? `${plan.spans.length} blokker` : `${fmtDate(plan.first)} – ${fmtDate(plan.last)}`}</div>
+        <div style="font-size:12px;margin-top:5px">${spanLines}</div>
+        <div style="color:var(--muted);margin-top:5px">${
+          skippedRows.length ? `${skippedRows.length} økter utenfor alle blokker hoppes over (${fmtDate(skippedRows[0].date)} – ${fmtDate(skippedRows[skippedRows.length - 1].date)}). ` : ''
+        }${plan.kept.length ? `${plan.kept.length} økter utenfor disse spennene beholdes. ` : ''}Strength og ad-hoc-løp hoppes over.</div>
         <div style="display:flex;gap:8px;margin-top:9px">
           <button class="btn-primary btn-sm" id="btnConfirmIcs">Importer ${scoped.length} økter</button>
           <button class="btn-secondary btn-sm" id="btnCancelIcs">Avbryt</button>
@@ -10686,8 +10725,11 @@ const Settings = {
     this.renderPlannedList();
     const msg = document.getElementById('plannedImportMsg');
     msg.style.color = 'var(--green)';
-    msg.textContent = `Importerte ${scoped.length} planlagte løpeøkter (${fmtDate(plan.first)} – ${fmtDate(plan.last)})${skipped ? `, hoppet over ${skipped} fra tidligere blokker` : ''}. Strength og ad-hoc-løp ble hoppet over.`
-      + (plan.kept.length ? ` ${plan.kept.length} økter fra andre blokker ble beholdt.` : '');
+    const where = plan.spans.length > 1
+      ? `fordelt på ${plan.spans.length} blokker (${fmtDate(plan.first)} – ${fmtDate(plan.last)})`
+      : `(${fmtDate(plan.first)} – ${fmtDate(plan.last)})`;
+    msg.textContent = `Importerte ${scoped.length} planlagte løpeøkter ${where}${skipped ? `, hoppet over ${skipped} utenfor alle blokker` : ''}. Strength og ad-hoc-løp ble hoppet over.`
+      + (plan.kept.length ? ` ${plan.kept.length} økter utenfor disse spennene ble beholdt.` : '');
   },
 
   clearPlanned() {

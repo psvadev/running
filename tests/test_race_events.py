@@ -330,15 +330,17 @@ with sync_playwright() as b0:
     # plan from a pruned remnant of one, and importing a remnant would measure that block's adherence
     # against half its real plan. Needs a file that actually HAS pre-block entries — the one above has
     # none, so asserting the span against it would have passed or failed for the wrong reason.
+    # Skipped now means "inside no registered block at all" — a session in a FINISHED block is
+    # imported, which is the point of the scope change. These two predate every Plan event.
     tmp_pre = os.path.join(tempfile.gettempdir(), 'puls_test_runna_pre.ics')
-    pathlib.Path(tmp_pre).write_text(ics([('2026-06-20', '5 km Easy Run', 'EASY_RUN'),
-                                          ('2026-07-01', '8 km Long Run', 'LONG_RUN'),
+    pathlib.Path(tmp_pre).write_text(ics([('2026-05-01', '5 km Easy Run', 'EASY_RUN'),
+                                          ('2026-05-10', '8 km Long Run', 'LONG_RUN'),
                                           ('2026-08-05', '5 km Easy Run', 'EASY_RUN')]), encoding='utf-8')
     pg.set_input_files('#runnaIcsFile', tmp_pre)
     pg.wait_for_timeout(700)
     ptxt = pg.locator('#plannedImportMsg').inner_text()
-    check("skipped rows are counted", '2 økter fra tidligere blokker' in ptxt, True)
-    check("...and carry a date span, not just a count", '(20.06.2026 – 01.07.2026)' in ptxt, True)
+    check("rows inside no block are skipped", '2 økter utenfor alle blokker' in ptxt, True)
+    check("...and carry a date span, not just a count", '(01.05.2026 – 10.05.2026)' in ptxt, True)
     # Cancelling must leave the store exactly as it was, not half-applied.
     pg.click('#btnCancelIcs')
     pg.wait_for_timeout(200)
@@ -439,6 +441,106 @@ with sync_playwright() as b0:
           pg.evaluate("() => { const d = Store.data.plannedSessions.map(p => p.date); "
                       "return d.join() === d.slice().sort().join(); }"), True)
     check("no page errors", nerr, [])
+    pg.close()
+
+    # ── 3c. ⚠️ THE ASSERTION THAT WAS MISSING BOTH TIMES THIS FUNCTION LOST DATA ─────────────
+    # Ranges are per BLOCK, never one span across blocks. An import covering two blocks with a third
+    # sitting between them would, under a single [first, last], delete that middle block outright —
+    # a block the import never mentioned. Bug one replaced everything; bug two replaced from the
+    # wrong anchor; both survived tests that only asserted the party named in the bug report.
+    print("== a block the import does NOT cover is not written at all ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    merr = []
+    pg.on("pageerror", lambda e: merr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [], shoes: [], goals: {}, settings: { zones: [] },
+        events: [
+          { id:'A', type:'plan', title:'Blokk A', date:'2026-05-01', endDate:'2026-05-31' },
+          { id:'B', type:'plan', title:'Blokk B', date:'2026-06-01', endDate:'2026-06-30' },
+          { id:'C', type:'plan', title:'Blokk C', date:'2026-07-01', endDate:'2026-07-31' }
+        ],
+        plannedSessions: [
+          { id:'a1', date:'2026-05-05', okttype:'Easy',  distance:5,  title:'' },
+          { id:'b1', date:'2026-06-05', okttype:'Long',  distance:9,  title:'' },
+          { id:'b2', date:'2026-06-20', okttype:'Tempo', distance:7,  title:'' },
+          { id:'c1', date:'2026-07-05', okttype:'Easy',  distance:6,  title:'' }
+        ], lastUpdated: '' }));
+    }""")
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('plan')")
+    pg.wait_for_timeout(400)
+    MID = pg.evaluate("() => Store.data.plannedSessions.filter(p => p.date >= '2026-06-01' "
+                      "&& p.date <= '2026-06-30').map(p => JSON.stringify(p))")
+
+    # Each block gets rows BRACKETING its stored one, so the span actually covers it and replacement
+    # is what is being tested. A single-row import would span one day and leave the stored row in
+    # place — correct, but it would test nothing about replacing.
+    tmp3 = os.path.join(tempfile.gettempdir(), 'puls_test_gap.ics')
+    pathlib.Path(tmp3).write_text(ics([('2026-05-03', '6 km Easy Run',  'EASY_RUN'),   # block A
+                                       ('2026-05-20', '7 km Long Run',  'LONG_RUN'),   # block A
+                                       ('2026-07-02', '5 km Easy Run',  'EASY_RUN'),   # block C
+                                       ('2026-07-09', '8 km Long Run',  'LONG_RUN')]), # block C
+                                  encoding='utf-8')
+    pg.set_input_files('#runnaIcsFile', tmp3)
+    pg.wait_for_timeout(700)
+    ptxt = pg.locator('#plannedImportMsg').inner_text()
+    check("preview names one line per block it touches", ptxt.count('erstattes'), 2)
+    check("...naming block A", 'Blokk A' in ptxt, True)
+    check("...and block C", 'Blokk C' in ptxt, True)
+    check("...and NOT the untouched block B", 'Blokk B' in ptxt, False)
+    pg.click('#btnConfirmIcs')
+    pg.wait_for_timeout(500)
+
+    check("⚠️ the untouched middle block is byte-identical",
+          pg.evaluate("() => Store.data.plannedSessions.filter(p => p.date >= '2026-06-01' "
+                      "&& p.date <= '2026-06-30').map(p => JSON.stringify(p))"), MID)
+    check("block A replaced within its OWN range, its stored row gone",
+          pg.evaluate("() => plannedForBlock('2026-05-01','2026-05-31').map(p => p.date)"),
+          ['2026-05-03', '2026-05-20'])
+    check("block C likewise", pg.evaluate("() => plannedForBlock('2026-07-01','2026-07-31').map(p => p.date)"),
+          ['2026-07-02', '2026-07-09'])
+    check("nothing was invented or lost overall",
+          pg.evaluate("() => Store.data.plannedSessions.length"), 6)
+    check("stored set stays sorted", pg.evaluate(
+        "() => { const d = Store.data.plannedSessions.map(p => p.date); "
+        "return d.join() === d.slice().sort().join(); }"), True)
+    check("no page errors", merr, [])
+    pg.close()
+
+    # A row inside a touched block but OUTSIDE the imported span survives — a mid-block re-import
+    # whose .ics no longer carries the completed days must not delete that block's history. Same
+    # rule the single-block path has always had; it needs re-checking now that spans are per block.
+    print("== a partial import does not delete the rest of its own block ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [], shoes: [], goals: {}, settings: { zones: [] },
+        events: [{ id:'A', type:'plan', title:'Blokk A', date:'2026-05-01', endDate:'2026-05-31' }],
+        plannedSessions: [
+          { id:'early', date:'2026-05-02', okttype:'Easy', distance:5, title:'' },
+          { id:'mid',   date:'2026-05-15', okttype:'Long', distance:9, title:'' }
+        ], lastUpdated: '' }));
+    }""")
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('plan')")
+    pg.wait_for_timeout(400)
+    tmp4 = os.path.join(tempfile.gettempdir(), 'puls_test_partial.ics')
+    pathlib.Path(tmp4).write_text(ics([('2026-05-20', '6 km Easy Run', 'EASY_RUN'),
+                                       ('2026-05-27', '7 km Long Run', 'LONG_RUN')]), encoding='utf-8')
+    pg.set_input_files('#runnaIcsFile', tmp4)
+    pg.wait_for_timeout(700)
+    pg.click('#btnConfirmIcs')
+    pg.wait_for_timeout(500)
+    check("earlier rows in the same block survive a later-only import",
+          pg.evaluate("() => Store.data.plannedSessions.map(p => p.date)"),
+          ['2026-05-02', '2026-05-15', '2026-05-20', '2026-05-27'])
+    os.remove(tmp4)
+    os.remove(tmp3)
     os.remove(tmp2)
     os.remove(tmp)
     pg.close()
