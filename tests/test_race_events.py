@@ -153,6 +153,58 @@ with sync_playwright() as b0:
     check("no page errors", perr, [])
     pg.close()
 
+    # ── 1b. The plan prefills Øktbeskrivelse ────────────────────────────────────────────────
+    # Runna does not reliably push the prescription to Strava, so it never reached Puls and the
+    # field sat empty for most easy and interval sessions — which is why the export's
+    # [Øktbeskrivelse] was usually blank. The .ics has it for every planned session, so the plan is
+    # the reliable source. Fill-when-empty, the same guard the Strava populate uses.
+    print("== plan prefills Øktbeskrivelse ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    berr = []
+    pg.on("pageerror", lambda e: berr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [], shoes: [], goals: {}, settings: { zones: [] },
+        events: [{ id:'b', type:'plan', title:'Runna 5K', date:'2026-08-03', endDate:'2026-10-01' }],
+        plannedSessions: [
+          { id:'p1', date:'2026-08-06', okttype:'Intervaller', distance:5, title:'400m Repeats',
+            beskrivelse:'1.5km warm up\\n5 reps of:\\n400m at 5:40/km' },
+          { id:'p2', date:'2026-08-08', okttype:'Easy', distance:6, title:'',
+            beskrivelse:'6km easy at a conversational pace' },
+          { id:'p3', date:'2026-08-10', okttype:'Long', distance:9, title:'' }
+        ], lastUpdated: '' }));
+    }""")
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('form')")
+    pg.wait_for_timeout(400)
+    setd = lambda d: pg.evaluate("d => { const e = document.getElementById('fDato'); e.value = d; "
+                                 "e.dispatchEvent(new Event('change')); }", d)
+    besk = lambda: pg.locator('#fBeskrivelse').input_value()
+
+    setd('2026-08-06')
+    check("the plan's prescription lands in Øktbeskrivelse", '400m at 5:40/km' in besk(), True)
+    check("...and the type still prefills too", pg.locator('#fOkttype').input_value(), 'Intervaller')
+
+    # A typed value is never clobbered — the same rule Mål distanse follows.
+    pg.fill('#fBeskrivelse', 'Min egen beskrivelse')
+    setd('2026-08-08')
+    check("a typed description survives a date change", besk(), 'Min egen beskrivelse')
+
+    # Cleared, it fills again from whatever day you land on.
+    pg.fill('#fBeskrivelse', '')
+    setd('2026-08-08')
+    check("cleared, it fills from the new day", besk(), '6km easy at a conversational pace')
+
+    # A planned session without one leaves the field alone rather than blanking it.
+    pg.fill('#fBeskrivelse', '')
+    setd('2026-08-10')
+    check("a planned day with no prescription fills nothing", besk(), '')
+    check("...but still prefills what it does have", pg.locator('#fOkttype').input_value(), 'Long')
+    check("no page errors", berr, [])
+    pg.close()
+
     # ── 2. Event form field visibility ──────────────────────────────────────────────────────
     print("== syncEventFields ==")
     pg = b.new_page(viewport={"width": 1280, "height": 900})
@@ -270,7 +322,8 @@ with sync_playwright() as b0:
         # upcoming run — distance in the SUMMARY, as before
         "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d1_plan_week_1_EASY_RUN_0",
         "DTSTART;VALUE=DATE:20260810", "SUMMARY:\U0001F3C3 7.5km Easy Run • 7.5km",
-        "DESCRIPTION:Easy Run • 7.5km • 50m - 55m", "END:VEVENT",
+        "DESCRIPTION:Easy Run • 7.5km • 50m - 55m\\n\\n7.5km easy at a conversational pace"
+        "\\n\\n\U0001F4F2 View in the Runna app: https://club.runna.com/x", "END:VEVENT",
         # completed NAMED workout — nothing in the SUMMARY, distance in the description
         "BEGIN:VEVENT", "UID:COMPLETED_PLAN_WORKOUT-abc123",
         "DTSTART;VALUE=DATE:20260812", "SUMMARY:\U0001F3C3 400m Repeats",
@@ -286,12 +339,26 @@ with sync_playwright() as b0:
         "DESCRIPTION:\U0001F4CA Summary:\\nDistance: 6.10km", "END:VEVENT",
         "END:VCALENDAR"])
     got = pg.evaluate("(t) => parseRunnaIcs(t).map(p => [p.date, p.okttype, p.distance])", MIXED)
+    desc = pg.evaluate("(t) => Object.fromEntries(parseRunnaIcs(t).map(p => [p.date, p.beskrivelse]))", MIXED)
     check("upcoming run kept (distance in SUMMARY)", ['2026-08-10', 'Easy', 7.5] in got, True)
     check("completed NAMED workout kept (distance in DESCRIPTION)",
           ['2026-08-12', 'Intervaller', 4.27] in got, True)
     check("strength still excluded — no distance anywhere", len(got), 2)
     check("...and the ad-hoc non-plan run too, despite having one",
           any(d == '2026-08-14' for d, _, _ in got), False)
+
+    # ── THE PRESCRIPTION, kept for the log form's prefill ────────────────────────────────────
+    # An UPCOMING event's description IS the prescription. A COMPLETED one leads with the actuals
+    # (Distance / Time / Avg Pace) and the prescription follows "Description:". Storing the actuals
+    # in Oktbeskrivelse would be wrong twice: that field means what was PRESCRIBED, and distance and
+    # pace are already columns on the session.
+    check("upcoming: the description is the prescription",
+          desc['2026-08-10'].startswith('Easy Run'), True)
+    check("...keeping the body", 'conversational pace' in desc['2026-08-10'], True)
+    check("...but dropping the Runna app link line", 'club.runna.com' in desc['2026-08-10'], False)
+    check("completed: prescription taken from after 'Description:'",
+          desc['2026-08-12'], '1.5km warm up then 8 x 400m repeats')
+    check("...NOT the actuals that precede it", 'Distance: 4.27km' in desc['2026-08-12'], False)
     pg.close()
 
     # ── 3. THE IMPORT INVARIANT ─────────────────────────────────────────────────────────────

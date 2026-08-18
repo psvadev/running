@@ -1944,11 +1944,23 @@ function parseRunnaIcs(text) {
         : /\blong run\b/.test(hay) ? 'Long'
         : 'Easy';
     }
+    // The PRESCRIPTION, kept for the log form's prefill. Two shapes: an UPCOMING event's description
+    // is the prescription outright; a COMPLETED one leads with "📊 Summary:" holding what you
+    // actually ran, and the prescription follows "📋 Description:". Storing the actuals here would be
+    // wrong twice over — Øktbeskrivelse means what was PRESCRIBED, and distance/time/pace are already
+    // columns on the session.
+    //
+    // Worth keeping at all because Runna does NOT reliably push this to Strava, so it never reaches
+    // Puls any other way and the field sits empty for most easy and interval sessions. The "View in
+    // the Runna app" line goes: it is a link to somewhere else, and sourceUrl already holds it.
+    const afterDesc = desc.split(/📋\s*Description:\s*/)[1];
+    const beskrivelse = (afterDesc != null ? afterDesc : desc)
+      .split('\n').filter(l => !/^\s*📲/.test(l)).join('\n').trim();
     const planWeek = parseInt((uid.match(/_plan_week_(\d+)_/) || [])[1] || '', 10) || null;
     const urlM = desc.match(/https:\/\/club\.runna\.com\/\S+/);
     const title = summary.replace(/^[^\p{L}\p{N}]+/u, '').replace(/^[\d.]+\s*km\s+/i, '').replace(/\s*•\s*[\d.]+\s*km\s*$/i, '').trim();
     const id = uid.slice(uid.indexOf('-') + 1);          // prefix-independent id (dayId or activityId) → natural dedup
-    byId[id] = { id, date, planWeek, okttype, distance: parseFloat(distM[1]), title, sourceUrl: urlM ? urlM[0] : '' };
+    byId[id] = { id, date, planWeek, okttype, distance: parseFloat(distM[1]), title, beskrivelse, sourceUrl: urlM ? urlM[0] : '' };
   });
   return Object.values(byId).sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -5322,6 +5334,12 @@ const Form = {
     if (p.okttype) document.getElementById('fOkttype').value = p.okttype;
     const mal = document.getElementById('fMalDistanse');
     if (p.distance && !mal.value) mal.value = p.distance;
+    // Fill-when-empty, the same guard the Strava populate uses, so whichever arrives first wins and
+    // neither can clobber text you typed. In practice the plan is the reliable source: Runna often
+    // does not push the prescription to Strava, which is why this field sat empty for most easy and
+    // interval sessions and why the export's [Øktbeskrivelse] was usually blank.
+    const besk = document.getElementById('fBeskrivelse');
+    if (p.beskrivelse && besk && !besk.value) besk.value = p.beskrivelse;
     if (hint) hint.textContent = `📋 Fra planen (Runna): ${p.okttype}${p.distance ? ` · ${p.distance} km` : ''}`;
   },
 
