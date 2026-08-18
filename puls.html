@@ -1799,6 +1799,49 @@ const TSV_COLS = [
   ['Land',           s => s.land || ''],
 ];
 
+// Stored Strava analysis as export lines: run/walk and HR-drift & kadens, the two things the detail
+// panel shows that no column could carry. Returns '' when there is nothing current to say.
+//
+// ⚠️ THE VENUE DIFFERENCE IS STRUCTURAL, not a formatting choice. Run/walk is OUTDOOR ONLY — it reads
+// GPS speed second by second. HR-drift and cadence come off the HR sensor and accelerometer, so they
+// apply indoors too. A treadmill session therefore emits only the last two lines, with no placeholder:
+// the data row already carries Løpetype, so an absent block is unambiguous rather than a gap.
+//
+// ⚠️ Currency is checked with the SAME helpers the detail panel uses. A run/walk result computed under
+// different speed thresholds is hidden in the app until re-analysed, and an export that emitted it
+// anyway would put numbers in a file that the app itself refuses to show, with nothing marking them.
+//
+// ⚠️ It deliberately does NOT use Continuity._eligible, which ends in StravaIO.isSignedIn(). That is
+// the right question for "can I analyse this now" and the wrong one for "does this session have
+// analysis" — gating on it would silently drop every run/walk block from an export taken while
+// disconnected, which is exactly when you are most likely to be exporting for analysis elsewhere.
+function sessionAnalysisLines(s) {
+  const sa = s.stravaAnalysis;
+  if (!sa) return '';
+  const out = [];
+  const c = sa.continuity;
+  if (s.løpetype === 'utendors' && Continuity._isCurrent(c)) {
+    const pct = x => Math.round((x || 0) * 100);
+    out.push(`Run/walk: ${pct(c.runningRatio)}% løping · ${pct(c.walkingRatio)}% gange · ${pct(c.unclassifiedRatio)}% uklart`);
+    out.push(`Lengste løp: ${(c.longestContinuousRunMeters / 1000).toFixed(1)} km · ${secsToHmsShort(c.longestContinuousRunSeconds)}`);
+    out.push(`Overganger til gange: ${c.runToWalkTransitions}`);
+    if (c.uphillWalkingTimeSeconds != null)
+      out.push(`Gange i motbakke: ${Math.round(c.uphillWalkingDistanceMeters)} m · ${secsToHmsShort(c.uphillWalkingTimeSeconds)}`);
+    out.push(`Datakvalitet: ${c.datakvalitet}`);
+    // Only when the quality is not high: then the warnings say WHY, which is the useful part. On a
+    // high-quality result they would be noise attached to a number that needs no defending.
+    if (c.datakvalitet !== 'høy' && c.warnings && c.warnings.length)
+      out.push(`Forbehold: ${c.warnings.join(' · ')}`);
+  }
+  const a = sa.aerobic;
+  if (Continuity._isAerobicCurrent(a) && (a.hasDecoupling || a.hasCadence)) {
+    if (out.length) out.push('');            // blank line: two different analyses, not one list
+    if (a.hasDecoupling) out.push(`HR-drift: ${a.decouplingPercent > 0 ? '+' : ''}${a.decouplingPercent.toFixed(1)}%`);
+    if (a.hasCadence)    out.push(`Kadens: ${a.avgCadenceSpm} spm`);
+  }
+  return out.length ? `[Analyse]\n${out.join('\n')}` : '';
+}
+
 function formatSessionTsv(sessions) {
   const HDR = TSV_COLS.map(c => c[0]).join('\t');
   const blocks = sessions.map(s => {
@@ -1809,6 +1852,10 @@ function formatSessionTsv(sessions) {
     if (s.utenforAnalyse) metaParts.push('[Avvik]');
     if (!(s.soner?.some(z => z > 0))) metaParts.push('[Uten pulsdata]');
     if (s.beskrivelse) metaParts.push(`[Øktbeskrivelse]\n${s.beskrivelse}`);
+    // Before the notes on purpose: notes sit immediately above the data row so a session's own words
+    // stay next to its numbers, which is the whole reason for the block format.
+    const analysis = sessionAnalysisLines(s);
+    if (analysis) metaParts.push(analysis);
     if (s.notater) metaParts.push(s.notater);
     return metaParts.length ? `${hdr}\n\n${metaParts.join('\n\n')}\n\n${dataRow}` : `${hdr}\n${dataRow}`;
   });

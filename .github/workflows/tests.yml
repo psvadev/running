@@ -88,3 +88,6 @@ jobs:
 
       - name: Strava-gated controls
         run: python tests/test_strava_gating.py
+
+      - name: AI/TSV export blocks
+        run: python tests/test_export.py
