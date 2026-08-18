@@ -453,8 +453,13 @@ with sync_playwright() as b0:
     pg.wait_for_timeout(700)
     pg.click('#btnConfirmIcs')
     pg.wait_for_timeout(500)
-    check("re-import replaces its own block cleanly",
-          stored(), OLD + ['2026-08-05', '2026-08-12'])
+    # A re-import replaces the dates it CARRIES and keeps the ones it no longer mentions. Runna drops
+    # a skipped day from the feed once a block moves on, so clearing the whole span would erase
+    # exactly the misses — quietly turning a real record into a perfect one.
+    check("re-import replaces the dates it carries",
+          stored(), OLD + ['2026-08-05', '2026-08-07', '2026-08-10', '2026-08-12'])
+    check("...keeping rows whose dates it no longer carries",
+          '2026-08-07' in stored() and '2026-08-10' in stored(), True)
     check("...and still leaves the earlier block alone",
           pg.evaluate("() => plannedForBlock('2026-06-01','2026-07-15').length"), 3)
 
@@ -564,13 +569,13 @@ with sync_playwright() as b0:
     check("⚠️ the untouched middle block is byte-identical",
           pg.evaluate("() => Store.data.plannedSessions.filter(p => p.date >= '2026-06-01' "
                       "&& p.date <= '2026-06-30').map(p => JSON.stringify(p))"), MID)
-    check("block A replaced within its OWN range, its stored row gone",
+    check("block A takes the imported dates, its own untouched date surviving",
           pg.evaluate("() => plannedForBlock('2026-05-01','2026-05-31').map(p => p.date)"),
-          ['2026-05-03', '2026-05-20'])
+          ['2026-05-03', '2026-05-05', '2026-05-20'])
     check("block C likewise", pg.evaluate("() => plannedForBlock('2026-07-01','2026-07-31').map(p => p.date)"),
-          ['2026-07-02', '2026-07-09'])
+          ['2026-07-02', '2026-07-05', '2026-07-09'])
     check("nothing was invented or lost overall",
-          pg.evaluate("() => Store.data.plannedSessions.length"), 6)
+          pg.evaluate("() => Store.data.plannedSessions.length"), 8)
     check("stored set stays sorted", pg.evaluate(
         "() => { const d = Store.data.plannedSessions.map(p => p.date); "
         "return d.join() === d.slice().sort().join(); }"), True)
@@ -610,6 +615,92 @@ with sync_playwright() as b0:
     os.remove(tmp3)
     os.remove(tmp2)
     os.remove(tmp)
+    pg.close()
+
+    # ── 3d. ⚠️ THE MISS MUST SURVIVE A RE-IMPORT ─────────────────────────────────────────────
+    # Runna's feed keeps only the days you COMPLETED once a block moves on; a skipped session leaves
+    # no event behind. So a re-import that clears its whole span deletes exactly the misses, and a
+    # block that was 2-of-3 silently becomes 2-of-2 · 100%. Found live: a retro-imported 17-week
+    # block scored 33 av 33 because every event in the feed was a completion.
+    print("== a skipped session is not erased by a later re-import ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    serr = []
+    pg.on("pageerror", lambda e: serr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [], shoes: [], goals: {}, settings: { zones: [] },
+        events: [{ id:'b', type:'plan', title:'Blokk', date:'2026-07-01', endDate:'2026-08-20' }],
+        plannedSessions: [
+          { id:'s1', date:'2026-07-06', okttype:'Easy',  distance:5, title:'' },
+          { id:'s2', date:'2026-07-08', okttype:'Long',  distance:9, title:'' },
+          { id:'s3', date:'2026-07-10', okttype:'Tempo', distance:7, title:'' }
+        ], lastUpdated: '' }));
+    }""")
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('plan')")
+    pg.wait_for_timeout(400)
+    # The re-import carries only the two he DID: the middle one was skipped and has left the feed.
+    tmp5 = os.path.join(tempfile.gettempdir(), 'puls_test_miss.ics')
+    pathlib.Path(tmp5).write_text(ics([('2026-07-06', '5 km Easy Run',  'EASY_RUN'),
+                                       ('2026-07-10', '7 km Tempo Run', 'TEMPO')]), encoding='utf-8')
+    pg.set_input_files('#runnaIcsFile', tmp5)
+    pg.wait_for_timeout(700)
+    pg.click('#btnConfirmIcs')
+    pg.wait_for_timeout(500)
+    check("⚠️ the skipped session's row survives",
+          pg.evaluate("() => Store.data.plannedSessions.map(p => p.date)"),
+          ['2026-07-06', '2026-07-08', '2026-07-10'])
+    check("...so the block still knows it was 3 sessions, not 2",
+          pg.evaluate("() => plannedForBlock('2026-07-01','2026-08-20').length"), 3)
+    check("no page errors", serr, [])
+    os.remove(tmp5)
+    pg.close()
+
+    # ── 3e. ⚠️ A PLAN REBUILT FROM COMPLETIONS CANNOT REPORT ADHERENCE ───────────────────────
+    # A finished block's feed holds only the days you DID, so matching it against your runs returns
+    # 100% by construction — the misses were never in the denominator. The ticks are true; the ratio
+    # is not. Found live: a retro-imported 17-week block with a 21-day hole in it scored 33 av 33.
+    print("== completion-derived rows report a count, never a percentage ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    cerr = []
+    pg.on("pageerror", lambda e: cerr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      const run = (n, d, km) => ({ id:'r'+n, dato:d, uke:'2026-27', oktnavn:'x', okttype:'Easy',
+        treningsplan:'Runna', distanse:km, varighet:1800, tempo:360, soner:[0,0,0,0,0] });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [run(1,'2026-07-06',5), run(2,'2026-07-10',7)],
+        shoes: [], goals: {}, settings: { zones: [] },
+        events: [{ id:'b', type:'plan', title:'Gammel blokk', date:'2026-07-01', endDate:'2026-07-20' },
+                 { id:'c', type:'plan', title:'Aktiv blokk',  date:'2026-08-03', endDate:'2026-10-01' }],
+        plannedSessions: [
+          { id:'c1', date:'2026-07-06', okttype:'Easy',  distance:5, title:'', fromCompleted:true },
+          { id:'c2', date:'2026-07-10', okttype:'Tempo', distance:7, title:'', fromCompleted:true },
+          { id:'u1', date:'2026-08-05', okttype:'Easy',  distance:5, title:'' }
+        ], lastUpdated: '' }));
+    }""")
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('plan')")
+    pg.wait_for_timeout(500)
+    idx = pg.locator('.planned-block-row').inner_text()
+    check("the completion-derived block reports a COUNT", '2 økter' in idx, True)
+    check("...and never a percentage", '%' in idx, False)
+    check("...nor a ratio that flatters", 'av' in idx, False)
+    # The active block, whose rows came from upcoming events, keeps a real percentage.
+    head = pg.locator('#plannedAdherence').inner_text()
+    check("an upcoming-derived block still measures normally",
+          'økter i planen' in head or '%' in head, True)
+    # And the helper itself says so, so the rule is testable without going through the DOM.
+    m = pg.evaluate("() => { const t = localISODate(); const rows = Store.data.plannedSessions"
+                    ".filter(p => p.date < '2026-07-20'); const a = plannedAdherence(rows, t);"
+                    " return { measurable: a.measurable, pct: a.pct, due: a.due.length, done: a.done }; }")
+    check("plannedAdherence marks it unmeasurable", m['measurable'], False)
+    check("...with no percentage at all", m['pct'], None)
+    check("...while still counting what was due and done", [m['due'], m['done']], [2, 2])
+    check("no page errors", cerr, [])
     pg.close()
 
     # ── 4. Mobile 402px — the new race-fields row ───────────────────────────────────────────

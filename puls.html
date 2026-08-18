@@ -1960,7 +1960,13 @@ function parseRunnaIcs(text) {
     const urlM = desc.match(/https:\/\/club\.runna\.com\/\S+/);
     const title = summary.replace(/^[^\p{L}\p{N}]+/u, '').replace(/^[\d.]+\s*km\s+/i, '').replace(/\s*•\s*[\d.]+\s*km\s*$/i, '').trim();
     const id = uid.slice(uid.indexOf('-') + 1);          // prefix-independent id (dayId or activityId) → natural dedup
-    byId[id] = { id, date, planWeek, okttype, distance: parseFloat(distM[1]), title, beskrivelse, sourceUrl: urlM ? urlM[0] : '' };
+    // ⚠️ Which KIND of event this came from, because it decides whether adherence is measurable at
+    // all. For a FINISHED block Runna's feed carries only the days you completed — a skipped one
+    // leaves no event behind — so a plan rebuilt from completions can only ever score 100%. The
+    // ticks are true; the ratio is not, and the display suppresses it rather than flatter you.
+    const fromCompleted = /^COMPLETED_/.test(uid);
+    byId[id] = { id, date, planWeek, okttype, distance: parseFloat(distM[1]), title, beskrivelse,
+                 fromCompleted, sourceUrl: urlM ? urlM[0] : '' };
   });
   return Object.values(byId).sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -2124,7 +2130,15 @@ function plannedAdherence(rows, today) {
   const matchOf = matchPlannedSessions(rows);
   const due = plannedDueList(rows, matchOf, today);
   const done = due.filter(p => matchOf[p.id]).length;
-  return { matchOf, due, done, pct: due.length ? Math.round(done / due.length * 100) : null };
+  // ⚠️ pct is null for TWO different "cannot say" cases, and neither is 0%:
+  //   nothing has come due yet, and
+  //   every due row was rebuilt from a COMPLETED event, so the misses were never in the data.
+  // The second is the retro-import case: a finished block's feed holds only the days you did, so the
+  // ratio is 100% by construction. Same rule as elsewhere here — a number you cannot support is not
+  // a number you round down, it is one you decline to print.
+  const measurable = due.length && !due.every(p => p.fromCompleted);
+  return { matchOf, due, done, measurable: !!measurable,
+           pct: measurable ? Math.round(done / due.length * 100) : null };
 }
 
 // ── Land (countries run in) ──────────────────────────────────────────────
@@ -8098,12 +8112,14 @@ const DetailPanel = {
     const planned = plannedForBlock(startDate, endIsOpen ? null : endDate);
     let plannedHtml = '';
     if (planned.length) {
-      const pMatch = matchPlannedSessions(planned);
+      // Through the SHARED helper, not a second copy of the rule — this line and the Planlegging
+      // card sat inches apart in meaning and would drift the moment one learned something new.
       const pToday = localISODate();
-      const pPastDue = plannedDueList(planned, pMatch, pToday);
-      const pDone = pPastDue.filter(p => pMatch[p.id]).length;
+      const { matchOf: pMatch, due: pPastDue, done: pDone, pct: pPct, measurable: pMeas } = plannedAdherence(planned, pToday);
       const pExcused = planned.filter(p => plannedStatus(p, pMatch, pToday) === 'excused').length;
-      const pAdh = pPastDue.length ? `${pDone} av ${pPastDue.length} fullført · ${Math.round(pDone / pPastDue.length * 100)}%${pExcused ? ` · ${pExcused} unntatt` : ''}` : `${planned.length} økter`;
+      const pAdh = pMeas
+        ? `${pDone} av ${pPastDue.length} fullført · ${pPct}%${pExcused ? ` · ${pExcused} unntatt` : ''}`
+        : `${okter(planned.length)}${pPastDue.length ? ' · hentet fra fullførte økter' : ''}`;
       const pRows = planned.map(p => {
         const pst = plannedStatus(p, pMatch, pToday);
         const icon = pst === 'done' ? '<span style="color:var(--green)">✓</span>' : pst === 'overdue' ? '<span style="color:#e05555">✗</span>' : pst === 'excused' ? '<span style="color:var(--muted)">–</span>' : '<span style="color:var(--muted)">○</span>';
@@ -10660,8 +10676,19 @@ const Settings = {
       return { title: g.block ? g.block.title : '', first, last, rows,
                replaced: existing.filter(p => p.date >= first && p.date <= last).length };
     }).sort((a, b) => a.first.localeCompare(b.first));
+    // ⚠️ Keyed on DATE, not id: an id does NOT survive a session completing. Upcoming events carry
+    // "<dayId>_plan_week_N_TYPE_i", completed ones a bare activityId, so the same session has two
+    // different ids over its life and replace-by-id would leave the stale row AND add the new one.
+    // Safe here because Runna prescribes at most one run per day (57 runs, 57 distinct dates).
+    //
+    // ⚠️ A row whose date the import no longer carries is KEPT, not deleted. Runna drops a SKIPPED
+    // day from the feed once a block moves on, so clearing the whole span would erase exactly the
+    // misses — silently converting a real record into a perfect one on the next re-import. The
+    // trade-off, accepted: a session genuinely MOVED to another date leaves its old row behind.
+    // Preserving a miss beats deleting one.
+    const importedDates = new Set(scoped.map(p => p.date));
     const inAnySpan = p => spans.some(s => p.date >= s.first && p.date <= s.last);
-    const kept = existing.filter(p => !inAnySpan(p));
+    const kept = existing.filter(p => !inAnySpan(p) || !importedDates.has(p.date));
     return { spans, kept, replaced: existing.length - kept.length,
              first: spans[0].first, last: spans[spans.length - 1].last,
              next: kept.concat(scoped).sort((a, b) => a.date.localeCompare(b.date)) };
@@ -10812,7 +10839,7 @@ const Settings = {
       listEl.innerHTML = `<p style="color:var(--muted);font-size:13px">Ingen plan importert ennå.</p>`;
       return;
     }
-    const { matchOf, due: pastDue, done, pct } = plannedAdherence(planned, today);
+    const { matchOf, due: pastDue, done, pct, measurable } = plannedAdherence(planned, today);
     const excused = planned.filter(p => plannedStatus(p, matchOf, today) === 'excused').length;
     const excusedTxt = excused ? ` · ${excused} unntatt (Syk/Ferie)` : '';
     // Between blocks the list is a block you are not currently running, so name it — and say WHICH
@@ -10825,7 +10852,12 @@ const Settings = {
     if (!pastDue.length) {
       adhEl.innerHTML = lead + `<div style="font-size:13px;color:var(--muted)">Ingen forfalte økter ennå · ${planned.length} økter i planen${excusedTxt}</div>`;
     } else {
-      adhEl.innerHTML = lead + `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">· ${planned.length} totalt i planen${excusedTxt}</span></div>`;
+      // Not measurable = every due row came from a COMPLETED event, so the misses were never in the
+      // feed and the ratio would be 100% by construction. State what is true — how many sessions the
+      // block holds — and say why the rest is missing rather than printing a number that flatters.
+      adhEl.innerHTML = lead + (measurable
+        ? `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">· ${planned.length} totalt i planen${excusedTxt}</span></div>`
+        : `<div style="font-size:13px">${okter(planned.length)} <span style="color:var(--muted)">· hentet fra fullførte økter, så forfall kan ikke måles${excusedTxt}</span></div>`);
     }
     const COLLAPSE_N = 10;
     const overflow = planned.length - COLLAPSE_N;
