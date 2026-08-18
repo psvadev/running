@@ -1799,6 +1799,10 @@ const TSV_COLS = [
   ['Land',           s => s.land || ''],
 ];
 
+// "1 økt", not "1 økter" — the import panel counts sessions in four places and a hardcoded plural
+// reads wrong in every one of them the moment a block contributes a single session.
+const okter = n => `${n} økt${n === 1 ? '' : 'er'}`;
+
 // Stored Strava analysis as export lines: run/walk and HR-drift & kadens, the two things the detail
 // panel shows that no column could carry. Returns '' when there is nothing current to say.
 //
@@ -10681,21 +10685,26 @@ const Settings = {
       this.pendingImport = { scoped, skipped: skippedRows.length };
       // One line per block, because that is what the write does — a single summary line would hide
       // that each block is replaced within its own range and the others are untouched.
+      //
+      // ⚠️ ONE flowing line per block, not a flex row with the stats right-aligned. Flex items with no
+      // whitespace between them CONCATENATE when selected and copied — the panel read "Runna 10K #133
+      // økter" in a paste while showing a correct 8px gap on screen. This panel gets copied (it is the
+      // thing you quote when asking whether an import looks right), so copy fidelity beats alignment.
       const spanLines = plan.spans.map(s =>
-        `<div style="display:flex;gap:8px;margin-top:2px"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${
-          escapeHtml(s.title || 'Uten blokk')}</span><span style="color:var(--muted);flex-shrink:0">${
-          s.rows.length} økter · ${fmtDate(s.first)} – ${fmtDate(s.last)} · ${
+        `<div style="margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${
+          escapeHtml(s.title || 'Uten blokk')}<span style="color:var(--muted)"> · ${
+          okter(s.rows.length)} · ${fmtDate(s.first)} – ${fmtDate(s.last)} · ${
           s.replaced ? `${s.replaced} erstattes` : 'ingen erstattes'}</span></div>`).join('');
       msg.style.color = 'var(--text)';
       msg.innerHTML = `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--surface2)">
-        <div><strong>${scoped.length} planlagte løpeøkter</strong> klare til import · ${
+        <div><strong>${scoped.length} planlagt${scoped.length === 1 ? '' : 'e'} løpeøkt${scoped.length === 1 ? '' : 'er'}</strong> klare til import · ${
           plan.spans.length > 1 ? `${plan.spans.length} blokker` : `${fmtDate(plan.first)} – ${fmtDate(plan.last)}`}</div>
         <div style="font-size:12px;margin-top:5px">${spanLines}</div>
         <div style="color:var(--muted);margin-top:5px">${
-          skippedRows.length ? `${skippedRows.length} økter utenfor alle blokker hoppes over (${fmtDate(skippedRows[0].date)} – ${fmtDate(skippedRows[skippedRows.length - 1].date)}). ` : ''
-        }${plan.kept.length ? `${plan.kept.length} økter utenfor disse spennene beholdes. ` : ''}Strength og ad-hoc-løp hoppes over.</div>
+          skippedRows.length ? `${okter(skippedRows.length)} utenfor alle blokker hoppes over (${fmtDate(skippedRows[0].date)} – ${fmtDate(skippedRows[skippedRows.length - 1].date)}). ` : ''
+        }${plan.kept.length ? `${okter(plan.kept.length)} utenfor disse spennene beholdes. ` : ''}Strength og ad-hoc-løp hoppes over.</div>
         <div style="display:flex;gap:8px;margin-top:9px">
-          <button class="btn-primary btn-sm" id="btnConfirmIcs">Importer ${scoped.length} økter</button>
+          <button class="btn-primary btn-sm" id="btnConfirmIcs">Importer ${okter(scoped.length)}</button>
           <button class="btn-secondary btn-sm" id="btnCancelIcs">Avbryt</button>
         </div></div>`;
       document.getElementById('btnConfirmIcs').addEventListener('click', () => this.confirmRunnaIcs());
@@ -10728,8 +10737,8 @@ const Settings = {
     const where = plan.spans.length > 1
       ? `fordelt på ${plan.spans.length} blokker (${fmtDate(plan.first)} – ${fmtDate(plan.last)})`
       : `(${fmtDate(plan.first)} – ${fmtDate(plan.last)})`;
-    msg.textContent = `Importerte ${scoped.length} planlagte løpeøkter ${where}${skipped ? `, hoppet over ${skipped} utenfor alle blokker` : ''}. Strength og ad-hoc-løp ble hoppet over.`
-      + (plan.kept.length ? ` ${plan.kept.length} økter utenfor disse spennene ble beholdt.` : '');
+    msg.textContent = `Importerte ${scoped.length} planlagt${scoped.length === 1 ? '' : 'e'} løpeøkt${scoped.length === 1 ? '' : 'er'} ${where}${skipped ? `, hoppet over ${skipped} utenfor alle blokker` : ''}. Strength og ad-hoc-løp ble hoppet over.`
+      + (plan.kept.length ? ` ${okter(plan.kept.length)} utenfor disse spennene ble beholdt.` : '');
   },
 
   clearPlanned() {
