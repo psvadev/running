@@ -54,25 +54,32 @@ def check(name, got, want):
         print(f"  FAIL {name}\n       got  {got!r}\n       want {want!r}")
 
 
-# Five distances, one per venue combination, so the icon in each row has a different reason to be
-# what it is. Goals are listed newest-distance-FIRST on purpose — the render must sort them.
-#   1 km  Ute only            5 km  both, Ute faster (26:01 vs 28:20)
-#   10 km Inne only           15 km both, Inne faster (1:26:40 vs 1:30:00)
-#   HM    neither → prognose alone
+# SIX distances, one per column-shape, so no two rows pass for the same reason. Goals are listed
+# longest-distance-FIRST on purpose — the render must sort them.
+#   1 km   Ute EMPTY, Inne PR        (Ute unreachable: 1 km is below half the nearest Ute anchor)
+#   5 km   PR in both, Ute faster
+#   10 km  Ute prognose, Inne PR
+#   15 km  PR in both, Inne faster   ← the exact shape that was collapsing to one column
+#   HM     prognose in both
+#   Maraton Ute prognose, Inne EMPTY (past INNE_MAX_PROGNOSE_KM)
+#
+# ⚠️ The two EMPTY cases are load-bearing and were added after a falsification passed 53/53: with a
+# time in every Ute cell, leaking Inne's value into the Ute column changed nothing observable. A
+# venue-collapse bug needs an empty column on BOTH sides to be catchable.
 MATRIX = """() => {
   const belt = (dato, distanse, varighet) => ({
     id: dato, dato, uke: '2026-27', oktnavn: 'Belte', okttype: 'Easy', treningsplan: 'Egentrening',
     løpetype: 'treadmill', distanse, varighet, tempo: varighet / distanse, soner: [0,0,0,0,0],
   });
   localStorage.setItem('lpl_cache', JSON.stringify({
-    sessions: [belt('2026-07-01', 10, 3700), belt('2026-07-02', 5, 1700), belt('2026-07-03', 15, 5200)],
+    sessions: [belt('2026-07-01', 10, 3700), belt('2026-07-02', 5, 1700),
+               belt('2026-07-03', 15, 5200), belt('2026-07-04', 1, 320)],
     shoes: [], goals: {}, events: [], plannedSessions: [], settings: { zones: [] },
     bestEffortsTop3: {
-      '1k':  [{ t: 272,  d: '2026-06-14' }],
       '5k':  [{ t: 1561, d: '2026-06-14' }],
       '15k': [{ t: 5400, d: '2026-06-20' }],
     },
-    distanceGoals: { half: 7200, '15k': 5000, '10k': 3000, '5k': 1500, '1k': 240 },
+    distanceGoals: { marathon: 14400, half: 7200, '15k': 5000, '10k': 3000, '5k': 1500, '1k': 240 },
     lastUpdated: '' }));
 }"""
 
@@ -102,9 +109,11 @@ EMPTY = """() => {
     settings: { zones: [] }, lastUpdated: '' }));
 }"""
 
+# r.children, not querySelectorAll('span'): the goal cell wraps a <b> and each venue cell wraps a
+# nested .t3-date, so a flat span query would not line up with the four columns.
 ROWS = """() => [...document.querySelectorAll('#goalTimeList .top3-row')].map(r => {
-  const s = r.querySelectorAll('span');
-  return { label: s[0].textContent.trim(), goal: s[1].textContent.trim(), ctx: s[2].textContent.trim() };
+  const cell = i => r.children[i].textContent.trim().replace(/\\s+/g, ' ');
+  return { label: cell(0), goal: cell(1), ute: cell(2), inne: cell(3) };
 })"""
 
 
@@ -132,42 +141,51 @@ with sync_playwright() as pw:
 
     # Ascending distance, NOT the order the keys sit in the stored object.
     check("rows are sorted by distance, not entry order",
-          [r['label'] for r in rows], ['1 km', '5 km', '10 km', '15 km', 'Halvmaraton'])
+          [r['label'] for r in rows],
+          ['1 km', '5 km', '10 km', '15 km', 'Halvmaraton', 'Maraton'])
     # secsToHms, matching the two sections directly above it in the same card.
     check("goal is the stored time", [r['goal'] for r in rows],
-          ['🎯 0:04:00', '🎯 0:25:00', '🎯 0:50:00', '🎯 1:23:20', '🎯 2:00:00'])
+          ['🎯 0:04:00', '🎯 0:25:00', '🎯 0:50:00', '🎯 1:23:20', '🎯 2:00:00', '🎯 4:00:00'])
 
     by = {r['label']: r for r in rows}
-    # THE VENUE PICK — four rows, four different reasons for the icon.
-    check("Ute only  → 🏃 and the outdoor time",
-          by['1 km']['ctx'].startswith('PR 🏃 0:04:32'), True)
-    check("Inne only → ⚙️ and the belt time",
-          by['10 km']['ctx'].startswith('PR ⚙️ 1:01:40'), True)
-    check("both, Ute faster  → 🏃 0:26:01 (not the 0:28:20 belt run)",
-          by['5 km']['ctx'].startswith('PR 🏃 0:26:01'), True)
-    check("both, Inne faster → ⚙️ 1:26:40 (not the 1:30:00 segment)",
-          by['15 km']['ctx'].startswith('PR ⚙️ 1:26:40'), True)
-    check("no PR at all → the PR clause is omitted entirely",
-          'PR' in by['Halvmaraton']['ctx'], False)
+
+    # ⚠️ THE REGRESSION THIS SECTION EXISTS FOR (reported live 2026-08-19).
+    # The first version collapsed both venues to whichever was FASTER, so a row with a time in each
+    # column printed only one of them. On his real data that hid 🏃 2:40:28 behind ⚙️ 2:13:08 and made
+    # a sub-2:00 half look 14 minutes away when outdoors it was 41. Both columns, always.
+    check("both venues shown when both have a PR — 15 km",
+          (by['15 km']['ute'], by['15 km']['inne']), ('🏃 1:30:00 PR', '⚙️ 1:26:40 PR'))
+    check("...and 5 km, where Ute is the faster one",
+          (by['5 km']['ute'], by['5 km']['inne']), ('🏃 0:26:01 PR', '⚙️ 0:28:20 PR'))
+
+    # One number per venue: the fastest thing that venue has, LABELLED with which kind it is. A
+    # prognose only ever renders when it beats the measured time, so "fastest" and "prognose if one
+    # exists" are the same rule — but the label is what makes the row readable.
+    # Both empty directions, so neither column can quietly borrow from the other.
+    check("empty Ute is dashed, not filled from Inne", by['1 km']['ute'], '🏃 –')
+    check("...while Inne still carries its own PR", by['1 km']['inne'], '⚙️ 0:05:20 PR')
+    check("empty Inne is dashed, not filled from Ute", by['Maraton']['inne'], '⚙️ –')
+    check("...while Ute still carries its own projection",
+          by['Maraton']['ute'].endswith('prognose'), True)
+    check("Inne PR beside an Ute prognose — 10 km", by['10 km']['inne'], '⚙️ 1:01:40 PR')
+    check("...with the projection in the Ute column", by['10 km']['ute'].endswith('prognose'), True)
+    check("no PR in either venue → both columns say prognose",
+          (by['Halvmaraton']['ute'].endswith('prognose'),
+           by['Halvmaraton']['inne'].endswith('prognose')), (True, True))
 
     # THE JOIN — prognose rows carry `label` where PR rows carry `key`, so a wrong match field on
-    # either side yields a silently empty clause rather than an error.
-    check("...but the prognose clause is there", by['Halvmaraton']['ctx'].startswith('prognose '), True)
-    check("prognose names a venue too",
-          any(i in by['Halvmaraton']['ctx'] for i in ('🏃', '⚙️')), True)
-    # Cross-check one prognose figure against the card that already renders it, rather than against a
-    # number copied into this file: same distance, same value, or the join picked the wrong row.
-    prog_hm = pg.evaluate("""() => {
+    # either side yields a silently empty column rather than an error. Cross-checked against the
+    # function that already renders those numbers, not against values copied into this file.
+    prog = pg.evaluate("""() => {
       const r = computePerfCurve(Store.data.sessions, computeDistancePRs(Store.data.sessions))
                   .find(x => x.label === 'Halvmaraton');
-      const e = r.ute && (!r.inne || r.ute.t <= r.inne.t) ? r.ute : r.inne;
-      return secsToHms(e.t);
+      return { ute: secsToHms(r.ute.t), inne: secsToHms(r.inne.t) };
     }""")
-    check("prognose figure equals what computePerfCurve says", prog_hm in by['Halvmaraton']['ctx'], True)
-
-    # A dash in the tables above states a fact about his running. Here it would only repeat them.
-    check("nothing is dashed in this section",
-          '–' in pg.locator('#goalTimeList').inner_text(), False)
+    check("Ute figure equals computePerfCurve's Ute", prog['ute'] in by['Halvmaraton']['ute'], True)
+    check("Inne figure equals computePerfCurve's Inne", prog['inne'] in by['Halvmaraton']['inne'], True)
+    # Without this the two checks above would both pass on a collapsed row that printed one number
+    # twice — which is exactly the shape of the bug.
+    check("...and the two are genuinely different numbers", prog['ute'] != prog['inne'], True)
 
     # ── 2. No data yet: a goal still renders, with nothing beside it ────────────────────────
     print("== a goal set before there is anything to compare it to ==")
@@ -175,7 +193,7 @@ with sync_playwright() as pw:
     rows = pg.evaluate(ROWS)
     check("the row is there", [r['label'] for r in rows], ['5 km'])
     check("...with its goal", rows[0]['goal'], '🎯 0:25:00')
-    check("...and an empty context cell, not a dash", rows[0]['ctx'], '')
+    check("...and both venue columns dashed", (rows[0]['ute'], rows[0]['inne']), ('🏃 –', '⚙️ –'))
     check("Distanse-PR itself has nothing to show", pg.locator('#distPRList').inner_text().startswith('Ingen'), True)
     check("...and there is no prognose either", pg.locator('#prognoseSection').is_visible(), False)
 
@@ -209,7 +227,11 @@ with sync_playwright() as pw:
 
     add('5k', '25:00')
     check("mm:ss is stored as seconds", goals(), {'5k': 1500})
-    check("...and rendered back in the list", '25:00' in pg.locator('#distGoalList').inner_text(), True)
+    # Typed short, displayed padded — "3:45" is ambiguous (3 min 45 s or 3 h 45 min?), so every
+    # surface that SHOWS a goal renders one way. The dashboard section is asserted the same above.
+    check("...and rendered back padded", '0:25:00' in pg.locator('#distGoalList').inner_text(), True)
+    check("...not in the short form he typed",
+          pg.locator('#distGoalList').inner_text().count('25:00'), 1)
     check("the input is cleared on success", pg.locator('#newDistGoalTime').input_value(), '')
 
     add('half', '2:00:00')
@@ -246,7 +268,9 @@ with sync_playwright() as pw:
     print("== edit in place, and delete ==")
     pg.click('[data-edit-dgoal="5k"]')
     pg.wait_for_timeout(80)
-    check("the time is prefilled", pg.locator('#newDistGoalTime').input_value(), '25:00')
+    # Padded, like everything else the app DISPLAYS. The field still accepts the short form on the
+    # way in — lenient in, one form out.
+    check("the time is prefilled, padded", pg.locator('#newDistGoalTime').input_value(), '0:25:00')
     check("the distance is locked while editing", pg.locator('#newDistGoalKey').is_disabled(), True)
     check("the button says Oppdater", pg.locator('#btnAddDistGoal').inner_text(), 'Oppdater')
     pg.fill('#newDistGoalTime', '24:30')

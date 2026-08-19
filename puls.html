@@ -837,7 +837,7 @@
       </div>
       <div id="goalTimeSection" style="display:none">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Mål</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Tider du sikter mot, skrevet inn for hånd under Planlegging. Et mål gjelder uansett underlag — PR og prognose ved siden av er det raskeste du har, med 🏃 Ute eller ⚙️ Inne som sier hvilket.</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Tider du sikter mot, skrevet inn for hånd under Planlegging. Et mål gjelder uansett underlag, men 🏃 Ute og ⚙️ Inne står hver for seg — hver kolonne viser det raskeste du har der, enten en PR eller en prognose. Dash = ingenting å måle mot på det underlaget ennå.</div>
         <div id="goalTimeList"></div>
       </div>
       <div id="formkurveSection" style="display:none">
@@ -8682,35 +8682,45 @@ function renderDashboard() {
   // is the exact shape of every silent-data-loss bug the engineering audit turned up.
   const goalRows = BEST_EFFORT_DISTS.filter(d => goalTimes[d.key]);
   document.getElementById('goalTimeSection').style.display = goalRows.length ? '' : 'none';
-  // The goal itself is venue-agnostic — "sub-25 på 5K" is an ambition, not a treadmill setting. PR
-  // and prognose beside it are MEASUREMENTS, so they keep their venue icon: show the faster of the
-  // two and name which it was, rather than quietly merging the two populations DATA.md separates.
-  const fasterVenue = r => {
-    if (!r) return null;
-    if (r.ute && r.inne) return r.ute.t <= r.inne.t ? { icon: '🏃', t: r.ute.t } : { icon: '⚙️', t: r.inne.t };
-    if (r.ute) return { icon: '🏃', t: r.ute.t };
-    return r.inne ? { icon: '⚙️', t: r.inne.t } : null;
+  // The goal itself is venue-agnostic — "sub-25 på 5K" is an ambition, not a treadmill setting. What
+  // sits beside it are MEASUREMENTS, so they keep the same two independent venue columns as the two
+  // tables above. ⚠️ The first version collapsed both venues to whichever was FASTER, which was wrong
+  // in a way that mattered: his half-marathon row showed only ⚙️ 2:13:08 and hid 🏃 2:40:28, making a
+  // sub-2:00 race goal look 14 minutes away when outdoors it is 41. Never merge the two populations
+  // here either — the whole card exists to keep them apart (DATA.md "Belt vs GPS").
+  //
+  // One number per venue, not both PR and prognose: a prognose is only ever rendered when it BEATS
+  // the measured time (see `project`), so "the fastest thing this venue has" is the prognose when one
+  // exists and the PR otherwise. Printing both would repeat the two tables directly above rather than
+  // answer this section's own question, which is "how far is the goal from where I am".
+  const bestFor = (prEntry, progEntry) => {
+    if (prEntry && progEntry) return progEntry.t <= prEntry.t
+      ? { t: progEntry.t, kind: 'prognose' } : { t: prEntry.t, kind: 'PR' };
+    if (progEntry) return { t: progEntry.t, kind: 'prognose' };
+    return prEntry ? { t: prEntry.t, kind: 'PR' } : null;
   };
+  // Dashed when empty, exactly like `venueCell` and `progCell` above and for their reason: the three
+  // sections are adjacent and share a column layout, so a bare gap in one of them reads as a
+  // rendering fault rather than a deliberate omission.
+  const goalVenueCell = (icon, best) => !best
+    ? `<span class="t3-effort t3-venue t3-empty">${icon} –</span>`
+    : `<span class="t3-effort t3-venue">${icon} <b>${secsToHms(best.t)}</b> <span class="t3-date">${best.kind}</span></span>`;
+
   document.getElementById('goalTimeList').innerHTML = `<div class="top3-list">
       ${goalRows.map(d => {
         // computePerfCurve's rows carry label and km but no key, so match on label — unique, and it
         // needs no change to a pure function that a Python port has to be kept in step with.
-        const pr = fasterVenue(distPRs.find(r => r.key === d.key));
-        const pg = fasterVenue(prognose.find(r => r.label === d.label));
-        // An absent PR or prognose is OMITTED, not dashed. In the two tables above a dash states a
-        // fact about his running; here it would only repeat what those tables already said.
-        const ctx = [
-          pr && `PR ${pr.icon} ${secsToHms(pr.t)}`,
-          pg && `prognose ${pg.icon} ${secsToHms(pg.t)}`,
-        ].filter(Boolean).join(' · ');
-        // secsToHms, not secsToHmsShort: the two sections directly above render 0:26:01, and a row
-        // reading 25:00 next to them would look like a different kind of number rather than the same
-        // one. The leading 0: is a pre-existing quirk of this whole card, not something to fork here.
+        const pr = distPRs.find(r => r.key === d.key) || {};
+        const pg = prognose.find(r => r.label === d.label) || {};
+        // secsToHms, not secsToHmsShort: an unpadded h:mm:ss is ambiguous at the short end — "3:45"
+        // could be 3 min 45 s or 3 h 45 min — and the two sections directly above pad for the same
+        // reason. The whole card renders one way.
         return `
           <div class="top3-row">
             <span class="t3-label">${d.label}</span>
             <span class="t3-effort t3-venue t3-first">🎯 <b>${secsToHms(goalTimes[d.key])}</b></span>
-            <span class="t3-effort t3-venue">${ctx}</span>
+            ${goalVenueCell('🏃', bestFor(pr.ute, pg.ute))}
+            ${goalVenueCell('⚙️', bestFor(pr.inne, pg.inne))}
           </div>`;
       }).join('')}
     </div>`;
@@ -10334,6 +10344,10 @@ const Settings = {
     if (!sel.options.length) sel.innerHTML = this.goalDists()
       .map(d => `<option value="${d.key}">${d.label}</option>`).join('');
 
+    // Lenient in, padded out: the field accepts `25:00` (and the help text teaches that form), but
+    // everything DISPLAYED renders as `0:25:00`. An unpadded h:mm:ss is ambiguous at the short end —
+    // "3:45" could be 3 min 45 s or 3 h 45 min — so the app reads back one way everywhere, here and
+    // on the dashboard. Same rule as the pace converter: accept either separator, emit one.
     const goals = Store.data.distanceGoals || {};
     const container = document.getElementById('distGoalList');
     // Listed from the full BEST_EFFORT_DISTS, not goalDists(): anything already stored must stay
@@ -10346,7 +10360,7 @@ const Settings = {
     container.innerHTML = rows.map(d => `
       <div style="display:flex;gap:12px;align-items:center">
         <span style="font-size:13px;min-width:96px;font-weight:600">${d.label}</span>
-        <span style="font-size:13px;flex:1">${secsToHmsShort(goals[d.key])}</span>
+        <span style="font-size:13px;flex:1">${secsToHms(goals[d.key])}</span>
         <button class="btn-secondary btn-sm" data-edit-dgoal="${d.key}" style="padding:4px 8px" title="Rediger">✏️</button>
         <button class="btn-secondary btn-sm" data-del-dgoal="${d.key}" style="padding:4px 8px" title="Slett">🗑️</button>
       </div>`).join('');
@@ -10357,7 +10371,7 @@ const Settings = {
         const key = btn.dataset.editDgoal;
         sel.value = key;
         sel.disabled = true;
-        document.getElementById('newDistGoalTime').value = secsToHmsShort(Store.data.distanceGoals[key]);
+        document.getElementById('newDistGoalTime').value = secsToHms(Store.data.distanceGoals[key]);
         this.editingDistGoalKey = key;
         document.getElementById('btnAddDistGoal').textContent = 'Oppdater';
         document.getElementById('btnCancelDistGoalEdit').style.display = '';
@@ -10390,7 +10404,7 @@ const Settings = {
     // on screen, so the field keeps the bad value and the message says what is wrong with it.
     if (!secs) return this._distGoalMsg('Skriv tiden som 25:00 eller 2:00:00.');
     if (secs / dist.km < GOAL_MIN_PACE_SECS)
-      return this._distGoalMsg(`${secsToHmsShort(secs)} på ${dist.label} er raskere enn verdensrekorden — sjekk tiden.`);
+      return this._distGoalMsg(`${secsToHms(secs)} på ${dist.label} er raskere enn verdensrekorden — sjekk tiden.`);
     if (!Store.data.distanceGoals) Store.data.distanceGoals = {};
     Store.data.distanceGoals[dist.key] = secs;
     this._clearDistGoalForm();
