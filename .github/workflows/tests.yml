@@ -91,3 +91,6 @@ jobs:
 
       - name: AI/TSV export blocks
         run: python tests/test_export.py
+
+      - name: Distance goal times
+        run: python tests/test_goals.py

@@ -835,6 +835,11 @@
         <div id="prognoseList"></div>
         <div id="prognoseAnchors" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
       </div>
+      <div id="goalTimeSection" style="display:none">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Mål</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Tider du sikter mot, skrevet inn for hånd under Planlegging. Et mål gjelder uansett underlag — PR og prognose ved siden av er det raskeste du har, med 🏃 Ute eller ⚙️ Inne som sier hvilket.</div>
+        <div id="goalTimeList"></div>
+      </div>
       <div id="formkurveSection" style="display:none">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Formkurve · testløp (5K-ekvivalent)</div>
         <div style="height:180px"><canvas id="chartFormkurve"></canvas></div>
@@ -1219,12 +1224,25 @@
   <!-- Mål -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Mål</div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px">Årsmål (km)</div>
     <div id="goalList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <input type="number" id="newGoalYear" placeholder="År" min="2020" max="2040" style="width:90px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newGoalKm" placeholder="Mål (km)" min="1" style="width:140px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <button class="btn-primary btn-sm" id="btnAddGoal">+ Legg til</button>
       <button class="btn-secondary btn-sm" id="btnCancelGoalEdit" style="display:none">Avbryt</button>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:20px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Måltider per distanse</div>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Tiden du sikter mot på en distanse. Vises på Dashboard ved siden av PR og prognose, så du ser avstanden dit. Skriv den som 25:00 eller 2:00:00.</p>
+      <div id="distGoalList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <select id="newDistGoalKey" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;"></select>
+        <input type="text" id="newDistGoalTime" placeholder="25:00" style="width:110px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+        <button class="btn-primary btn-sm" id="btnAddDistGoal">+ Legg til</button>
+        <button class="btn-secondary btn-sm" id="btnCancelDistGoalEdit" style="display:none">Avbryt</button>
+      </div>
+      <div id="distGoalMsg" style="font-size:12px;margin-top:8px"></div>
     </div>
   </div>
 
@@ -8653,6 +8671,50 @@ function renderDashboard() {
   document.getElementById('prognoseAnchors').textContent = !anchorParts.length ? ''
     : `${anchorParts.join(' · ')}. Jo lenger unna denne distansen, desto mer usikker er prognosen.${emptyNote}`;
 
+  // Mål: hand-entered target times, one row per goal actually set. Its own section rather than a
+  // third column on Distanse-PR, because that table always lists all 7 distances and would be mostly
+  // empty — and because a goal is neither a record nor a forecast, so neither heading would still be
+  // telling the truth about its own contents.
+  const goalTimes = Store.data.distanceGoals || {};
+  // Iterate BEST_EFFORT_DISTS rather than Object.keys, so rows come out in ascending distance no
+  // matter what order he entered them. No `km >= 1` filter here on purpose: the picker in
+  // Innstillinger is what enforces the floor, and a goal that exists in the file but renders nowhere
+  // is the exact shape of every silent-data-loss bug the engineering audit turned up.
+  const goalRows = BEST_EFFORT_DISTS.filter(d => goalTimes[d.key]);
+  document.getElementById('goalTimeSection').style.display = goalRows.length ? '' : 'none';
+  // The goal itself is venue-agnostic — "sub-25 på 5K" is an ambition, not a treadmill setting. PR
+  // and prognose beside it are MEASUREMENTS, so they keep their venue icon: show the faster of the
+  // two and name which it was, rather than quietly merging the two populations DATA.md separates.
+  const fasterVenue = r => {
+    if (!r) return null;
+    if (r.ute && r.inne) return r.ute.t <= r.inne.t ? { icon: '🏃', t: r.ute.t } : { icon: '⚙️', t: r.inne.t };
+    if (r.ute) return { icon: '🏃', t: r.ute.t };
+    return r.inne ? { icon: '⚙️', t: r.inne.t } : null;
+  };
+  document.getElementById('goalTimeList').innerHTML = `<div class="top3-list">
+      ${goalRows.map(d => {
+        // computePerfCurve's rows carry label and km but no key, so match on label — unique, and it
+        // needs no change to a pure function that a Python port has to be kept in step with.
+        const pr = fasterVenue(distPRs.find(r => r.key === d.key));
+        const pg = fasterVenue(prognose.find(r => r.label === d.label));
+        // An absent PR or prognose is OMITTED, not dashed. In the two tables above a dash states a
+        // fact about his running; here it would only repeat what those tables already said.
+        const ctx = [
+          pr && `PR ${pr.icon} ${secsToHms(pr.t)}`,
+          pg && `prognose ${pg.icon} ${secsToHms(pg.t)}`,
+        ].filter(Boolean).join(' · ');
+        // secsToHms, not secsToHmsShort: the two sections directly above render 0:26:01, and a row
+        // reading 25:00 next to them would look like a different kind of number rather than the same
+        // one. The leading 0: is a pre-existing quirk of this whole card, not something to fork here.
+        return `
+          <div class="top3-row">
+            <span class="t3-label">${d.label}</span>
+            <span class="t3-effort t3-venue t3-first">🎯 <b>${secsToHms(goalTimes[d.key])}</b></span>
+            <span class="t3-effort t3-venue">${ctx}</span>
+          </div>`;
+      }).join('')}
+    </div>`;
+
   renderFormkurve();
 
   // Training load per week — via the shared `sessionLoadPoints`, so this bar, the ACWR insight and
@@ -9439,6 +9501,12 @@ const BEST_EFFORT_DISTS = [
   { label:'Maraton', key:'marathon', km:42.2 },
 ];
 
+// A hand-typed goal time is rejected below this pace. No human has held 2:00/km for a kilometre, so
+// anything faster is a slip rather than an ambition — the case it actually catches is "25:00" typed
+// on the Maraton row, which parses perfectly and means nothing. It is a unit check, not a judgement
+// about how fast he is allowed to want to be.
+const GOAL_MIN_PACE_SECS = 120;
+
 // Distance PRs, split by venue — the two populations DATA.md says never to merge.
 //   Ute  = Strava's best effort: the fastest stretch at that distance inside ANY outdoor
 //          run (segments count). Already dated and outdoor-only; we just read the top of
@@ -10065,6 +10133,9 @@ const Settings = {
     document.getElementById('btnAddGoal').addEventListener('click', () => this.addGoal());
     document.getElementById('btnCancelGoalEdit').addEventListener('click', () => this.cancelGoalEdit());
     document.getElementById('newGoalKm').addEventListener('keydown', e => { if (e.key === 'Enter') this.addGoal(); });
+    document.getElementById('btnAddDistGoal').addEventListener('click', () => this.addDistGoal());
+    document.getElementById('btnCancelDistGoalEdit').addEventListener('click', () => this.cancelDistGoalEdit());
+    document.getElementById('newDistGoalTime').addEventListener('keydown', e => { if (e.key === 'Enter') this.addDistGoal(); });
     // Planned sessions (Runna .ics import)
     document.getElementById('runnaIcsFile').addEventListener('change', e => this.importRunnaIcs(e));
     document.getElementById('btnClearPlanned').addEventListener('click', () => this.clearPlanned());
@@ -10130,6 +10201,7 @@ const Settings = {
 
   render() {
     this.renderGoalList();
+    this.renderDistGoalList();
     this.renderShoeList();
     CustomLists.renderAll();
     this.renderZoneEditor();
@@ -10238,6 +10310,108 @@ const Settings = {
     document.getElementById('newGoalKm').value = '';
     document.getElementById('btnAddGoal').textContent = '+ Legg til';
     document.getElementById('btnCancelGoalEdit').style.display = 'none';
+  },
+
+  // ── Måltider per distanse ──
+  // One target time per distance, stored as SECONDS in Store.data.distanceGoals keyed by
+  // BEST_EFFORT_DISTS.key. Created lazily rather than in _migrate/openNew: the same pattern as
+  // `settings` and `continuitySettings`, and it is the pattern that cannot be half-applied —
+  // openNew() forgetting consistencySettings is the live example of the other one's failure mode.
+
+  // Offered from 1 km up, mirroring computePerfCurve's own `km >= 1` filter. 400 m is a segment
+  // inside a longer run, not something you train six months toward, and a distance you could set a
+  // goal for but never get a prognose for would be two different answers to the same question.
+  // test_goals.py asserts these two lists agree, so they cannot drift apart unnoticed.
+  goalDists() { return BEST_EFFORT_DISTS.filter(d => d.km >= 1); },
+
+  renderDistGoalList() {
+    const sel = document.getElementById('newDistGoalKey');
+    // Built from BEST_EFFORT_DISTS rather than written into the markup, so the picker cannot fall
+    // out of step with the table it sets goals against.
+    if (!sel.options.length) sel.innerHTML = this.goalDists()
+      .map(d => `<option value="${d.key}">${d.label}</option>`).join('');
+
+    const goals = Store.data.distanceGoals || {};
+    const container = document.getElementById('distGoalList');
+    // Listed from the full BEST_EFFORT_DISTS, not goalDists(): anything already stored must stay
+    // visible and deletable even if it sits below the floor the picker now enforces.
+    const rows = BEST_EFFORT_DISTS.filter(d => goals[d.key]);
+    if (!rows.length) {
+      container.innerHTML = '<div style="color:var(--muted);font-size:13px">Ingen måltider satt ennå.</div>';
+      return;
+    }
+    container.innerHTML = rows.map(d => `
+      <div style="display:flex;gap:12px;align-items:center">
+        <span style="font-size:13px;min-width:96px;font-weight:600">${d.label}</span>
+        <span style="font-size:13px;flex:1">${secsToHmsShort(goals[d.key])}</span>
+        <button class="btn-secondary btn-sm" data-edit-dgoal="${d.key}" style="padding:4px 8px" title="Rediger">✏️</button>
+        <button class="btn-secondary btn-sm" data-del-dgoal="${d.key}" style="padding:4px 8px" title="Slett">🗑️</button>
+      </div>`).join('');
+    // Edit = prefill + enter edit mode, same as Årsmål. A <select> has no readOnly, so `disabled` is
+    // the lock — it still reports .value to script, which is all addDistGoal needs.
+    container.querySelectorAll('[data-edit-dgoal]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.editDgoal;
+        sel.value = key;
+        sel.disabled = true;
+        document.getElementById('newDistGoalTime').value = secsToHmsShort(Store.data.distanceGoals[key]);
+        this.editingDistGoalKey = key;
+        document.getElementById('btnAddDistGoal').textContent = 'Oppdater';
+        document.getElementById('btnCancelDistGoalEdit').style.display = '';
+        this._distGoalMsg('');
+        document.getElementById('newDistGoalTime').focus();
+      });
+    });
+    container.querySelectorAll('[data-del-dgoal]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.delDgoal;
+        const lbl = (BEST_EFFORT_DISTS.find(d => d.key === key) || {}).label || key;
+        if (!confirm(`Slette måltiden for ${lbl}?`)) return;
+        delete Store.data.distanceGoals[key];
+        if (this.editingDistGoalKey === key) this._clearDistGoalForm();
+        FileIO.save(); this.renderDistGoalList(); renderDashboard();
+      });
+    });
+  },
+
+  addDistGoal() {
+    const sel = document.getElementById('newDistGoalKey');
+    const input = document.getElementById('newDistGoalTime');
+    const dist = BEST_EFFORT_DISTS.find(d => d.key === sel.value);
+    const raw = input.value.trim();
+    if (!dist || !raw) return;   // an empty field is not an error, just nothing to do
+    // strictHmsToSecs, NOT hmsToSecs: this is hand-typed, so "29:75" must be refused rather than
+    // quietly become 30:15. The lenient parser stays where it belongs, on the session-save path.
+    const secs = strictHmsToSecs(raw);
+    // A rejection never rewrites or clears what he typed — cleared and never-filled look identical
+    // on screen, so the field keeps the bad value and the message says what is wrong with it.
+    if (!secs) return this._distGoalMsg('Skriv tiden som 25:00 eller 2:00:00.');
+    if (secs / dist.km < GOAL_MIN_PACE_SECS)
+      return this._distGoalMsg(`${secsToHmsShort(secs)} på ${dist.label} er raskere enn verdensrekorden — sjekk tiden.`);
+    if (!Store.data.distanceGoals) Store.data.distanceGoals = {};
+    Store.data.distanceGoals[dist.key] = secs;
+    this._clearDistGoalForm();
+    FileIO.save(); this.renderDistGoalList(); renderDashboard();
+  },
+
+  cancelDistGoalEdit() {
+    this._clearDistGoalForm();
+  },
+
+  _distGoalMsg(text) {
+    const el = document.getElementById('distGoalMsg');
+    el.textContent = text;
+    el.style.color = 'var(--danger)';
+  },
+
+  _clearDistGoalForm() {
+    this.editingDistGoalKey = null;
+    const sel = document.getElementById('newDistGoalKey');
+    sel.disabled = false;
+    document.getElementById('newDistGoalTime').value = '';
+    document.getElementById('btnAddDistGoal').textContent = '+ Legg til';
+    document.getElementById('btnCancelDistGoalEdit').style.display = 'none';
+    this._distGoalMsg('');
   },
 
   // ── Shoes ──
