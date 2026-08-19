@@ -1233,7 +1233,7 @@
       <button class="btn-secondary btn-sm" id="btnCancelGoalEdit" style="display:none">Avbryt</button>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:20px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Måltider per distanse</div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Tidsmål per distanse</div>
       <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Tiden du sikter mot på en distanse. Vises på Dashboard ved siden av PR og prognose, så du ser avstanden dit. Skriv den som 25:00 eller 2:00:00.</p>
       <div id="distGoalList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -1344,7 +1344,7 @@
     </div>
 
     <div class="pc-io" id="tcTargetIn" style="display:none">
-      <label class="pc-field">🎯 Måltid
+      <label class="pc-field">🎯 Tidsmål
         <input type="text" id="tcTime" placeholder="29:30" inputmode="text" maxlength="7" autocomplete="off">
       </label>
     </div>
@@ -9945,7 +9945,7 @@ const TimeCalc = {
 
     if (!(km > 0) || !(paceSec > 0)) {
       out.innerHTML = `<div class="tc-stat"><span class="tc-stat-v tc-lead">–</span><span class="tc-stat-l">${
-        this.mode === 'finish' ? 'fyll inn distanse og tempo' : 'fyll inn distanse og måltid'}</span></div>`;
+        this.mode === 'finish' ? 'fyll inn distanse og tempo' : 'fyll inn distanse og tidsmål'}</span></div>`;
       wrap.style.display = 'none';
       return;
     }
@@ -10312,7 +10312,10 @@ const Settings = {
     document.getElementById('btnCancelGoalEdit').style.display = 'none';
   },
 
-  // ── Måltider per distanse ──
+  // ── Tidsmål per distanse ──
+  // NOT "måltider" — that was the first wording and it reads as *meals* in Norwegian. `tidsmål` is a
+  // normal compound with no such reading, and the same fix was swept through the Verktøy calculator
+  // in the same commit so the app never says it one way in one place and another way elsewhere.
   // One target time per distance, stored as SECONDS in Store.data.distanceGoals keyed by
   // BEST_EFFORT_DISTS.key. Created lazily rather than in _migrate/openNew: the same pattern as
   // `settings` and `continuitySettings`, and it is the pattern that cannot be half-applied —
@@ -10337,7 +10340,7 @@ const Settings = {
     // visible and deletable even if it sits below the floor the picker now enforces.
     const rows = BEST_EFFORT_DISTS.filter(d => goals[d.key]);
     if (!rows.length) {
-      container.innerHTML = '<div style="color:var(--muted);font-size:13px">Ingen måltider satt ennå.</div>';
+      container.innerHTML = '<div style="color:var(--muted);font-size:13px">Ingen tidsmål satt ennå.</div>';
       return;
     }
     container.innerHTML = rows.map(d => `
@@ -10366,7 +10369,7 @@ const Settings = {
       btn.addEventListener('click', () => {
         const key = btn.dataset.delDgoal;
         const lbl = (BEST_EFFORT_DISTS.find(d => d.key === key) || {}).label || key;
-        if (!confirm(`Slette måltiden for ${lbl}?`)) return;
+        if (!confirm(`Slette tidsmålet for ${lbl}?`)) return;
         delete Store.data.distanceGoals[key];
         if (this.editingDistGoalKey === key) this._clearDistGoalForm();
         FileIO.save(); this.renderDistGoalList(); renderDashboard();
