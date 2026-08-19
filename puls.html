@@ -1221,6 +1221,21 @@
     <div id="raceHistoryList"></div>
   </div>
 
+  <!-- Kommende blokker -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Kommende blokker</div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Blokker du vurderer framover. Ingenting her regnes med noe sted — det er en huskelapp fram til du oppretter blokken som Plan under Hendelser. <b>Når blokken starter: opprett den og importer .ics-en samtidig</b> — det er eneste gang Runna har hele planen.</p>
+    <div id="upcomingBlockList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <select id="newUbKind" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;"></select>
+      <span id="newUbMonthPicker" style="display:flex;gap:6px"></span>
+      <input type="number" id="newUbWeeks" placeholder="uker" min="1" max="99" style="width:90px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input type="text" id="newUbNote" placeholder="Notat (valgfritt)" style="flex:1;min-width:160px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <button class="btn-primary btn-sm" id="btnAddUb">+ Legg til</button>
+      <button class="btn-secondary btn-sm" id="btnCancelUbEdit" style="display:none">Avbryt</button>
+    </div>
+  </div>
+
   <!-- Mål -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Mål</div>
@@ -5740,7 +5755,12 @@ const ZONE_COLORS = ['#5bc8f5','#6ccf7a','#f0c060','#f09060','#e05555'];
 // Month+year picker as two <select>s — cross-browser (unlike <input type=month>, which is a bare
 // text box in Firefox). Stores/returns 'YYYY-MM'. `big` = larger add-form style vs compact edit style.
 const PICKER_MONTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
-function monthYearPickerHTML(idBase, value, big) {
+// `forward` flips the year list from "this year and the last 20" to "this year and the next 3".
+// The default (backwards) is right for a shoe's purchase month, which has already happened; a block
+// you are considering has not. Optional and last, so the three existing three-argument call sites
+// keep their behaviour by construction — test_blocks.py pins both directions against each other
+// rather than trusting that.
+function monthYearPickerHTML(idBase, value, big, forward) {
   const [cy, cm] = (value && /^\d{4}-\d{2}$/.test(value)) ? value.split('-').map(Number) : [null, null];
   const nowY = new Date().getFullYear();
   const style = big
@@ -5749,9 +5769,30 @@ function monthYearPickerHTML(idBase, value, big) {
   let m = `<option value="">mnd</option>`;
   PICKER_MONTHS.forEach((mo, i) => { m += `<option value="${String(i+1).padStart(2,'0')}"${cm === i+1 ? ' selected' : ''}>${mo}</option>`; });
   let y = `<option value="">år</option>`;
-  for (let yr = nowY; yr >= nowY - 20; yr--) y += `<option value="${yr}"${cy === yr ? ' selected' : ''}>${yr}</option>`;
+  if (forward) for (let yr = nowY; yr <= nowY + 3; yr++) y += `<option value="${yr}"${cy === yr ? ' selected' : ''}>${yr}</option>`;
+  else         for (let yr = nowY; yr >= nowY - 20; yr--) y += `<option value="${yr}"${cy === yr ? ' selected' : ''}>${yr}</option>`;
   return `<select id="${idBase}-m" style="${style}">${m}</select> <select id="${idBase}-y" style="${style}">${y}</select>`;
 }
+// The block types a training plan actually comes in. Deliberately NOT BEST_EFFORT_DISTS: that list
+// exists for PR distances and carries 400 m, 1 km and 15 km, none of which anyone builds a block
+// around. Different domain, so a different list — `other` plus the free-text note covers a base
+// period, a trail block or anything else.
+const UPCOMING_BLOCK_KINDS = [
+  { key:'5k',       label:'5 km' },
+  { key:'10k',      label:'10 km' },
+  { key:'half',     label:'Halvmaraton' },
+  { key:'marathon', label:'Maraton' },
+  { key:'other',    label:'Annet' },
+];
+const ubKindLabel = k => (UPCOMING_BLOCK_KINDS.find(x => x.key === k) || {}).label || k;
+
+// 'YYYY-MM' → 'jan 2027'. Lowercase month: this reads inside a sentence-ish row, not as a heading.
+function fmtMonthYear(ym) {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return '';
+  const [y, m] = ym.split('-').map(Number);
+  return `${PICKER_MONTHS[m - 1].toLowerCase()} ${y}`;
+}
+
 function readMonthYear(idBase) {
   const m = document.getElementById(idBase + '-m'), y = document.getElementById(idBase + '-y');
   return (m && y && m.value && y.value) ? `${y.value}-${m.value}` : null;
@@ -10146,6 +10187,9 @@ const Settings = {
     document.getElementById('btnAddDistGoal').addEventListener('click', () => this.addDistGoal());
     document.getElementById('btnCancelDistGoalEdit').addEventListener('click', () => this.cancelDistGoalEdit());
     document.getElementById('newDistGoalTime').addEventListener('keydown', e => { if (e.key === 'Enter') this.addDistGoal(); });
+    document.getElementById('btnAddUb').addEventListener('click', () => this.addUpcomingBlock());
+    document.getElementById('btnCancelUbEdit').addEventListener('click', () => this.cancelUbEdit());
+    document.getElementById('newUbNote').addEventListener('keydown', e => { if (e.key === 'Enter') this.addUpcomingBlock(); });
     // Planned sessions (Runna .ics import)
     document.getElementById('runnaIcsFile').addEventListener('change', e => this.importRunnaIcs(e));
     document.getElementById('btnClearPlanned').addEventListener('click', () => this.clearPlanned());
@@ -10212,6 +10256,7 @@ const Settings = {
   render() {
     this.renderGoalList();
     this.renderDistGoalList();
+    this.renderUpcomingBlocks();
     this.renderShoeList();
     CustomLists.renderAll();
     this.renderZoneEditor();
@@ -10429,6 +10474,144 @@ const Settings = {
     document.getElementById('btnAddDistGoal').textContent = '+ Legg til';
     document.getElementById('btnCancelDistGoalEdit').style.display = 'none';
     this._distGoalMsg('');
+  },
+
+  // ── Kommende blokker ──
+  // Blocks he is CONSIDERING, not blocks that exist. Stored as
+  //   { id, kind, startMonth?: 'YYYY-MM', weeks?, note? }
+  // in Store.data.upcomingBlocks, lazily created like distanceGoals and settings, so neither
+  // _migrate() nor openNew() needs a line (openNew forgetting consistencySettings is the standing
+  // example of why the other pattern is the riskier one).
+  //
+  // ⚠️ THIS LIST FEEDS NOTHING. Not computeBlocks, not Treningsblokker, not insights, not adherence.
+  // That is the whole design: a future Plan event would have been the obvious home, but it demands a
+  // concrete start AND end, prints "starter om 134 dager" off a guessed date, and — when the current
+  // plan event has no explicit endDate — computeBlocks would stretch the LIVE block to the new
+  // event's start (`endDate = evt.endDate || planEvents[i+1]?.date || today`) and flip endIsOpen,
+  // which also moves what the .ics import scopes into it. An idea must not reshape a real block.
+  // test_blocks.py asserts computeBlocks is byte-identical with and without entries here.
+
+  renderUpcomingBlocks() {
+    const sel = document.getElementById('newUbKind');
+    if (!sel.options.length) sel.innerHTML = UPCOMING_BLOCK_KINDS
+      .map(k => `<option value="${k.key}">${k.label}</option>`).join('');
+    // `true` = years forward. The Sko card calls the same helper with three arguments and keeps its
+    // backwards range; a block you are considering has not happened yet.
+    const picker = document.getElementById('newUbMonthPicker');
+    if (picker && !document.getElementById('newUb-m')) picker.innerHTML = monthYearPickerHTML('newUb', '', true, true);
+
+    const rows = (Store.data.upcomingBlocks || []).slice().sort((a, b) => {
+      // Undated last, and stable among themselves — "ikke bestemt" is a real answer here, not a gap
+      // to sort to the front. localeCompare on 'YYYY-MM' is chronological.
+      if (!a.startMonth && !b.startMonth) return 0;
+      if (!a.startMonth) return 1;
+      if (!b.startMonth) return -1;
+      return a.startMonth.localeCompare(b.startMonth);
+    });
+    const container = document.getElementById('upcomingBlockList');
+    if (!rows.length) {
+      container.innerHTML = '<div style="color:var(--muted);font-size:13px">Ingen blokker notert ennå.</div>';
+      return;
+    }
+    container.innerHTML = rows.map(b => {
+      const when = b.startMonth ? fmtMonthYear(b.startMonth)
+        : '<span style="font-style:italic">ikke bestemt</span>';
+      return `
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:13px;min-width:106px;font-weight:600">${escapeHtml(ubKindLabel(b.kind))}</span>
+        <span style="font-size:13px;min-width:96px;color:var(--muted)">${when}</span>
+        <span style="font-size:13px;min-width:74px;color:var(--muted)">${b.weeks ? `~${b.weeks} uker` : ''}</span>
+        <span style="font-size:12px;flex:1;min-width:80px;color:var(--muted)">${escapeHtml(b.note || '')}</span>
+        <button class="btn-secondary btn-sm" data-start-ub="${b.id}" style="padding:4px 10px" title="Fyll ut som Plan under Hendelser">Start blokk</button>
+        <button class="btn-secondary btn-sm" data-edit-ub="${b.id}" style="padding:4px 8px" title="Rediger">✏️</button>
+        <button class="btn-secondary btn-sm" data-del-ub="${b.id}" style="padding:4px 8px" title="Slett">🗑️</button>
+      </div>`;
+    }).join('');
+
+    container.querySelectorAll('[data-edit-ub]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const b = (Store.data.upcomingBlocks || []).find(x => x.id === btn.dataset.editUb);
+        if (!b) return;
+        document.getElementById('newUbKind').value = b.kind;
+        // Rebuilt rather than assigned: the picker's <option>s only exist for the years in range, so
+        // setting .value on a year it never rendered would silently select nothing.
+        document.getElementById('newUbMonthPicker').innerHTML = monthYearPickerHTML('newUb', b.startMonth || '', true, true);
+        document.getElementById('newUbWeeks').value = b.weeks || '';
+        document.getElementById('newUbNote').value = b.note || '';
+        this.editingUbId = b.id;
+        document.getElementById('btnAddUb').textContent = 'Oppdater';
+        document.getElementById('btnCancelUbEdit').style.display = '';
+        document.getElementById('newUbNote').focus();
+      });
+    });
+    container.querySelectorAll('[data-del-ub]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const b = (Store.data.upcomingBlocks || []).find(x => x.id === btn.dataset.delUb);
+        if (!b || !confirm(`Slette ${ubKindLabel(b.kind)} fra kommende blokker?`)) return;
+        Store.data.upcomingBlocks = Store.data.upcomingBlocks.filter(x => x.id !== b.id);
+        if (this.editingUbId === b.id) this._clearUbForm();
+        FileIO.save(); this.renderUpcomingBlocks();
+      });
+    });
+    container.querySelectorAll('[data-start-ub]').forEach(btn => {
+      btn.addEventListener('click', () => this.startUpcomingBlock(btn.dataset.startUb));
+    });
+  },
+
+  addUpcomingBlock() {
+    const kind = document.getElementById('newUbKind').value;
+    if (!UPCOMING_BLOCK_KINDS.some(k => k.key === kind)) return;
+    const weeksRaw = document.getElementById('newUbWeeks').value;
+    const weeks = weeksRaw ? Math.round(parseFloat(weeksRaw)) : null;
+    const entry = {
+      // genId(), not a bare Date.now(): two entries added inside the same millisecond would share an
+      // id and the second would overwrite the first. Caught by the suite, whose clock is frozen —
+      // which turned an unlikely race into a guaranteed one.
+      id: this.editingUbId || genId(),
+      kind,
+      startMonth: readMonthYear('newUb') || null,
+      weeks: weeks > 0 ? weeks : null,
+      note: document.getElementById('newUbNote').value.trim() || null,
+    };
+    if (!Store.data.upcomingBlocks) Store.data.upcomingBlocks = [];
+    const i = Store.data.upcomingBlocks.findIndex(x => x.id === entry.id);
+    if (i >= 0) Store.data.upcomingBlocks[i] = entry;
+    else Store.data.upcomingBlocks.push(entry);
+    this._clearUbForm();
+    FileIO.save(); this.renderUpcomingBlocks();
+  },
+
+  // Prefill the Hendelser form and stop. It deliberately does NOT create the event and does NOT
+  // delete the note: he reviews the real dates, saves, then bins the idea himself. Anything
+  // automatic here can leave the same block existing in two places at once.
+  startUpcomingBlock(id) {
+    const b = (Store.data.upcomingBlocks || []).find(x => x.id === id);
+    if (!b) return;
+    const start = b.startMonth ? `${b.startMonth}-01` : localISODate();
+    document.getElementById('newEvtType').value = 'plan';
+    // The single place that decides which event fields are visible — without this the plan targets
+    // stay hidden, because setting .value fires no change event. Same bug the function exists for.
+    this.syncEventFields();
+    document.getElementById('newEvtTitle').value = ubKindLabel(b.kind);
+    document.getElementById('newEvtDate').value = start;
+    document.getElementById('newEvtEndDate').value = b.weeks
+      ? new Date(new Date(start).getTime() + b.weeks * 7 * 86400000).toISOString().slice(0, 10) : '';
+    document.getElementById('newEvtTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('newEvtTitle').focus();
+    showToast('Fylt ut under Hendelser — sjekk datoene og lagre, og importer .ics-en samtidig', 'info');
+  },
+
+  cancelUbEdit() {
+    this._clearUbForm();
+  },
+
+  _clearUbForm() {
+    this.editingUbId = null;
+    document.getElementById('newUbMonthPicker').innerHTML = monthYearPickerHTML('newUb', '', true, true);
+    document.getElementById('newUbWeeks').value = '';
+    document.getElementById('newUbNote').value = '';
+    document.getElementById('btnAddUb').textContent = '+ Legg til';
+    document.getElementById('btnCancelUbEdit').style.display = 'none';
   },
 
   // ── Shoes ──

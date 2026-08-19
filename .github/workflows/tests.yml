@@ -94,3 +94,6 @@ jobs:
 
       - name: Distance goal times
         run: python tests/test_goals.py
+
+      - name: Kommende blokker
+        run: python tests/test_blocks.py
