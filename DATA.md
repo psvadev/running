@@ -52,13 +52,13 @@ A trailing **`?`** on a type marks an **optional** field — the key may be abse
 Single source of truth for the Rekorder card **and** the "Ny …-PR!" insight, so the two can't drift.
 
 - **Ute** = `bestEffortsTop3[key][0]` — Strava's best effort, i.e. the fastest stretch at that distance **inside any outdoor run**. Segments count: a 5 km PB run inside a 10 km run is a 5 km PB. Only `[0]` is shown — the runners-up are stored but **not rendered anywhere** (see `bestEffortsTop3`).
-- **Inne** = the **fastest** of three sources, each carrying a `source` so the cell can say how exact it is:
+- **Inne** = the **fastest** of two sources, each carrying a `source` so the cell can say how exact it is. Both are automatic and dated — **there is no hand-entry path into this table**:
   - `split` — the fastest continuous stretch at that distance inside any treadmill run, from `stravaAnalysis.splits`. **Exact distance**, so this is the indoor equivalent of Ute. Cell shows the date alone.
-  - `run` — a whole `løpetype: 'treadmill'` session within **±2 %** of the distance. Approximate, so the cell also shows the run's real distance.
-  - `manual` — hand-entered in Innstillinger. **No date**, so it can never fire the fresh-PR insight or anchor Prognose. Since splits landed this is a **fallback only** — for sessions the app cannot see (a gym treadmill never uploaded, or a run with no `stravaId`). It is *not* the normal way treadmill PRs arrive any more.
+  - `run` — a whole `løpetype: 'treadmill'` session within **±2 %** of the distance. Approximate, so the cell also shows the run's real distance. Note this needs no Strava link at all, only a logged session — which is why the third source below could go.
+  - ~~`manual` — hand-entered in Innstillinger.~~ **Removed 2026-08-05 (`b6f0575`); do not re-propose a hand-entry field for this table.** Both cases it claimed to cover were already handled by `run`, and a beaten manual value stayed in the store to resurface later — full account under `bestEfforts` in *Other data stores*. The durable lesson: **a manual override that persists after being superseded is a latent lie with a delayed fuse.**
 - **The ±2 % window is what keeps the label honest.** The old ±10 % bracket accepted 4.5–5.5 km as "5 km", picked by best *pace*, then printed the run's *total duration* — so a 5.41 km run displayed as `5 km · 0:34:17`. An **empty cell is the correct answer** when nothing qualifies; a wrong number is not.
 - `utenforAnalyse` sessions are excluded (consistent with all other quality records).
-- **The asymmetry is now closed** (2026-07-31): both columns are segment-based — Ute from Strava's `best_efforts`, Inne from `stravaAnalysis.splits` derived here. A whole-run or manual value only fills in where no split exists (an unlinked run, a gym session never uploaded, or a pre-Runna recording whose stream failed the 3 % distance-agreement guard). The columns remain **separate populations** and are still not meant to be compared to each other.
+- **The asymmetry is now closed** (2026-07-31): both columns are segment-based — Ute from Strava's `best_efforts`, Inne from `stravaAnalysis.splits` derived here. A whole-run value only fills in where no split exists (an unlinked run, a gym session never uploaded, or a pre-Runna recording whose stream failed the 3 % distance-agreement guard). The columns remain **separate populations** and are still not meant to be compared to each other.
 
 ## Prognose (`computePerfCurve`)
 
