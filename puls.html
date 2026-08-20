@@ -836,7 +836,7 @@
         <div id="prognoseAnchors" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
       </div>
       <div id="goalTimeSection" style="display:none">
-        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Mål</div>
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Tidsmål</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Tider du sikter mot, skrevet inn for hånd under Planlegging. Et mål gjelder uansett underlag, men 🏃 Ute og ⚙️ Inne står hver for seg — hver kolonne viser det raskeste du har der, enten en PR eller en prognose. Dash = ingenting å måle mot på det underlaget ennå.</div>
         <div id="goalTimeList"></div>
       </div>
@@ -8520,6 +8520,15 @@ function renderWeekNow(allSessions) {
   el.style.display = '';
 }
 
+// Most things that change dashboard data are edited from ANOTHER panel — a goal under Planlegging, a
+// Strava sync under Innstillinger. Rebuilding the dashboard from there tears down and recreates ~10
+// Chart.js instances that nothing can see, and switchTab('dash') rebuilds it on entry anyway, so the
+// work is always discarded. Call this instead of renderDashboard() from any handler that is not
+// itself on the dashboard.
+function renderDashboardIfVisible() {
+  if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
+}
+
 function renderDashboard() {
   const allSessions = Store.data.sessions;
   // Empty state — greet a fresh install like the other tabs do, instead of a bare filter bar over hidden cards.
@@ -8647,9 +8656,15 @@ function renderDashboard() {
   // always a click away in Strava, so mirroring it here was pure duplication.
   const distPRs = computeDistancePRs(Store.data.sessions);
   const prRows = distPRs.filter(r => r.ute || r.inne);
-  const venueCell = (icon, entry, extra) => !entry
+  // ONE emitter for all three venue tables on this card (Distanse-PR, Prognose, Mål). They sit
+  // adjacent and share a column layout, so a bare gap in one reads as a rendering fault rather than
+  // a deliberate omission — this makes the empty dash and the class list agree by construction
+  // instead of by three comments claiming they do. `sub` is a callback so it only runs on a live
+  // entry, which is what lets the call sites drop their own "is there an entry" guards. `dim` omits
+  // t3-first: on a Mål row the 🎯 goal is the subject and the measurements beside it are context.
+  const venueCell = (icon, entry, sub, dim) => !entry
     ? `<span class="t3-effort t3-venue t3-empty">${icon} –</span>`
-    : `<span class="t3-effort t3-venue t3-first">${icon} <b>${secsToHms(entry.t)}</b> <span class="t3-date">(${extra})</span></span>`;
+    : `<span class="t3-effort t3-venue${dim ? '' : ' t3-first'}">${icon} <b>${secsToHms(entry.t)}</b> <span class="t3-date">${sub(entry)}</span></span>`;
   // Say how exact the indoor number is: a derived split covers the distance exactly (date alone,
   // same as the Ute segment column), a whole run only approximately (so show its real distance).
   const inneSourceLabel = e => e.source === 'split' ? fmtDate(e.d)
@@ -8661,26 +8676,21 @@ function renderDashboard() {
         ${prRows.map(r => `
           <div class="top3-row">
             <span class="t3-label">${r.label}</span>
-            ${venueCell('🏃', r.ute, r.ute ? fmtDate(r.ute.d) : '')}
-            ${venueCell('⚙️', r.inne, r.inne ? inneSourceLabel(r.inne) : '')}
+            ${venueCell('🏃', r.ute, e => `(${fmtDate(e.d)})`)}
+            ${venueCell('⚙️', r.inne, e => `(${inneSourceLabel(e)})`)}
           </div>`).join('')}
       </div>`;
 
   // Prognose: same row layout as Distanse-PR, two venue columns projected independently.
   const prognose = computePerfCurve(Store.data.sessions, distPRs);
   document.getElementById('prognoseSection').style.display = prognose.length ? '' : 'none';
-  // Same empty cell as the Distanse-PR table above (`venueCell`): a bare gap read as a rendering
-  // fault rather than a deliberate omission, and the two cards sit adjacent, so they must agree.
-  const progCell = (icon, e) => !e
-    ? `<span class="t3-effort t3-venue t3-empty">${icon} –</span>`
-    : `<span class="t3-effort t3-venue t3-first">${icon} <b>${secsToHms(e.t)}</b> <span class="t3-date">${secsToMmSs(e.pace)} /km</span></span>`;
 
   document.getElementById('prognoseList').innerHTML = `<div class="top3-list">
       ${prognose.map(r => `
         <div class="top3-row">
           <span class="t3-label">${r.label}</span>
-          ${progCell('🏃', r.ute)}
-          ${progCell('⚙️', r.inne)}
+          ${venueCell('🏃', r.ute, e => `${secsToMmSs(e.pace)} /km`)}
+          ${venueCell('⚙️', r.inne, e => `${secsToMmSs(e.pace)} /km`)}
         </div>`).join('')}
     </div>`;
 
@@ -8738,18 +8748,11 @@ function renderDashboard() {
     if (progEntry) return { t: progEntry.t, kind: 'prognose' };
     return prEntry ? { t: prEntry.t, kind: 'PR' } : null;
   };
-  // Dashed when empty, exactly like `venueCell` and `progCell` above and for their reason: the three
-  // sections are adjacent and share a column layout, so a bare gap in one of them reads as a
-  // rendering fault rather than a deliberate omission.
-  const goalVenueCell = (icon, best) => !best
-    ? `<span class="t3-effort t3-venue t3-empty">${icon} –</span>`
-    : `<span class="t3-effort t3-venue">${icon} <b>${secsToHms(best.t)}</b> <span class="t3-date">${best.kind}</span></span>`;
-
   document.getElementById('goalTimeList').innerHTML = `<div class="top3-list">
       ${goalRows.map(d => {
+        const pr = distPRs.find(r => r.key === d.key) || {};
         // computePerfCurve's rows carry label and km but no key, so match on label — unique, and it
         // needs no change to a pure function that a Python port has to be kept in step with.
-        const pr = distPRs.find(r => r.key === d.key) || {};
         const pg = prognose.find(r => r.label === d.label) || {};
         // secsToHms, not secsToHmsShort: an unpadded h:mm:ss is ambiguous at the short end — "3:45"
         // could be 3 min 45 s or 3 h 45 min — and the two sections directly above pad for the same
@@ -8758,8 +8761,8 @@ function renderDashboard() {
           <div class="top3-row">
             <span class="t3-label">${d.label}</span>
             <span class="t3-effort t3-venue t3-first">🎯 <b>${secsToHms(goalTimes[d.key])}</b></span>
-            ${goalVenueCell('🏃', bestFor(pr.ute, pg.ute))}
-            ${goalVenueCell('⚙️', bestFor(pr.inne, pg.inne))}
+            ${venueCell('🏃', bestFor(pr.ute, pg.ute), e => e.kind, true)}
+            ${venueCell('⚙️', bestFor(pr.inne, pg.inne), e => e.kind, true)}
           </div>`;
       }).join('')}
     </div>`;
@@ -9649,7 +9652,7 @@ const StravaBestEfforts = {
     Store.data.bestEffortsTop3 = merged;
     Store.data.lastUpdated = new Date().toISOString();
     FileIO.save();
-    if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
+    renderDashboardIfVisible();
   },
 
   _checkpoint() {
@@ -10183,10 +10186,10 @@ const Settings = {
     document.getElementById('btnCancelGoalEdit').addEventListener('click', () => this.cancelGoalEdit());
     document.getElementById('newGoalKm').addEventListener('keydown', e => { if (e.key === 'Enter') this.addGoal(); });
     document.getElementById('btnAddDistGoal').addEventListener('click', () => this.addDistGoal());
-    document.getElementById('btnCancelDistGoalEdit').addEventListener('click', () => this.cancelDistGoalEdit());
+    document.getElementById('btnCancelDistGoalEdit').addEventListener('click', () => this._clearDistGoalForm());
     document.getElementById('newDistGoalTime').addEventListener('keydown', e => { if (e.key === 'Enter') this.addDistGoal(); });
     document.getElementById('btnAddUb').addEventListener('click', () => this.addUpcomingBlock());
-    document.getElementById('btnCancelUbEdit').addEventListener('click', () => this.cancelUbEdit());
+    document.getElementById('btnCancelUbEdit').addEventListener('click', () => this._clearUbForm());
     document.getElementById('newUbNote').addEventListener('keydown', e => { if (e.key === 'Enter') this.addUpcomingBlock(); });
     // Planned sessions (Runna .ics import)
     document.getElementById('runnaIcsFile').addEventListener('change', e => this.importRunnaIcs(e));
@@ -10337,7 +10340,7 @@ const Settings = {
         if (!confirm(`Slette mål for ${btn.dataset.delGoal}?`)) return;
         delete Store.data.goals[btn.dataset.delGoal];
         if (this.editingGoalYear === btn.dataset.delGoal) this._clearGoalForm();
-        FileIO.save(); this.renderGoalList(); renderDashboard();
+        FileIO.save(); this.renderGoalList(); renderDashboardIfVisible();
       });
     });
   },
@@ -10349,7 +10352,7 @@ const Settings = {
     if (!Store.data.goals) Store.data.goals = {};
     Store.data.goals[yr] = km;
     this._clearGoalForm();
-    FileIO.save(); this.renderGoalList(); renderDashboard();
+    FileIO.save(); this.renderGoalList(); renderDashboardIfVisible();
   },
 
   cancelGoalEdit() {
@@ -10377,7 +10380,9 @@ const Settings = {
   // Offered from 1 km up, mirroring computePerfCurve's own `km >= 1` filter. 400 m is a segment
   // inside a longer run, not something you train six months toward, and a distance you could set a
   // goal for but never get a prognose for would be two different answers to the same question.
-  // test_goals.py asserts these two lists agree, so they cannot drift apart unnoticed.
+  // ⚠️ The mirroring is BY HAND and nothing enforces it: test_goals.py pins this picker against its
+  // own copy of `km >= 1`, not against computePerfCurve's filter, so moving that floor leaves the
+  // suite green. Change one, grep for the other.
   goalDists() { return BEST_EFFORT_DISTS.filter(d => d.km >= 1); },
 
   renderDistGoalList() {
@@ -10414,12 +10419,13 @@ const Settings = {
         const key = btn.dataset.editDgoal;
         sel.value = key;
         sel.disabled = true;
-        document.getElementById('newDistGoalTime').value = secsToHms(Store.data.distanceGoals[key]);
+        const time = document.getElementById('newDistGoalTime');
+        time.value = secsToHms(Store.data.distanceGoals[key]);
         this.editingDistGoalKey = key;
         document.getElementById('btnAddDistGoal').textContent = 'Oppdater';
         document.getElementById('btnCancelDistGoalEdit').style.display = '';
         this._distGoalMsg('');
-        document.getElementById('newDistGoalTime').focus();
+        time.focus();
       });
     });
     container.querySelectorAll('[data-del-dgoal]').forEach(btn => {
@@ -10429,7 +10435,7 @@ const Settings = {
         if (!confirm(`Slette tidsmålet for ${lbl}?`)) return;
         delete Store.data.distanceGoals[key];
         if (this.editingDistGoalKey === key) this._clearDistGoalForm();
-        FileIO.save(); this.renderDistGoalList(); renderDashboard();
+        FileIO.save(); this.renderDistGoalList(); renderDashboardIfVisible();
       });
     });
   },
@@ -10451,11 +10457,7 @@ const Settings = {
     if (!Store.data.distanceGoals) Store.data.distanceGoals = {};
     Store.data.distanceGoals[dist.key] = secs;
     this._clearDistGoalForm();
-    FileIO.save(); this.renderDistGoalList(); renderDashboard();
-  },
-
-  cancelDistGoalEdit() {
-    this._clearDistGoalForm();
+    FileIO.save(); this.renderDistGoalList(); renderDashboardIfVisible();
   },
 
   _distGoalMsg(text) {
@@ -10493,19 +10495,13 @@ const Settings = {
     const sel = document.getElementById('newUbKind');
     if (!sel.options.length) sel.innerHTML = UPCOMING_BLOCK_KINDS
       .map(k => `<option value="${k.key}">${k.label}</option>`).join('');
-    // `true` = years forward. The Sko card calls the same helper with three arguments and keeps its
-    // backwards range; a block you are considering has not happened yet.
-    const picker = document.getElementById('newUbMonthPicker');
-    if (picker && !document.getElementById('newUb-m')) picker.innerHTML = monthYearPickerHTML('newUb', '', true, true);
+    if (!document.getElementById('newUb-m')) this._ubPicker('');
 
-    const rows = (Store.data.upcomingBlocks || []).slice().sort((a, b) => {
-      // Undated last, and stable among themselves — "ikke bestemt" is a real answer here, not a gap
-      // to sort to the front. localeCompare on 'YYYY-MM' is chronological.
-      if (!a.startMonth && !b.startMonth) return 0;
-      if (!a.startMonth) return 1;
-      if (!b.startMonth) return -1;
-      return a.startMonth.localeCompare(b.startMonth);
-    });
+    // Undated last, and stable among themselves — "ikke bestemt" is a real answer here, not a gap to
+    // sort to the front. localeCompare on 'YYYY-MM' is chronological, and '9999-99' sorts after every
+    // real month; Array#sort is stable per spec, so the undated ones keep entry order.
+    const rows = (Store.data.upcomingBlocks || []).slice()
+      .sort((a, b) => (a.startMonth || '9999-99').localeCompare(b.startMonth || '9999-99'));
     const container = document.getElementById('upcomingBlockList');
     if (!rows.length) {
       container.innerHTML = '<div style="color:var(--muted);font-size:13px">Ingen blokker notert ennå.</div>';
@@ -10530,16 +10526,17 @@ const Settings = {
       btn.addEventListener('click', () => {
         const b = (Store.data.upcomingBlocks || []).find(x => x.id === btn.dataset.editUb);
         if (!b) return;
-        document.getElementById('newUbKind').value = b.kind;
+        sel.value = b.kind;
         // Rebuilt rather than assigned: the picker's <option>s only exist for the years in range, so
         // setting .value on a year it never rendered would silently select nothing.
-        document.getElementById('newUbMonthPicker').innerHTML = monthYearPickerHTML('newUb', b.startMonth || '', true, true);
+        this._ubPicker(b.startMonth);
         document.getElementById('newUbWeeks').value = b.weeks || '';
-        document.getElementById('newUbNote').value = b.note || '';
+        const note = document.getElementById('newUbNote');
+        note.value = b.note || '';
         this.editingUbId = b.id;
         document.getElementById('btnAddUb').textContent = 'Oppdater';
         document.getElementById('btnCancelUbEdit').style.display = '';
-        document.getElementById('newUbNote').focus();
+        note.focus();
       });
     });
     container.querySelectorAll('[data-del-ub]').forEach(btn => {
@@ -10559,8 +10556,9 @@ const Settings = {
   addUpcomingBlock() {
     const kind = document.getElementById('newUbKind').value;
     if (!UPCOMING_BLOCK_KINDS.some(k => k.key === kind)) return;
-    const weeksRaw = document.getElementById('newUbWeeks').value;
-    const weeks = weeksRaw ? Math.round(parseFloat(weeksRaw)) : null;
+    // No empty-string branch: parseFloat('') is NaN, and the `weeks > 0` guard below rejects NaN,
+    // so blank, '0', '-3' and 'abc' all land on null by the same route.
+    const weeks = Math.round(parseFloat(document.getElementById('newUbWeeks').value));
     const entry = {
       // genId(), not a bare Date.now(): two entries added inside the same millisecond would share an
       // id and the second would overwrite the first. Caught by the suite, whose clock is frozen —
@@ -10605,13 +10603,18 @@ const Settings = {
     showToast('Fylt ut under Hendelser — sjekk datoene og lagre, og importer .ics-en samtidig', 'info');
   },
 
-  cancelUbEdit() {
-    this._clearUbForm();
+  // The card's own month picker, in ONE place. The two trailing booleans are `big, forward`, and
+  // `forward` is the whole reason this differs from Sko: that card buys shoes in the past, a block you
+  // are considering has not happened yet. Spelling them out at three call sites invited transposing
+  // them — which would still render a working picker, and so would not fail loudly.
+  _ubPicker(value) {
+    document.getElementById('newUbMonthPicker').innerHTML =
+      monthYearPickerHTML('newUb', value || '', true, true);
   },
 
   _clearUbForm() {
     this.editingUbId = null;
-    document.getElementById('newUbMonthPicker').innerHTML = monthYearPickerHTML('newUb', '', true, true);
+    this._ubPicker('');
     document.getElementById('newUbWeeks').value = '';
     document.getElementById('newUbNote').value = '';
     document.getElementById('btnAddUb').textContent = '+ Legg til';
@@ -10681,12 +10684,11 @@ const Settings = {
       // Obtained (YYYY-MM) → "Kjøpt <mnd> <år> · <alder>" (age omitted under 1 month).
       let obtainedHtml = '';
       if (shoe.obtained && /^\d{4}-\d{2}$/.test(shoe.obtained)) {
-        const NO_MTHS = ['jan','feb','mar','apr','mai','jun','jul','aug','sep','okt','nov','des'];
-        const [oy, om] = shoe.obtained.split('-').map(Number);
+        const [oy, om] = shoe.obtained.split('-').map(Number);   // still needed for the age below
         const months = (now.getFullYear() - oy) * 12 + (now.getMonth() + 1 - om);
         const yrs = Math.floor(months / 12), mos = months % 12;
         const age = months >= 1 ? (yrs && mos ? `${yrs} år ${mos} mnd` : yrs ? `${yrs} år` : `${mos} mnd`) : '';
-        obtainedHtml = `<div style="font-size:11px;color:var(--muted);margin-top:4px">Kjøpt ${NO_MTHS[om-1]} ${oy}${age ? ' · ' + age : ''}</div>`;
+        obtainedHtml = `<div style="font-size:11px;color:var(--muted);margin-top:4px">Kjøpt ${fmtMonthYear(shoe.obtained)}${age ? ' · ' + age : ''}</div>`;
       }
 
       let retireHtml = '';
@@ -10946,7 +10948,7 @@ const Settings = {
     this._clearEventForm();
     this.renderEventList();
     this.renderRaceHistory();
-    if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
+    renderDashboardIfVisible();
   },
 
   deleteEvent(id) {
@@ -10957,7 +10959,7 @@ const Settings = {
     Store.deleteEvent(id);
     this.renderEventList();
     this.renderRaceHistory();
-    if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
+    renderDashboardIfVisible();
   },
 
   racesExpanded: false,
@@ -11424,7 +11426,7 @@ function refreshAll() {
   Form.refreshShoeDropdown();
   CustomLists.refreshDropdowns();
   document.getElementById('welcomeBanner').classList.toggle('hidden', Store.data.sessions.length > 0);
-  if (document.getElementById('panel-dash').classList.contains('active')) renderDashboard();
+  renderDashboardIfVisible();
   if (document.getElementById('panel-atlas').classList.contains('active')) renderAtlas(Store.data.sessions, Store.data.events);
   if (document.getElementById('panel-plan').classList.contains('active') ||
       document.getElementById('panel-settings').classList.contains('active')) Settings.render();
