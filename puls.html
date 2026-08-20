@@ -722,17 +722,33 @@
       </div>
       <div class="form-group">
         <label>RPE (1–10)</label>
+        <!-- Half-steps are deliberately UNNAMED: the whole numbers are the anchors, so 6,5 reads as
+             "between Tungt and Veldig tungt" from its neighbours. Naming all nine would be inventing
+             vocabulary for a scale that only has ten words in it. Decimal POINT, not the Norwegian
+             comma: the log table, the detail panel and the export all print the stored number
+             straight, so a label reading "6,5" would be the only place in the app spelling it that
+             way — you would pick 6,5 and then read 6.5 back. (The ACWR tile's comma is the outlier
+             in this file, not the convention.) -->
         <select id="fRpe">
           <option value="">–</option>
           <option value="1">1 — Veldig lett</option>
+          <option value="1.5">1.5</option>
           <option value="2">2 — Lett</option>
+          <option value="2.5">2.5</option>
           <option value="3">3 — Moderat lett</option>
+          <option value="3.5">3.5</option>
           <option value="4">4 — Moderat</option>
+          <option value="4.5">4.5</option>
           <option value="5">5 — Noe tungt</option>
+          <option value="5.5">5.5</option>
           <option value="6">6 — Tungt</option>
+          <option value="6.5">6.5</option>
           <option value="7">7 — Veldig tungt</option>
+          <option value="7.5">7.5</option>
           <option value="8">8 — Svært tungt</option>
+          <option value="8.5">8.5</option>
           <option value="9">9 — Nær maksimalt</option>
+          <option value="9.5">9.5</option>
           <option value="10">10 — Maksimalt</option>
         </select>
       </div>
@@ -5460,7 +5476,9 @@ const Form = {
       hoydeMeter: !isTreadmill ? (parseInt(document.getElementById('fHoydeMeter').value) || null) : null,
       sko: document.getElementById('fSko').value,
       løpetype: lopetype,
-      rpe: parseInt(document.getElementById('fRpe').value) || null,
+      // parseFloat, NOT parseInt: the scale has half-steps, and parseInt('6.5') is 6 — a silent
+      // downgrade that would look like a successful save and read back as a different effort.
+      rpe: parseFloat(document.getElementById('fRpe').value) || null,
       beskrivelse: document.getElementById('fBeskrivelse').value.trim() || null,
       notater: document.getElementById('fNotater').value.trim() || null,
       utenforAnalyse: document.getElementById('fUtenforAnalyse').checked || undefined,

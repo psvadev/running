@@ -97,3 +97,6 @@ jobs:
 
       - name: Kommende blokker
         run: python tests/test_blocks.py
+
+      - name: RPE half-steps
+        run: python tests/test_rpe.py
