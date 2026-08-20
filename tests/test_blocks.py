@@ -135,6 +135,7 @@ with sync_playwright() as pw:
         pg.wait_for_timeout(120)
 
     store = lambda: pg.evaluate("() => Store.data.upcomingBlocks || []")
+    ub = lambda kind: [x for x in store() if x['kind'] == kind][0]
 
     # Entered latest-first, and the undated one in the middle, so neither entry order nor a
     # front-loaded blank could produce the expected result by accident.
@@ -178,7 +179,7 @@ with sync_playwright() as pw:
     print("== Start blokk fills the Hendelser form and stops ==")
     evts_before = pg.evaluate("() => JSON.stringify(Store.data.events)")
     ub_before = len(store())
-    pg.click(f'[data-start-ub="{store()[0]["id"] if store()[0]["kind"]=="10k" else [x for x in store() if x["kind"]=="10k"][0]["id"]}"]')
+    pg.click(f'[data-start-ub="{ub("10k")["id"]}"]')
     pg.wait_for_timeout(200)
     check("type is Plan", pg.locator('#newEvtType').input_value(), 'plan')
     check("plan targets are visible (syncEventFields ran)",
@@ -193,10 +194,36 @@ with sync_playwright() as pw:
     check("...and deleted no idea", len(store()), ub_before)
 
     # An entry with no month falls back to today rather than an empty date, and leaves the end blank.
-    pg.click(f'[data-start-ub="{[x for x in store() if x["kind"]=="marathon"][0]["id"]}"]')
+    pg.click(f'[data-start-ub="{ub("marathon")["id"]}"]')
     pg.wait_for_timeout(200)
     check("undated block starts from today", pg.locator('#newEvtDate').input_value(), '2026-08-18')
     check("...with no invented end date", pg.locator('#newEvtEndDate').input_value(), '')
+
+    # ⚠️ Start blokk fills the ADD form, so it must first LEAVE any edit in progress. Without
+    # cancelEventEdit() the form still carries editingEventId, and addEvent() branches on it —
+    # saving would call Store.updateEvent and overwrite the real training block with the idea.
+    # The targets ride along too: syncEventFields only clears them when the type is NOT plan.
+    print("== Start blokk during an event edit does not hijack that event ==")
+    pg.click('[data-edit-event="p1"]')
+    pg.wait_for_timeout(150)
+    pg.fill('#newEvtTotalKmTarget', '250')
+    check("we are genuinely mid-edit", pg.locator('#btnAddEvent').inner_text(), 'Lagre endringer')
+    pg.click(f'[data-start-ub="{ub("10k")["id"]}"]')
+    pg.wait_for_timeout(200)
+    check("the form left edit mode", pg.locator('#btnAddEvent').inner_text(), '+ Legg til')
+    check("...and dropped the edited event's target",
+          pg.locator('#newEvtTotalKmTarget').input_value(), '')
+    check("plan targets are still visible", pg.locator('#evtPlanTargets').is_visible(), True)
+    pg.click('#btnAddEvent')
+    pg.wait_for_timeout(200)
+    evts = pg.evaluate("() => Store.data.events")
+    check("saving ADDED an event rather than overwriting one", len(evts), 2)
+    orig = [e for e in evts if e['id'] == 'p1']
+    check("...and the original block is untouched", orig and orig[0]['title'], 'Runna 5K')
+    check("...including its dates", orig and orig[0]['endDate'], '2026-09-13')
+    pg.evaluate("() => { Store.data.events = Store.data.events.filter(e => e.id === 'p1');"
+                "        Settings.renderEventList(); }")
+    pg.wait_for_timeout(120)
 
     # ── 6. Edit and delete ──────────────────────────────────────────────────────────────────
     print("== edit in place, and delete ==")

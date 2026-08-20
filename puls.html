@@ -10586,16 +10586,22 @@ const Settings = {
     const b = (Store.data.upcomingBlocks || []).find(x => x.id === id);
     if (!b) return;
     const start = b.startMonth ? `${b.startMonth}-01` : localISODate();
-    document.getElementById('newEvtType').value = 'plan';
-    // The single place that decides which event fields are visible — without this the plan targets
-    // stay hidden, because setting .value fires no change event. Same bug the function exists for.
-    this.syncEventFields();
-    document.getElementById('newEvtTitle').value = ubKindLabel(b.kind);
+    // Leave any event edit in progress FIRST. This fills the ADD form, so it must not inherit
+    // editingEventId — addEvent() branches on it and would call Store.updateEvent, overwriting the
+    // event being edited with this idea. Nor the "Lagre endringer" label, nor that event's plan
+    // targets: syncEventFields only clears those when the type is NOT plan, and this path sets it TO
+    // plan, so they would survive unseen. deleteEvent guards the same hazard the same way.
+    // cancelEventEdit -> _clearEventForm already sets type='plan' AND calls syncEventFields(), which
+    // is what makes the plan-target fields visible (setting .value fires no change event).
+    this.cancelEventEdit();
+    const title = document.getElementById('newEvtTitle');
+    title.value = ubKindLabel(b.kind);
     document.getElementById('newEvtDate').value = start;
-    document.getElementById('newEvtEndDate').value = b.weeks
-      ? new Date(new Date(start).getTime() + b.weeks * 7 * 86400000).toISOString().slice(0, 10) : '';
-    document.getElementById('newEvtTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    document.getElementById('newEvtTitle').focus();
+    const end = new Date(start);
+    end.setDate(end.getDate() + (b.weeks || 0) * 7);
+    document.getElementById('newEvtEndDate').value = b.weeks ? localISODate(end) : '';
+    title.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    title.focus();
     showToast('Fylt ut under Hendelser — sjekk datoene og lagre, og importer .ics-en samtidig', 'info');
   },
 
