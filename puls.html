@@ -8667,8 +8667,6 @@ function renderDashboard() {
       </div>`;
 
   // Prognose: same row layout as Distanse-PR, two venue columns projected independently.
-  // An empty cell is blank rather than "–": in Distanse-PR a dash means "not run yet",
-  // whereas an indoor marathon estimate is simply not applicable.
   const prognose = computePerfCurve(Store.data.sessions, distPRs);
   document.getElementById('prognoseSection').style.display = prognose.length ? '' : 'none';
   // Same empty cell as the Distanse-PR table above (`venueCell`): a bare gap read as a rendering

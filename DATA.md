@@ -62,11 +62,17 @@ Single source of truth for the Rekorder card **and** the "Ny …-PR!" insight, s
 
 ## Prognose (`computePerfCurve`)
 
-Riegel projections **only** for distances with no actual time in *either* column — anything real lives in Distanse-PR, so the two sections can never show competing numbers for the same distance.
+Riegel projections, mainly for distances with no actual time in that column — anything real lives in Distanse-PR. **The one exception, and it is the reason this section can look inconsistent:** at a distance you *have* run, a projection still shows if it comes from a **maximal** effort (`Test`/`Race`) at a **different** distance *and* is faster (`e6a21ad`). That is why ⚙️ Inne 5 km can read `0:28:56` beside a measured `0:29:42` — a 10 km belt Test says the standalone 5 km is quicker than a split taken from a run paced for 10 km.
+
+**⚠️ Why a row you have run is usually blank anyway — two separate rules, and the first is the one everyone forgets:**
+1. **`project` uses the NEAREST anchor by distance.** At a distance you have already run, the nearest anchor *is that distance's own PR*, so it projects the measured time onto itself — never faster, so `null`. A better 10 km cannot un-blank the 5 km row while a 5 km PR sits in the anchor set.
+2. **A non-maximal anchor may not over-rule a measured time at all.** And `anchorsFor` returns tests **exclusively** when any exist (`if (tests.length) return tests;`) — which is precisely what removes the 5 km PR from the anchor set and lets a 10 km Test reach down to 5 km. With no `Test`/`Race` in a venue, every anchor there is non-maximal and no already-run distance can ever show a projection.
+
+**Corollary:** a conversational run *can* re-anchor — the fallback is the measured PR, not a maximal effort — so beating a stored PR improves every **un-run** distance. It will not unblank a distance you have run. (And the 🏃 Ute column only refreshes after **Synkroniser fra Strava**; `bestEffortsTop3` is written by that scan alone, never on save.)
 
 - **Two independent columns, each anchored in its own venue.** 🏃 Ute answers "what could I race?", ⚙️ Inne answers "what am I capable of on the belt?". Each prefers a **maximal** effort (`Test`/`Race` ≥3 km) in that venue and falls back to the measured PR there. Never blended.
 - **Why Inne exists at all:** roughly half the year every run is indoors. An outdoor-only projection sits frozen on last season's efforts through the whole winter while the actual fitness change happens on a treadmill — least informative exactly when it's most wanted.
-- **`INNE_MAX_PROGNOSE_KM = 21.1`** — no indoor projection beyond a half marathon; a treadmill marathon estimate has no use. That cell renders **blank**, not `–` (a dash means "not run yet" in Distanse-PR; this is "not applicable").
+- **`INNE_MAX_PROGNOSE_KM = 21.1`** — no indoor projection beyond a half marathon; a treadmill marathon estimate has no use. That cell renders **`–`, the same empty cell as everywhere else on the card**. It was originally left blank to distinguish "not applicable" from Distanse-PR's "not run yet", and that was reversed: the two tables sit adjacent and share a column layout, so a bare gap in one read as a rendering fault rather than a deliberate omission. The four possible reasons for a dash are stated once in the section caption instead of per cell.
 - **Riegel degrades past ~3× the anchor distance.** From a 10 km anchor, 15 km (1.5×) and half (2.1×) are sound; the marathon (4.2×) is not, and when its anchor is also non-maximal it is the softest number on the card. The section caption carries this caveat — **deliberately no per-cell confidence badge**.
 - **Anchors are named once per section, not per row** (`fra 10 km inne (11.07.2026)`). In winter this is what makes a months-old outdoor anchor obvious next to a current indoor one. If a column ends up using more than one anchor it says "nærmeste distanse" instead.
 
