@@ -100,3 +100,6 @@ jobs:
 
       - name: RPE half-steps
         run: python tests/test_rpe.py
+
+      - name: Shoe wear thresholds
+        run: python tests/test_shoes.py

@@ -6369,6 +6369,40 @@ function sessionLoadPoints(s) {
   return s.soner.reduce((sum, secs, i) => sum + (secs || 0) * ZONE_WEIGHTS[i], 0) / 60;
 }
 
+// ── How worn is a shoe? ONE definition, shared by the Sko card's bar and the Innsikter warning.
+// They used to carry separate thresholds and disagreed about the same shoe: the bar went yellow at
+// 80 % and red only at 100 %, while the insight warned at 85 % and turned urgent at 95 %. So the
+// card could sit yellow while the insight shouted, or go red long after it had.
+//
+// A third copy lived on the dashboard's Sko oversikt (⚠️ at 90 %, 🔴 at 100 %), so one shoe could
+// be described three different ways at once.
+//
+// Two deliberate changes came with the merge:
+//   1. RED ARRIVES AT 90 %, NOT 100 %. The point of the warning is lead time to order the next pair
+//      — red at the limit only confirms you are already late. The insight half always understood
+//      this (urgent at 95 %); the bar did not.
+//   2. THE HIDDEN 400 km DEFAULT IS GONE. The Innsikter warning used to judge a shoe with NO
+//      `retirementKm` against 400 km (urgent at 450) while the card drew no bar — so a shoe could be
+//      warned about against a number that appeared nowhere on screen and that the user never chose.
+//      **No limit set now means silence**, everywhere. The app does not invent the number; if you
+//      want to be warned about a shoe, give it a limit.
+//
+// Returns null when there is nothing to say, so every caller skips on the same condition.
+const SHOE_WEAR_WARN = 0.75;   // yellow
+const SHOE_WEAR_CRIT = 0.90;   // red — and the only band the Innsikt fires on
+function shoeWear(usedKm, shoe) {
+  const limit = (shoe && shoe.retirementKm) || null;
+  if (!limit) return null;
+  const ratio = usedKm / limit;
+  return {
+    limit,
+    pct: Math.min(100, ratio * 100),
+    band: ratio >= SHOE_WEAR_CRIT ? 'red' : ratio >= SHOE_WEAR_WARN ? 'yellow' : 'green',
+    spent: ratio >= 1,
+  };
+}
+const SHOE_BAND_COLOR = { green: 'var(--green)', yellow: 'var(--yellow)', red: 'var(--danger)' };
+
 // ── Period roll-ups of the Strava analyses. Each is the SINGLE definition, shared by its trend chart
 // and by the week drill-down, so a drill-down can never disagree with the point that was clicked.
 // Bucket sessions by an arbitrary key, then hand each bucket to a roll-up. Keeps the "how do I group
@@ -6630,18 +6664,19 @@ function renderInsights(sessions) {
     }
   }
 
-  // Shoe approaching retirement — respects the per-shoe limit when set (warn at 85%,
-  // urgent at 95%); falls back to the 400/450 km default for shoes without a limit
+  // Shoe approaching retirement. Thresholds come from `shoeWear` — the SAME function the Sko card's
+  // bar uses, so this fires exactly when that bar turns red and never on its own schedule.
+  // Deliberately gated on the red band only: yellow starts at 75 %, which can be months of running,
+  // and an insight that sits there for months is wallpaper. The bar carries the yellow.
   const shoeKm = {};
   sessions.forEach(s => { if (s.sko) shoeKm[s.sko] = (shoeKm[s.sko] || 0) + (s.distanse || 0); });
   (Store.data.shoes || []).filter(s => !s.retired).forEach(shoe => {
     const km = shoeKm[shoe.name] || 0;
-    const limit    = shoe.retirementKm || null;
-    const warnAt   = limit ? limit * 0.85 : 400;
-    const urgentAt = limit ? limit * 0.95 : 450;
-    if (km >= warnAt) candidates.push({ icon:'⚠️', val:shoe.name,
-      sub:`${km.toFixed(0)}${limit ? ` av ${limit}` : ''} km – nærmer seg pensjonering`,
-      priority: km >= urgentAt ? 4 : 3 });
+    const w = shoeWear(km, shoe);          // null when no limit is set = nothing to say
+    if (!w || w.band !== 'red') return;
+    candidates.push({ icon:'⚠️', val:shoe.name,
+      sub:`${km.toFixed(0)} av ${w.limit} km – ${w.spent ? 'over grensen, bør byttes' : 'nærmer seg pensjonering'}`,
+      priority: w.spent ? 4 : 3 });
   });
 
   // Maks puls contradicted by your own runs. EVENT-gated like everything else here, and deliberately
@@ -9067,9 +9102,12 @@ function renderDashboard() {
   document.getElementById('shoeBarChart').innerHTML = `<div class="shoe-bar-wrap">${
     shoeEntries.map(([name, km]) => {
       const shoe = shoeObjects.find(s => s.name === name);
-      const retKm = shoe?.retirementKm;
-      const pct = retKm ? km / retKm : null;
-      const warn = pct != null && pct >= 0.9 ? (pct >= 1 ? ' 🔴' : ' ⚠️') : '';
+      // Same `shoeWear` thresholds as the Sko card's bar and the Innsikter warning — this was the
+      // THIRD independent copy (it warned at 90/100 while the card used 80/100 and the insight
+      // 85/95). Kept as ⚠️/🔴 rather than gaining a bar: the dashboard shows the state, the
+      // Planlegging card explains it.
+      const w = shoeWear(km, shoe);
+      const warn = w && w.band === 'red' ? (w.spent ? ' 🔴' : ' ⚠️') : '';
       const st = shoeStats[name] || {};
       const chips = [];
       if (st.count)     chips.push(`<span class="shoe-stat"><span class="sv">${st.count}</span><span class="sl">løp</span></span>`);
@@ -10710,11 +10748,15 @@ const Settings = {
       }
 
       let retireHtml = '';
-      if (retKm && !isRetired) {
-        const pct = Math.min(100, usedKm / retKm * 100);
-        const barColor = pct >= 100 ? 'var(--danger)' : pct >= 80 ? 'var(--yellow)' : 'var(--accent)';
+      const wear = isRetired ? null : shoeWear(usedKm, shoe);
+      if (wear) {
+        // Shared with the Innsikter warning — see `shoeWear`. Green/yellow/red rather than the old
+        // accent-blue: this is a bar you do NOT want to fill, unlike Årsmål, so the ramp should read
+        // as wearing out rather than as progress.
+        const w = wear;
+        const pct = w.pct, barColor = SHOE_BAND_COLOR[w.band];
         let projHtml = '';
-        if (usedKm < retKm) {
+        if (!w.spent) {
           const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - 56);
           const cutoffStr = localISODate(cutoff);
           let recent = Store.data.sessions.filter(s => s.sko === name && s.dato >= cutoffStr);
@@ -10726,7 +10768,7 @@ const Settings = {
           if (windowWeeks > 0) {
             const weeklyRate = recent.reduce((sum, s) => sum + (s.distanse || 0), 0) / windowWeeks;
             if (weeklyRate > 0) {
-              const weeksLeft = Math.round((retKm - usedKm) / weeklyRate);
+              const weeksLeft = Math.round((w.limit - usedKm) / weeklyRate);
               const projDate = new Date(now); projDate.setDate(projDate.getDate() + weeksLeft * 7);
               const projStr = projDate.toLocaleDateString('nb-NO', { day: 'numeric', month: 'short', year: 'numeric' });
               projHtml = `<div style="font-size:11px;color:var(--muted);margin-top:4px">Ferdig om ca. ${weeksLeft} uker · ${projStr}</div>`;
@@ -10737,9 +10779,9 @@ const Settings = {
           <div style="margin-top:8px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
               <div class="shoe-retire-bar-bg"><div class="shoe-retire-bar-fill" style="width:${pct.toFixed(1)}%;background:${barColor}"></div></div>
-              <span style="font-size:11px;color:var(--muted);white-space:nowrap">${usedKm.toFixed(0)} / ${retKm} km</span>
+              <span style="font-size:11px;color:var(--muted);white-space:nowrap">${usedKm.toFixed(0)} / ${w.limit} km</span>
             </div>
-            ${pct >= 100 ? '<div style="font-size:11px;color:var(--danger);margin-top:4px">🔴 Pensjonert — bør byttes</div>' : projHtml}
+            ${w.spent ? '<div style="font-size:11px;color:var(--danger);margin-top:4px">Over grensen — bør byttes</div>' : projHtml}
           </div>`;
       }
 
