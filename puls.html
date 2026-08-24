@@ -4006,7 +4006,6 @@ const CONTINUITY_DEFAULTS = {
   definiteWalkMaxKmh: 7.0,          // speed strictly BELOW this ⇒ walk
   definiteRunMinKmh: 7.5,           // speed strictly ABOVE this ⇒ run; the band between (incl. exact equality) is "unclassified"
   minimumSegmentSeconds: 8,         // segments shorter than this are cleaned up as noise
-  minimumTransitionSeconds: 8,      // both sides of a counted run→walk transition must be ≥ this
   uphillGradeThresholdPercent: 2.5, // smoothed grade ≥ this ⇒ "uphill" (experimental only)
   smoothingWindowSeconds: 5,        // centered time-window speed smoothing before classifying
   graceSeconds: 8,                  // an unclassified gap ≤ this may bridge two runs (longest-run only)
@@ -4150,14 +4149,21 @@ function analyzeRunningContinuity(streams, options = {}) {
   //    are TRANSPARENT — they don't change the "definite" state — so run → unclassified → walk
   //    still counts as one transition (real runs have a fuzzy speed band between run and walk,
   //    and requiring strict adjacency badly undercounts). A STOPPED segment RESETS the state (a
-  //    pause is not a walk break), walk→run never counts, and the walk must survive cleanup
-  //    (≥ minimumTransitionSeconds). Preserves run→walk→run→walk = 2 and walk→run→… ignored.
+  //    pause is not a walk break), and walk→run never counts. Preserves run→walk→run→walk = 2
+  //    and walk→run→… ignored.
+  //    No minimum length is tested here. Step 6 already guarantees it: a walk shorter than
+  //    minimumSegmentSeconds either inherits a neighbour's class and merges away, or becomes
+  //    unclassified — so every WALK segment reaching this loop is ≥ minimumSegmentSeconds. There
+  //    used to be a separate `minimumTransitionSeconds: 8` guard here; being equal to
+  //    minimumSegmentSeconds it could never reject anything (proven: 1, 4 and 8 all gave identical
+  //    output on real streams), and its comment claimed to check BOTH sides of the transition while
+  //    the code only ever looked at the walk.
   let transitions = 0, lastDefinite = null; // 'run' | 'walk' | null (null after a stop / at start)
   for (const s of segments) {
     if (s.cls === STOP) { lastDefinite = null; continue; }
     if (s.cls === UNCL) continue;                                   // ambiguous: definite state unchanged
     if (s.cls === WALK) {
-      if (lastDefinite === RUN && s.dur >= cfg.minimumTransitionSeconds) transitions++;
+      if (lastDefinite === RUN) transitions++;
       lastDefinite = WALK;
     } else { lastDefinite = RUN; }
   }
