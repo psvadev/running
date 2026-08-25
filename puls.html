@@ -502,26 +502,7 @@
   .sync-dot.error { background: var(--danger); }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-  /* ── Heatmap ── */
-  #heatmapContainer { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .heatmap-wrap { display:flex; gap:var(--hm-gap,2px); padding-bottom:4px; }
-  .heatmap-labels { display:flex; flex-direction:column; gap:var(--hm-gap,2px); flex-shrink:0; margin-right:4px; }
-  .heatmap-day-label { width:16px; height:var(--hm-cell,12px); font-size:9px; color:var(--muted); line-height:var(--hm-cell,12px); text-align:right; }
-  .heatmap-col { display:flex; flex-direction:column; gap:var(--hm-gap,2px); flex-shrink:0; }
-  .heatmap-month-label { height:14px; font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; }
-  .heatmap-cell { width:var(--hm-cell,12px); height:var(--hm-cell,12px); border-radius:2px; background:var(--surface2); }
-  .heatmap-cell[data-level="1"] { background:rgba(108,143,255,.2); }
-  .heatmap-cell[data-level="2"] { background:rgba(108,143,255,.45); }
-  .heatmap-cell[data-level="3"] { background:rgba(108,143,255,.7); }
-  .heatmap-cell[data-level="4"] { background:rgba(108,143,255,1); }
-  .heatmap-cell[data-zone="1"] { background:rgba(75,190,120,.85); }
-  .heatmap-cell[data-zone="2"] { background:rgba(108,143,255,.85); }
-  .heatmap-cell[data-zone="3"] { background:rgba(240,192,80,.85); }
-  .heatmap-cell[data-zone="4"] { background:rgba(240,150,60,.85); }
-  .heatmap-cell[data-zone="5"] { background:rgba(224,85,85,.85); }
-  .heatmap-cell[data-date] { cursor:default; }
-  .heatmap-cell[data-date][data-tip] { cursor:pointer; }
-  #hmTooltip, #evtTooltip {
+  #evtTooltip {
     position:fixed; background:var(--surface2); border:1px solid rgba(255,255,255,.1);
     border-radius:6px; padding:6px 10px; font-size:11px; color:var(--text);
     pointer-events:none; z-index:1000; display:none; max-width:240px;
@@ -900,9 +881,12 @@
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div class="card-title" id="weeklyDistTitle" style="margin-bottom:0">Ukentlig distanse (km)</div>
-        <div style="display:flex;gap:6px">
-          <span class="year-pill active" id="distToggleWeek">Uke</span>
-          <span class="year-pill" id="distToggleMaaned">Måned</span>
+        <div style="display:flex;gap:12px;align-items:center">
+          <label id="distTargetWrap" style="cursor:pointer;font-size:12px;color:var(--muted);display:none;align-items:center;gap:5px"><input type="checkbox" id="distShowTarget"> Mål km</label>
+          <div style="display:flex;gap:6px">
+            <span class="year-pill active" id="distToggleWeek">Uke</span>
+            <span class="year-pill" id="distToggleMaaned">Måned</span>
+          </div>
         </div>
       </div>
       <div class="chart-wrap"><canvas id="chartWeeklyDist"></canvas></div>
@@ -917,30 +901,6 @@
       </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Lavere er raskere. Veid snitt (tid ÷ km).</div>
       <div class="chart-wrap"><canvas id="chartPace"></canvas></div>
-    </div>
-    <div class="card span2" id="planActualCard">
-      <div class="card-title">Plan vs faktisk — distanse</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Uker med planlagt distanse. Blå = over mål · grønn = nådd · gul = nær · rød = under.</div>
-      <div class="chart-wrap"><canvas id="chartPlanActual"></canvas></div>
-    </div>
-    <div class="card span2" id="heatmapCard">
-      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:6px;margin-bottom:4px">
-        <div class="card-title" style="margin-bottom:0">Treningskalender</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:12px;color:var(--muted)">
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="distance" checked onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Distanse</label>
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="load" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Belastning</label>
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="type" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Økttype</label>
-          <label style="cursor:pointer"><input type="radio" name="heatmetric" value="zones" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Pulssone</label>
-        </div>
-      </div>
-      <div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--muted);margin-top:6px">
-        <label style="cursor:pointer"><input type="radio" name="heatscope" value="all" checked onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Alle</label>
-        <label style="cursor:pointer"><input type="radio" name="heatscope" value="utendors" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Utendørs</label>
-        <label style="cursor:pointer"><input type="radio" name="heatscope" value="treadmill" onchange="renderHeatmap(DashFilter.get(Store.data.sessions))"> Tredemølle</label>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;margin-top:8px">Mørkere = mer trening. Hover for detaljer · klikk for å åpne økt.</div>
-      <div id="heatmapContainer"></div>
-      <div id="heatmapStats" style="margin-top:10px;font-size:11px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap"></div>
     </div>
     <div class="card span2" id="venueCard">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -6179,190 +6139,6 @@ function renderEventLegend() {
   el.innerHTML = present.map(t => `<span style="white-space:nowrap">${EVENT_ICONS[t]} ${EVENT_TYPE_LABEL[t]}</span>`).join('');
 }
 
-function renderHeatmap(sessions) {
-  const container = document.getElementById('heatmapContainer');
-  if (!container) return;
-
-  const scope = document.querySelector('input[name="heatscope"]:checked')?.value || 'all';
-  if (scope !== 'all') sessions = sessions.filter(s => (s.løpetype || 'utendors') === scope);
-  const metric = document.querySelector('input[name="heatmetric"]:checked')?.value || 'distance';
-  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
-  const TYPE_HUE = {
-    Easy: 'rgba(108,143,255,.85)', Steady: 'rgba(75,190,180,.85)',
-    Long: 'rgba(75,190,120,.85)', Tempo: 'rgba(240,150,60,.85)',
-    Intervaller: 'rgba(224,85,85,.85)', Test: 'rgba(180,120,220,.85)', Race: 'rgba(245,166,35,.85)'
-  };
-  const ZONE_COLORS = ['rgba(75,190,120,.85)','rgba(108,143,255,.85)','rgba(240,192,80,.85)','rgba(240,150,60,.85)','rgba(224,85,85,.85)'];
-  const ZONE_LABELS = ['Z1','Z2','Z3','Z4','Z5'];
-
-  // Date range
-  const todayD = new Date(); todayD.setHours(12, 0, 0, 0);
-  let rangeStart, rangeEnd = new Date(todayD);
-  const activeYrs = [...DashFilter.years];
-  if (activeYrs.length === 1) {
-    const yr = activeYrs[0];
-    rangeStart = new Date(`${yr}-01-01T12:00:00`);
-    rangeEnd = new Date(`${yr}-12-31T12:00:00`);
-    if (rangeEnd > todayD) rangeEnd = new Date(todayD);
-  } else {
-    rangeStart = new Date(todayD);
-    rangeStart.setDate(rangeStart.getDate() - 364);
-  }
-
-  // Build daily data
-  const dailyData = {};
-  sessions.forEach(s => {
-    if (!s.dato) return;
-    if (!dailyData[s.dato]) dailyData[s.dato] = { distance: 0, load: 0, types: {}, names: [], zones: [0,0,0,0,0], ids: [] };
-    dailyData[s.dato].distance += s.distanse || 0;
-    const load = s.soner ? s.soner.reduce((sum, secs, i) => sum + (secs||0) * [1,2,3,4,5][i], 0) / 60 : 0;
-    dailyData[s.dato].load += load;
-    if (s.okttype) dailyData[s.dato].types[s.okttype] = (dailyData[s.dato].types[s.okttype] || 0) + (s.distanse || 0);
-    if (s.oktnavn) dailyData[s.dato].names.push(s.oktnavn);
-    if (s.soner) s.soner.forEach((secs, i) => { dailyData[s.dato].zones[i] += secs || 0; });
-    dailyData[s.dato].ids.push(s.id);
-  });
-
-  // Quartile thresholds for intensity levels
-  function quartiles(arr) {
-    const sorted = arr.filter(v => v > 0).sort((a, b) => a - b);
-    if (!sorted.length) return [1, 2, 3];
-    const q = i => sorted[Math.floor(sorted.length * i)] || sorted[sorted.length - 1];
-    return [q(0.25), q(0.5), q(0.75)];
-  }
-  const distQ = quartiles(Object.values(dailyData).map(d => d.distance));
-  const loadQ = quartiles(Object.values(dailyData).map(d => d.load));
-  function getLevel(val, q) {
-    if (!val) return 0;
-    if (val <= q[0]) return 1;
-    if (val <= q[1]) return 2;
-    if (val <= q[2]) return 3;
-    return 4;
-  }
-
-  // Build week columns aligned to Monday
-  const gridStart = new Date(rangeStart);
-  const sdow = gridStart.getDay() || 7;
-  if (sdow !== 1) gridStart.setDate(gridStart.getDate() - sdow + 1);
-
-  const weeks = [];
-  const d = new Date(gridStart); d.setHours(12, 0, 0, 0);
-  while (d <= rangeEnd) {
-    const week = { monthLabel: '', cells: [] };
-    if (d.getDate() <= 7) week.monthLabel = MONTH_NAMES[d.getMonth()];
-    for (let i = 0; i < 7; i++) {
-      const day = new Date(d); day.setDate(day.getDate() + i);
-      const key = localISODate(day);
-      const inRange = day >= rangeStart && day <= rangeEnd;
-      week.cells.push({ key, inRange, data: inRange ? (dailyData[key] || null) : null });
-    }
-    weeks.push(week);
-    d.setDate(d.getDate() + 7);
-  }
-
-  // Scale cells to fill container width
-  const GAP = 2;
-  const availWidth = container.offsetWidth || 900;
-  const cellSize = Math.max(10, Math.floor((availWidth - 20 - weeks.length * GAP) / weeks.length));
-  container.style.setProperty('--hm-cell', cellSize + 'px');
-  container.style.setProperty('--hm-gap', GAP + 'px');
-
-  // Render
-  const DAY_LABELS = ['M', 'T', 'O', 'T', 'F', 'L', 'S'];
-  let html = '<div class="heatmap-wrap">';
-  html += '<div class="heatmap-labels"><div class="heatmap-month-label"></div>';
-  DAY_LABELS.forEach(l => { html += `<div class="heatmap-day-label">${l}</div>`; });
-  html += '</div>';
-
-  weeks.forEach(week => {
-    html += `<div class="heatmap-col"><div class="heatmap-month-label">${week.monthLabel}</div>`;
-    week.cells.forEach(cell => {
-      if (!cell.inRange) { html += '<div class="heatmap-cell"></div>'; return; }
-      let attrs = `data-date="${cell.key}"`;
-      if (cell.data) {
-        const d2 = cell.data;
-        const typeNames = Object.keys(d2.types).join(', ');
-        const tipText = `${cell.key}\n${d2.distance.toFixed(1)} km${typeNames ? ' · ' + typeNames : ''}${d2.names.length ? '\n' + d2.names.join(', ') : ''}`;
-        attrs += ` data-tip="${tipText.replace(/"/g, '&quot;')}"`;
-        if (metric === 'zones') {
-          const domZone = d2.zones.reduce((best, v, i) => v > d2.zones[best] ? i : best, 0);
-          if (d2.zones[domZone] > 0) attrs += ` data-zone="${domZone + 1}"`;
-        } else if (metric === 'type') {
-          const dominant = Object.entries(d2.types).sort((a, b) => b[1] - a[1])[0]?.[0];
-          if (dominant) attrs += ` style="background:${TYPE_HUE[dominant] || getCustomTypeColor(dominant).rgba}"`;
-        } else {
-          const lv = metric === 'load' ? getLevel(d2.load, loadQ) : getLevel(d2.distance, distQ);
-          if (lv > 0) attrs += ` data-level="${lv}"`;
-        }
-      }
-      html += `<div class="heatmap-cell" ${attrs}></div>`;
-    });
-    html += '</div>';
-  });
-  html += '</div>';
-
-  // Legend for type mode
-  if (metric === 'type') {
-    const typesPresent = new Set();
-    sessions.forEach(s => { if (s.okttype) typesPresent.add(s.okttype); });
-    if (typesPresent.size) {
-      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--muted)">';
-      [...typesPresent].sort().forEach(t => {
-        const c = TYPE_HUE[t] || getCustomTypeColor(t).rgba;
-        html += `<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:${c};display:inline-block"></span>${t}</span>`;
-      });
-      html += '</div>';
-    }
-  }
-
-  // Legend for zone mode
-  if (metric === 'zones') {
-    const zonesUsed = Object.values(dailyData).some(d => d.zones.some(v => v > 0));
-    if (zonesUsed) {
-      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--muted)">';
-      ZONE_LABELS.forEach((lbl, i) => {
-        html += `<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:${ZONE_COLORS[i]};display:inline-block"></span>${lbl}</span>`;
-      });
-      html += '</div>';
-    }
-  }
-
-  container.innerHTML = html;
-
-  // Stats bar
-  const statsEl = document.getElementById('heatmapStats');
-  if (statsEl) {
-    const activeDays = Object.keys(dailyData).filter(k => {
-      const d2 = new Date(k + 'T12:00:00');
-      return d2 >= rangeStart && d2 <= rangeEnd;
-    });
-    const totalKm = activeDays.reduce((s, k) => s + dailyData[k].distance, 0);
-
-    let curStreak = 0, maxStreak = 0, run = 0, stillCurrent = true;
-    const periodEnd = rangeEnd < todayD ? rangeEnd : todayD;
-    for (let d2 = new Date(periodEnd); d2 >= rangeStart; d2.setDate(d2.getDate() - 1)) {
-      const key = localISODate(d2);
-      if (dailyData[key]) {
-        run++;
-        if (stillCurrent) curStreak = run;
-        if (run > maxStreak) maxStreak = run;
-      } else {
-        stillCurrent = false;
-        if (run > maxStreak) maxStreak = run;
-        run = 0;
-      }
-    }
-
-    const stats = [
-      `Aktive dager: ${activeDays.length}`,
-      `Totalt: ${totalKm.toFixed(1)} km`,
-      `Nåværende streak: ${curStreak} dag${curStreak !== 1 ? 'er' : ''}`,
-      `Lengste streak: ${maxStreak} dag${maxStreak !== 1 ? 'er' : ''}`
-    ];
-    statsEl.innerHTML = stats.map(s => `<span>${s}</span>`).join('');
-  }
-}
-
 // Zone-weighted load (weighted minutes) per date — shared by the PMC chart and the
 // Zone-weighted training load for ONE session, in "poeng" (zone minutes × zone weight). Single
 // definition, read by three places that must never disagree about what a week cost: `computeDailyLoad`
@@ -7656,7 +7432,7 @@ const DetailPanel = {
   },
 
   // `ctx` (optional) names the chart the click came from — see WEEK_CONTEXTS. Callers that aren't a
-  // chart (heatmap, the Ukentlig oversikt row, the "Beste uke" link) pass nothing and get the plain
+  // chart (the Ukentlig oversikt row, the "Beste uke" link) pass nothing and get the plain
   // panel exactly as before.
   openWeek(isoWk, allSessions, ctx) {
     const weekSessions = allSessions.filter(s => (s.uke || isoWeek(s.dato)) === isoWk);
@@ -8300,6 +8076,30 @@ function renderWeeklyDistChart(sessions) {
   const distKeys = Object.keys(distMap).sort().slice(distGroupBy === 'week' ? -26 : -12);
   const fmtDistKey = k => distGroupBy === 'week' ? fmtWeekLabel(k) : `${NO_MTHS[+k.slice(5,7)-1]} '${k.slice(2,4)}`;
   document.getElementById('weeklyDistTitle').textContent = distGroupBy === 'week' ? 'Ukentlig distanse (km)' : 'Månedlig distanse (km)';
+
+  // Mål km overlay — the per-session `malDistanse` summed per week, drawn as a dashed line over the
+  // bars. This used to be its own "Plan vs faktisk" card, whose bars were the SAME weekly kilometres
+  // this chart already plots; only the target line was unique, so it lives here as an opt-in instead
+  // of a second copy of the volume chart.
+  //
+  // ⚠️ WEEK MODE ONLY, and that is a correctness rule, not a preference. Only weeks that carry a
+  // target contribute one, so a month where 2 of 4 weeks were planned sums to a half-size target
+  // while the bar shows the full month's kilometres — it would read as "wildly over plan" when it
+  // is really missing data. The checkbox is hidden in Måned mode rather than lying.
+  const targetWrap = document.getElementById('distTargetWrap');
+  const targetBox = document.getElementById('distShowTarget');
+  const targetMap = {};
+  if (distGroupBy === 'week') {
+    sessions.forEach(s => {
+      if (!s.malDistanse) return;
+      const wk = s.uke || isoWeek(s.dato);
+      targetMap[wk] = (targetMap[wk] || 0) + s.malDistanse;
+    });
+  }
+  const hasTargets = Object.keys(targetMap).length > 0;
+  targetWrap.style.display = hasTargets ? 'flex' : 'none';   // nothing to offer without targets
+  const showTarget = hasTargets && targetBox.checked;
+
   destroyChart('weeklyDist');
   showChartEmpty('chartWeeklyDist', !distKeys.length);
   if (distKeys.length) {
@@ -8309,10 +8109,21 @@ function renderWeeklyDistChart(sessions) {
         _rawLabels: distKeys,
         _labelKind: distGroupBy === 'week' ? 'week' : 'month',   // event markers can't infer this
         labels: distKeys.map(fmtDistKey),
-        datasets:[{ data: distKeys.map(k => distMap[k].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4 }]
+        datasets:[
+          { label:'Faktisk km', data: distKeys.map(k => distMap[k].toFixed(2)), backgroundColor: 'rgba(108,143,255,.7)', borderRadius:4, order:2 },
+          ...(showTarget ? [{
+            type:'line', label:'Mål km',
+            // null, not 0, on a week with no target — Chart.js draws a GAP, which reads as "nothing
+            // was planned". A zero would draw a line to the floor and look like a missed week.
+            data: distKeys.map(k => targetMap[k] != null ? +targetMap[k].toFixed(2) : null),
+            borderColor:'rgba(255,255,255,.4)', backgroundColor:'transparent',
+            pointBackgroundColor:'rgba(255,255,255,.6)', pointRadius:4,
+            borderDash:[4,3], tension:0, spanGaps:false, order:1
+          }] : [])
+        ]
       },
       options:{
-        plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+        plugins:{ legend:{display:showTarget, labels:{color:'#e8eaf0', boxWidth:12}}, tooltip:{ callbacks:{
           title: items => fmtDistKey(distKeys[items[0].dataIndex]),
           label: () => null,
           afterBody: items => {
@@ -8321,6 +8132,8 @@ function renderWeeklyDistChart(sessions) {
             const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
             if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
             if (d.hrCount)   lines.push(`HR: ${Math.round(d.hrSum/d.hrCount)}`);
+            const t = targetMap[distKeys[items[0].dataIndex]];
+            if (showTarget && t) lines.push(`Mål: ${t.toFixed(1)} km · ${Math.round(d.km / t * 100)}% av mål`);
             return lines;
           }
         }}},
@@ -8900,75 +8713,6 @@ function renderDashboard() {
 
   renderPaceWeekChart(sessions);
 
-  // Plan vs faktisk
-  const planWeekMap = {};
-  sessions.filter(s => s.malDistanse).forEach(s => {
-    const wk = s.uke || isoWeek(s.dato);
-    if (!planWeekMap[wk]) planWeekMap[wk] = { actual: 0, target: 0 };
-    planWeekMap[wk].actual += s.distanse || 0;
-    planWeekMap[wk].target += s.malDistanse;
-  });
-  const planWeeks = Object.keys(planWeekMap).sort().slice(-26);
-  document.getElementById('planActualCard').style.display = planWeeks.length ? '' : 'none';
-  if (planWeeks.length) {
-    destroyChart('planActual');
-    const planBarColors = planWeeks.map(wk => {
-      const pct = planWeekMap[wk].actual / planWeekMap[wk].target;
-      return pct >= 1.05 ? 'rgba(108,143,255,.85)'
-           : pct >= 1.0  ? 'rgba(75,190,120,.85)'
-           : pct >= 0.8  ? 'rgba(240,192,80,.85)'
-           :               'rgba(224,85,85,.85)';
-    });
-    Charts.planActual = new Chart(document.getElementById('chartPlanActual'), {
-      type: 'bar',
-      data: {
-        _rawLabels: planWeeks,
-        labels: planWeeks.map(fmtWeekLabel),
-        datasets: [
-          {
-            label: 'Faktisk km',
-            data: planWeeks.map(wk => +planWeekMap[wk].actual.toFixed(2)),
-            backgroundColor: planBarColors,
-            borderRadius: 4,
-            order: 2
-          },
-          {
-            type: 'line',
-            label: 'Mål km',
-            data: planWeeks.map(wk => +planWeekMap[wk].target.toFixed(2)),
-            borderColor: 'rgba(255,255,255,.4)',
-            backgroundColor: 'transparent',
-            pointBackgroundColor: 'rgba(255,255,255,.6)',
-            pointRadius: 4,
-            borderDash: [4, 3],
-            tension: 0,
-            order: 1
-          }
-        ]
-      },
-      options: {
-        plugins: {
-          legend: { labels: { color: '#e8eaf0', boxWidth: 12 } },
-          tooltip: {
-            callbacks: {
-              afterBody: items => {
-                const wk = planWeeks[items[0].dataIndex];
-                const { actual, target } = planWeekMap[wk];
-                return `${Math.round(actual / target * 100)}% av mål`;
-              }
-            }
-          }
-        },
-        scales: {
-          y: { grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'km', color: '#7880a0' } },
-          x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } }
-        },
-        responsive: true,
-        maintainAspectRatio: false
-      }
-    });
-  }
-
   renderEfficiencyChart(sessions);
   renderVenueChart(sessions);
   const hasTreadmill = sessions.some(s => s.løpetype === 'treadmill');
@@ -9080,7 +8824,6 @@ function renderDashboard() {
       }).join('')}</tbody>
     </table>`;
 
-  renderHeatmap(sessions);
   renderInsights(sessions);
   renderConsistency(sessions);
   renderEventLegend();
@@ -11634,6 +11377,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Mål km overlay on the weekly distance chart (week mode only — see renderWeeklyDistChart)
+  document.getElementById('distShowTarget').addEventListener('change', () => {
+    renderWeeklyDistChart(DashFilter.get(Store.data.sessions));
+  });
+
   // Aerobic efficiency Zone 2 filter toggle
   [['aeZ2Alle','all'],['aeZ2Only','z2']].forEach(([id, val]) => {
     document.getElementById(id).addEventListener('click', () => {
@@ -11742,8 +11490,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // "Denne uken" strip → the week drill-down. No ctx: the plain panel, same as the heatmap and the
-  // Ukentlig oversikt row. Passes the unfiltered array, matching what the strip itself reads.
+  // "Denne uken" strip → the week drill-down. No ctx: the plain panel, same as the Ukentlig
+  // oversikt row. Passes the unfiltered array, matching what the strip itself reads.
   document.getElementById('weekNowCard').addEventListener('click', () =>
     DetailPanel.openWeek(isoWeek(localISODate()), Store.data.sessions));
 
@@ -11775,6 +11523,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('#zoneToggleWeek,#zoneToggleMaaned').forEach(el => el.classList.remove('active'));
     document.getElementById('zoneToggleWeek').classList.add('active');
     distGroupBy = 'week';
+    document.getElementById('distShowTarget').checked = false;
     document.querySelectorAll('#distToggleWeek,#distToggleMaaned').forEach(el => el.classList.remove('active'));
     document.getElementById('distToggleWeek').classList.add('active');
     paceGroupBy = 'week';
@@ -11823,37 +11572,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // DetailPanel close
   document.getElementById('btnDetailClose').addEventListener('click', () => DetailPanel.close());
   document.addEventListener('keydown', e => { if (e.key === 'Escape') DetailPanel.close(); });
-
-  // Heatmap: click to open session detail
-  document.getElementById('heatmapContainer').addEventListener('click', e => {
-    const cell = e.target.closest('[data-date]');
-    if (!cell || !cell.dataset.tip) return;
-    const date = cell.dataset.date;
-    const daySessions = Store.data.sessions.filter(s => s.dato === date);
-    if (!daySessions.length) return;
-    if (daySessions.length === 1) {
-      DetailPanel.openSession(daySessions[0].id);
-    } else {
-      DetailPanel.openWeek(isoWeek(date), Store.data.sessions);
-    }
-  });
-
-  // Heatmap: custom tooltip
-  const hmTip = document.getElementById('hmTooltip');
-  document.getElementById('heatmapContainer').addEventListener('mouseover', e => {
-    const cell = e.target.closest('[data-tip]');
-    if (!cell) { hmTip.style.display = 'none'; return; }
-    hmTip.textContent = cell.dataset.tip;
-    hmTip.style.display = 'block';
-  });
-  document.getElementById('heatmapContainer').addEventListener('mouseleave', () => {
-    hmTip.style.display = 'none';
-  });
-  document.getElementById('heatmapContainer').addEventListener('mousemove', e => {
-    if (hmTip.style.display === 'none') return;
-    hmTip.style.left = Math.min(e.clientX + 12, window.innerWidth - 250) + 'px';
-    hmTip.style.top = (e.clientY + 12) + 'px';
-  });
 
   buildLandDatalist();
 
@@ -11930,7 +11648,6 @@ async function loadAppVersion() {
   } catch {}
 }
 </script>
-<div id="hmTooltip"></div>
 <div id="evtTooltip"></div>
 <button id="scrollTopBtn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Til toppen">↑</button>
 <div id="appVersionFooter" style="text-align:center;font-size:11px;color:var(--muted);padding:16px 0;opacity:0.6"></div>

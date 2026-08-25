@@ -103,3 +103,6 @@ jobs:
 
       - name: Shoe wear thresholds
         run: python tests/test_shoes.py
+
+      - name: Mål km overlay + removed chart cards
+        run: python tests/test_charts.py
