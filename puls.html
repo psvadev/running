@@ -1305,16 +1305,19 @@
 
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Tid og tempo</div>
-    <p class="tc-help">To spørsmål som er samme regnestykke hver sin vei: <b>hva blir tiden</b> om du holder et tempo, og <b>hvilket tempo</b> må til for å nå en tid. Velg modus, så følger resten.</p>
+    <p class="tc-help">Distanse, tempo og tid henger sammen — oppgi to av dem, så følger den tredje: <b>hva blir tiden</b> om du holder et tempo, <b>hvilket tempo</b> må til for å nå en tid, og <b>hvor langt</b> du rekker på tiden du har. Velg modus, så følger resten.</p>
 
     <div class="tc-modes" id="tcModes">
       <button type="button" class="tc-mode tc-on" data-mode="finish">Sluttid</button>
       <button type="button" class="tc-mode" data-mode="target">Måltempo</button>
+      <button type="button" class="tc-mode" data-mode="dist">Distanse</button>
     </div>
 
-    <!-- Distance is shared across both modes and deliberately survives a mode switch: you are usually
-         asking both questions about the SAME race. -->
-    <div class="pc-io">
+    <!-- Distance is an INPUT in two modes and the ANSWER in the third, so this row hides in Distanse
+         mode rather than turning readonly — a field you can still click into but not change reads as
+         broken. Between the two modes that do take it, it deliberately survives the switch: you are
+         usually asking both questions about the SAME race. -->
+    <div class="pc-io" id="tcDistIn">
       <label class="pc-field">📏 Distanse
         <input type="text" id="tcDist" placeholder="10" inputmode="decimal" autocomplete="off">
         <span class="pc-unit">km</span>
@@ -1334,8 +1337,11 @@
       </label>
     </div>
 
+    <!-- The same field is a GOAL in Måltempo and time you actually have in Distanse, so the label is
+         set per mode. Not 🎯 in both: a goal you are aiming at and a budget you are spending read as
+         different questions even though the arithmetic is identical. -->
     <div class="pc-io" id="tcTargetIn" style="display:none">
-      <label class="pc-field">🎯 Tidsmål
+      <label class="pc-field"><span id="tcTimeLabel">🎯 Tidsmål</span>
         <input type="text" id="tcTime" placeholder="29:30" inputmode="text" maxlength="7" autocomplete="off">
       </label>
     </div>
@@ -9786,47 +9792,69 @@ const TimeCalc = {
 
   dist() { return parseDec(document.getElementById('tcDist').value); },
 
+  // Distance, pace and time are one equation; a mode names which of the three you are solving for and
+  // therefore which two you type. Every row is driven off that single fact rather than off a list of
+  // mode names per row, so a fourth mode could not leave one row wired for three.
   setMode(mode) {
     this.mode = mode;
     document.querySelectorAll('#tcModes .tc-mode').forEach(b =>
       b.classList.toggle('tc-on', b.dataset.mode === mode));
-    document.getElementById('tcFinishIn').style.display = mode === 'finish' ? 'flex' : 'none';
-    document.getElementById('tcTargetIn').style.display = mode === 'target' ? 'flex' : 'none';
+    const shows = { finish: 'time', target: 'pace', dist: 'km' }[mode];  // what this mode ANSWERS
+    document.getElementById('tcDistIn').style.display    = shows === 'km'   ? 'none' : 'flex';
+    document.getElementById('tcDistChips').style.display = shows === 'km'   ? 'none' : 'flex';
+    document.getElementById('tcFinishIn').style.display  = shows === 'pace' ? 'none' : 'flex';
+    document.getElementById('tcTargetIn').style.display  = shows === 'time' ? 'none' : 'flex';
+    // Goal chips are round FINISH times for a known distance. In Distanse mode the distance is the
+    // unknown, so "Sub-30" would be bracketing the number you just typed — noise, not a shortcut.
     document.getElementById('tcGoalChips').style.display = mode === 'target' ? 'flex' : 'none';
+    document.getElementById('tcTimeLabel').textContent = mode === 'target' ? '🎯 Tidsmål' : '⌛ Tid';
     this.render();
   },
 
   render() {
-    const km  = this.dist();
     const out = document.getElementById('tcOut');
     const wrap = document.getElementById('tcSplitsWrap');
 
-    // Which distance chip is live — exact match only, so a hand-typed 7 km highlights nothing
-    // rather than pretending to be the nearest preset.
-    document.querySelectorAll('#tcDistChips .tc-chip').forEach(c =>
-      c.classList.toggle('tc-chip-on', Math.abs(parseDec(c.dataset.km) - km) < 1e-9));
-
-    let paceSec = 0;
+    // Two of the three are read, the third is solved for. Only the mode decides which.
+    let km = this.dist(), paceSec = 0;
     if (this.mode === 'finish') {
       paceSec = mmSsToSecs(document.getElementById('tcPace').value);
-    } else {
+    } else if (this.mode === 'target') {
       const target = strictHmsToSecs(document.getElementById('tcTime').value);
       if (km > 0 && target > 0) paceSec = target / km;
       this.renderGoalChips(target, km);
+    } else {
+      paceSec = mmSsToSecs(document.getElementById('tcPace').value);
+      const spent = strictHmsToSecs(document.getElementById('tcTime').value);
+      km = (paceSec > 0 && spent > 0) ? spent / paceSec : 0;
     }
+
+    // Which distance chip is live — exact match only, so a hand-typed 7 km highlights nothing rather
+    // than pretending to be the nearest preset. Runs against the typed value, never a derived one:
+    // in Distanse mode the chips are hidden anyway, and lighting one up because the answer happened
+    // to land on 5 km would claim you had picked it.
+    const typedKm = this.dist();
+    document.querySelectorAll('#tcDistChips .tc-chip').forEach(c =>
+      c.classList.toggle('tc-chip-on', Math.abs(parseDec(c.dataset.km) - typedKm) < 1e-9));
 
     if (!(km > 0) || !(paceSec > 0)) {
       out.innerHTML = `<div class="tc-stat"><span class="tc-stat-v tc-lead">–</span><span class="tc-stat-l">${
-        this.mode === 'finish' ? 'fyll inn distanse og tempo' : 'fyll inn distanse og tidsmål'}</span></div>`;
+        { finish: 'fyll inn distanse og tempo',
+          target: 'fyll inn distanse og tidsmål',
+          dist:   'fyll inn tid og tempo' }[this.mode]}</span></div>`;
       wrap.style.display = 'none';
       return;
     }
 
     const total = km * paceSec;
     const kmh   = PaceConv.fmtKmh(PaceConv.kmhFromPace(paceSec));
-    out.innerHTML = this.mode === 'finish'
-      ? statHtml(fmtDur(Math.round(total)), 'sluttid', true) + statHtml(kmh + ' km/t', 'snittfart')
-      : statHtml(secsToMmSs(Math.round(paceSec)) + ' /km', 'nødvendig tempo', true) + statHtml(kmh + ' km/t', 'snittfart');
+    // Distance drops trailing zeros the way the split labels do: 5.53 km, but 10 km — not 10.00 km.
+    // Decimal POINT, matching fmtKmh's deliberate break from the Norwegian comma.
+    out.innerHTML = (
+      this.mode === 'finish' ? statHtml(fmtDur(Math.round(total)), 'sluttid', true)
+    : this.mode === 'target' ? statHtml(secsToMmSs(Math.round(paceSec)) + ' /km', 'nødvendig tempo', true)
+    :                          statHtml((+km.toFixed(2)) + ' km', 'distanse', true)
+    ) + statHtml(kmh + ' km/t', 'snittfart');
 
     wrap.style.display = '';
     document.getElementById('tcSplits').innerHTML = this.checkpoints(km).map(d => {

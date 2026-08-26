@@ -1,4 +1,4 @@
-"""Verktøy tab — finish time, target pace and the interval calculator.  (2026-08-09)
+"""Verktøy tab — finish time, target pace, distance and the interval calculator.  (2026-08-09)
 
 Standalone — NOT part of run_all.py, which is the fast no-browser gate. Run directly:
     python tests/test_calculators.py      (needs Playwright + WebKit)
@@ -14,6 +14,7 @@ the Store-free section asserts.
 The anchors are the user's own worked examples, hand-computable end to end:
     10 km @ 6:15/km  -> 1:02:30, 9.6 km/t
     5 km in 29:30    -> 5:54/km, 10.2 km/t
+    35:00 @ 6:20/km  -> 5.53 km, 9.5 km/t
     6 x 400 m @ 5:30 -> 2:12 per drag, 2.4 km, 13:12 arbeid, 7:30 pause (FIVE), 20:42 blokk
 
 No local data file exists (see memory reference-mobile-repro) — sessions are synthesised in-page.
@@ -134,7 +135,81 @@ with sync_playwright() as b0:
     check("no target -> dash, not 0", txt(pg, "#tcOut").startswith("–"), True)
     check("splits hidden when incomplete", pg.locator("#tcSplitsWrap").is_visible(), False)
 
-    # ── 3. Intervaller ──────────────────────────────────────────────────────────────────────
+    # ── 3. Distanse ─────────────────────────────────────────────────────────────────────────
+    # The third side of the same triangle: time + pace -> how far you get. Added 2026-08-26 after
+    # "35 min at 6:20" had no home — you had to guess a distance in Sluttid and nudge it.
+    print("== Distanse ==")
+    pg.click("#tcModes .tc-mode[data-mode='dist']")
+    pg.wait_for_timeout(150)
+
+    # WHICH ROWS SHOW IS THE FEATURE, not decoration: the field you are solving for must not also be
+    # typeable, or the card silently ignores half of what you entered.
+    check("distance row hidden — it is the answer", pg.locator("#tcDistIn").is_visible(), False)
+    check("pace/speed row shown", pg.locator("#tcFinishIn").is_visible(), True)
+    check("time row shown", pg.locator("#tcTargetIn").is_visible(), True)
+    # ⚠️ The two CHIP rows are asserted on computed `display`, not is_visible(). Both can be EMPTY —
+    # renderGoalChips blanks its container whenever the inputs are incomplete — and an empty div has
+    # no box, so is_visible() answers False no matter what display says. Falsified: a break that left
+    # the goal chips on display:flex in this mode was caught by nothing until this became a style read.
+    disp = lambda sel: pg.evaluate(f"() => getComputedStyle(document.querySelector('{sel}')).display")
+    check("...and its presets with it", disp("#tcDistChips"), "none")
+    check("goal chips hidden — they bracket a FINISH time", disp("#tcGoalChips"), "none")
+    check("time is time spent, not a goal", txt(pg, "#tcTimeLabel"), "⌛ Tid")
+    check("nothing entered -> dash", txt(pg, "#tcOut").startswith("–"), True)
+    check("...naming the two fields THIS mode wants",
+          "TID OG TEMPO" in txt(pg, "#tcOut"), True)
+
+    fill(pg, "#tcTime", "35:00")
+    fill(pg, "#tcPace", "6:20")
+    check("35:00 @ 6:20 -> distance", txt(pg, "#tcOut").startswith("5.53 km"), True)
+    check("...and the speed", "9.5 km/t" in txt(pg, "#tcOut"), True)
+    # The split table closes the loop on itself: the last row must be the time you typed. If the
+    # distance were wrong, this row would disagree with the input sitting right above it.
+    check("last split lands exactly on the entered time",
+          txt(pg, "#tcSplits").endswith("5.53 km 35:00"), True)
+    check("splits still every km up to it", "5 km 31:40" in txt(pg, "#tcSplits"), True)
+
+    # A whole number must not print as 10.00 km — same trailing-zero rule the split labels use.
+    fill(pg, "#tcTime", "1:02:30")
+    fill(pg, "#tcPace", "6:15")
+    check("exact distance drops the decimals", txt(pg, "#tcOut").startswith("10 km "), True)
+
+    # THE ROUND TRIP, third direction: distance + pace -> time, fed back with the same pace, returns
+    # the original distance. Same invariant as the Måltempo round trip, rotated one side further.
+    for dist, pace in [("10", "6:15"), ("21.1", "5:30"), ("5", "4:45")]:
+        pg.click("#tcModes .tc-mode[data-mode='finish']")
+        fill(pg, "#tcDist", dist)
+        fill(pg, "#tcPace", pace)
+        got_time = txt(pg, "#tcOut").split(" ")[0]
+        pg.click("#tcModes .tc-mode[data-mode='dist']")
+        fill(pg, "#tcTime", got_time)
+        check(f"round-trip {got_time} @ {pace}", txt(pg, "#tcOut").startswith(dist + " km"), True)
+
+    # Half the input is not an answer.
+    fill(pg, "#tcTime", "")
+    check("no time -> dash, not 0", txt(pg, "#tcOut").startswith("–"), True)
+    check("splits hidden when incomplete", pg.locator("#tcSplitsWrap").is_visible(), False)
+
+    # ⚠️ A derived distance must NOT be written back into the field. It would overwrite the race
+    # distance you typed in the other two modes — which deliberately survives a mode switch — and a
+    # hand-entry field holding a computed number has no honest provenance.
+    pg.click("#tcModes .tc-mode[data-mode='finish']")
+    fill(pg, "#tcDist", "12")
+    pg.click("#tcModes .tc-mode[data-mode='dist']")
+    fill(pg, "#tcTime", "35:00")
+    fill(pg, "#tcPace", "6:20")
+    check("the answer is 5.53 km", txt(pg, "#tcOut").startswith("5.53 km"), True)
+    pg.click("#tcModes .tc-mode[data-mode='finish']")
+    pg.wait_for_timeout(150)
+    check("...but the typed 12 km is untouched", pg.input_value("#tcDist"), "12")
+
+    # Exactly one mode is active at a time.
+    for m in ["finish", "target", "dist"]:
+        pg.click(f"#tcModes .tc-mode[data-mode='{m}']")
+        pg.wait_for_timeout(100)
+        check(f"only '{m}' is lit", pg.locator("#tcModes .tc-on").count(), 1)
+
+    # ── 4. Intervaller ──────────────────────────────────────────────────────────────────────
     print("== Intervaller ==")
     fill(pg, "#ivReps", "6")
     fill(pg, "#ivVal", "400")
@@ -233,7 +308,7 @@ with sync_playwright() as b0:
     check("no page errors", errs, [])
     pg.close()
 
-    # ── 4. Store-free — the design rule, made executable ────────────────────────────────────
+    # ── 5. Store-free — the design rule, made executable ────────────────────────────────────
     print("== reads nothing from Store ==")
 
     def snapshot(seed):
@@ -252,7 +327,7 @@ with sync_playwright() as b0:
     check("output identical with and without sessions", empty, seeded)
     check("...and it was not simply blank", empty[0].startswith("1:02:30"), True)
 
-    # ── 5. Decimal point, never a comma ─────────────────────────────────────────────────────
+    # ── 6. Decimal point, never a comma ─────────────────────────────────────────────────────
     print("== decimal point on output, either separator on input ==")
     pg = b.new_page(viewport={"width": 1280, "height": 900})
     boot(pg)
@@ -267,7 +342,7 @@ with sync_playwright() as b0:
     check("no comma in the interval hero", "," in txt(pg, "#ivHero"), False)
     pg.close()
 
-    # ── 6. Mobile, 402 px ───────────────────────────────────────────────────────────────────
+    # ── 7. Mobile, 402 px ───────────────────────────────────────────────────────────────────
     print("== mobile 402px ==")
     pg = b.new_page(viewport={"width": 402, "height": 850})
     merr = []
