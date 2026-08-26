@@ -21,7 +21,7 @@ all four bullet colours are exercised together.
 
 No local data file exists; every session is synthesised in-page.
 """
-import pathlib, sys
+import pathlib, sys, tempfile
 sys.stdout.reconfigure(encoding="utf-8")
 from playwright.sync_api import sync_playwright
 
@@ -128,6 +128,34 @@ with sync_playwright() as pw:
     pg.click("#btnDashReset"); pg.wait_for_timeout(600)
     check("checkbox cleared", pg.evaluate("() => document.getElementById('distShowTarget').checked"), False)
     check("back to one dataset", pg.evaluate("() => Charts.weeklyDist.data.datasets.length"), 1)
+
+    print("== the overlay is forced off on load ==")
+    # NOT tested by "tick it, reload, assert false" — that passes VACUOUSLY here, because WebKit
+    # does not restore form state in the first place. Chromium does, which is why the box survived
+    # F5 in Edge but nowhere else. So prove the forcing directly: load a copy whose markup already
+    # says `checked` and assert init cleared it. Without the fix this stays ticked and the overlay
+    # renders unasked.
+    src = pathlib.Path(__file__).resolve().parent.parent / "puls.html"
+    html = src.read_text(encoding="utf-8")
+    marker = '<input type="checkbox" id="distShowTarget">'
+    assert html.count(marker) == 1, "checkbox markup moved — update this test"
+    # Written to the SYSTEM temp dir, never beside puls.html: a run killed between write and unlink
+    # would otherwise leave a stray .html in a public repo folder. puls.html is self-contained, so a
+    # copy runs correctly from anywhere.
+    tmp = pathlib.Path(tempfile.gettempdir()) / "_charts_checked_probe.html"
+    tmp.write_text(html.replace(marker, marker[:-1] + " checked>"), encoding="utf-8")
+    try:
+        pg.goto(tmp.as_uri()); pg.wait_for_timeout(800)
+        pg.evaluate("() => switchTab('dash')"); pg.wait_for_timeout(600)
+        check("a pre-checked box is cleared by init",
+              pg.evaluate("() => document.getElementById('distShowTarget').checked"), False)
+        check("...so no overlay dataset is drawn unasked",
+              pg.evaluate("() => Charts.weeklyDist.data.datasets.length"), 1)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    pg.goto(APP); pg.wait_for_timeout(800)
+    pg.evaluate("() => switchTab('dash')"); pg.wait_for_timeout(600)
 
     print("== 402 px ==")
     # POLL, don't sleep-and-hope. A fixed wait here failed ~1 run in 4: the Nullstill above kicks off

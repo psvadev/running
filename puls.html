@@ -11392,8 +11392,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Mål km overlay on the weekly distance chart (week mode only — see renderWeeklyDistChart)
-  document.getElementById('distShowTarget').addEventListener('change', () => {
+  // Mål km overlay on the weekly distance chart (week mode only — see renderWeeklyDistChart).
+  // Forced off on load. This is the only chart control whose state lives in the DOM rather than in
+  // a JS variable (distGroupBy, paceGroupBy, the metric toggles all reset by construction), and
+  // Chromium RESTORES form-control state across a soft reload — so without this it survived F5 in
+  // Edge/Chrome but not in WebKit, not in a new tab, and not after Ctrl+F5. Browser-dependent is
+  // worse than either answer; the overlay is opt-in, so it starts quiet everywhere.
+  const distTargetBox = document.getElementById('distShowTarget');
+  distTargetBox.checked = false;
+  distTargetBox.addEventListener('change', () => {
     renderWeeklyDistChart(DashFilter.get(Store.data.sessions));
   });
 
