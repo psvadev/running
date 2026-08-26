@@ -264,6 +264,21 @@ with sync_playwright() as pw:
     add('marathon', '4:00:00')   # 5:41/km — slow enough to be real, fast enough to be a goal
     check("a plausible marathon goal is accepted", 'marathon' in goals(), True)
 
+    # ⚠️ A BARE NUMBER IS MINUTES here too (2026-08-26). Before, this stored 45 SECONDS — and the
+    # world-record floor directly above then refused it, so a perfectly sensible "45" for a 10K was
+    # answered with an error about beating the world record. Same parser as the Verktøy Tid field,
+    # same fix; this was the second surface it was wrong on, found by checking the callers rather
+    # than by anyone hitting it.
+    add('10k', '45')
+    check("a bare 45 is forty-five minutes", goals().get('10k'), 2700)
+    check("...and renders padded like every other goal",
+          '0:45:00' in pg.locator('#distGoalList').inner_text(), True)
+    check("...with no world-record complaint", pg.locator('#distGoalMsg').inner_text().strip(), '')
+    pg.click('[data-del-dgoal="10k"]')
+    pg.wait_for_timeout(120)
+    check("...removed again, leaving the rest of this suite untouched",
+          '10k' in goals(), False)
+
     # ── 6. Edit and delete ─────────────────────────────────────────────────────────────────
     print("== edit in place, and delete ==")
     pg.click('[data-edit-dgoal="5k"]')

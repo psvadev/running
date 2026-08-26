@@ -1726,10 +1726,20 @@ function hmsToSecs(str) {
 // purpose: it also parses the form's zone and Varighet inputs and a Strava import path, so tightening
 // it would change the SAVE path — a different blast radius, and a separate decision from rejecting a
 // typo in a calculator. Same rule as mmSsToSecs: a segment after the first must be a real 0-59.
+//
+// A BARE NUMBER MEANS MINUTES, matching mmSsToSecs — reported from real use: typing 45 in Tid on the
+// Verktøy card gave 45 SECONDS, while 6 in the Tempo field directly above it had always meant 6:00.
+// Two time fields on one card disagreeing about the same keystroke. Minutes is also the only sane
+// reading at both call sites — nobody enters a 45-second run duration or a 45-second goal for 10 km
+// (the goal path answered that one with a "faster than the world record" error). It makes typing
+// stabler too: 45 and 45:00 now agree, so the live recalculation no longer lurches through a wrong
+// answer on the way to the right one. `hmsToSecs` keeps reading a bare number as seconds — the save
+// path is not being redefined here.
 function strictHmsToSecs(str) {
   if (!str) return 0;
   const parts = String(str).trim().split(':');
   if (parts.slice(1).some(p => !/^\d{1,2}$/.test(p) || +p >= 60)) return 0;
+  if (parts.length === 1) return mmSsToSecs(str);
   return hmsToSecs(str);
 }
 

@@ -185,6 +185,18 @@ with sync_playwright() as b0:
         fill(pg, "#tcTime", got_time)
         check(f"round-trip {got_time} @ {pace}", txt(pg, "#tcOut").startswith(dist + " km"), True)
 
+    # ⚠️ TYPED AS A BARE NUMBER — his exact report: "when I first typed 45 I expected minutes but only
+    # seconds". Asserted through the FIELD, not just the parser, because the parser is shared and a
+    # unit test on it would not prove this card reads it.
+    pg.click("#tcModes .tc-mode[data-mode='dist']")
+    fill(pg, "#tcTime", "45")
+    fill(pg, "#tcPace", "7:20")
+    check("45 means 45 minutes, not 45 seconds", txt(pg, "#tcOut").startswith("6.14 km"), True)
+    check("...and 45:00 is the same answer, so typing it out changes nothing",
+          (fill(pg, "#tcTime", "45:00"), txt(pg, "#tcOut").startswith("6.14 km"))[1], True)
+    check("...while 0:45 is still forty-five seconds",
+          (fill(pg, "#tcTime", "0:45"), txt(pg, "#tcOut").startswith("0.1 km"))[1], True)
+
     # Half the input is not an answer.
     fill(pg, "#tcTime", "")
     check("no time -> dash, not 0", txt(pg, "#tcOut").startswith("–"), True)
@@ -378,11 +390,26 @@ with sync_playwright() as b0:
     for src, want in [("6:15", 375), ("6", 360), ("0:45", 45),
                       ("10:84", 0), ("10:9999", 0), ("10:60", 0), ("abc", 0), ("6:-5", 0)]:
         check(f"mmSsToSecs({src!r})", pg.evaluate(f"() => mmSsToSecs({src!r})"), want)
-    for src, want in [("29:30", 1770), ("1:45:00", 6300), ("29:99", 0), ("1:75:00", 0)]:
+    # ⚠️ A BARE NUMBER IS MINUTES, and must agree with mmSsToSecs('6') == 360 pinned just above.
+    # Reported from real use 2026-08-26: typing 45 in Tid meant 45 SECONDS while 6 in the Tempo field
+    # directly above it meant 6:00. 45 and 45:00 now agree, which also means the live recalculation
+    # no longer passes through a wrong answer while you finish typing.
+    for src, want in [("29:30", 1770), ("1:45:00", 6300), ("29:99", 0), ("1:75:00", 0),
+                      ("45", 2700), ("45:00", 2700), ("0:45", 45), ("1", 60), ("0", 0)]:
         check(f"strictHmsToSecs({src!r})", pg.evaluate(f"() => strictHmsToSecs({src!r})"), want)
+    check("bare number agrees across the card's two time parsers",
+          pg.evaluate("() => strictHmsToSecs('45') === mmSsToSecs('45')"), True)
     # The SHARED parser must stay lenient: it also reads the form's zone/Varighet fields and a Strava
     # import path, so tightening it would change what gets SAVED. Pinned so that stays a deliberate act.
     check("hmsToSecs itself is untouched", pg.evaluate("() => hmsToSecs('29:99')"), 1839)
+    # ⚠️ AND the bare-number rule must NOT have leaked into it. Falsified: moving the minutes reading
+    # down into hmsToSecs passed 135/135 here and 59/59 in test_goals, because the only pin above
+    # covers the two-part case. A bare number is the whole Varighet field — reading it as minutes
+    # would silently multiply a saved session duration by 60.
+    check("...and a bare number is still SECONDS there — the save path is not redefined",
+          pg.evaluate("() => hmsToSecs('45')"), 45)
+    check("...so the two parsers deliberately DISAGREE on a bare number",
+          pg.evaluate("() => hmsToSecs('45') !== strictHmsToSecs('45')"), True)
     fill(pg, "#pcPace", "10:84")
     check("invalid pace clears the speed field", pg.evaluate("() => document.getElementById('pcKmh').value"), "")
     fill(pg, "#pcPace", "6:15")
