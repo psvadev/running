@@ -924,6 +924,11 @@
       <div id="elevSubtitle" style="font-size:11px;color:var(--muted);margin-bottom:12px">Siste 26 uker med data · kun utendørsløp 🏃</div>
       <div class="chart-wrap"><canvas id="chartElev"></canvas></div>
     </div>
+    <div class="card span2" id="yearCompCard">
+      <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
+      <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
+      <div id="yearCompTable"></div>
+    </div>
     <div class="card span2" id="contTrendCard">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px;flex-wrap:wrap">
         <div class="card-title" id="contTrendTitle" style="margin-bottom:0">Run/walk ratio</div>
@@ -957,11 +962,6 @@
         </div>
       </div>
       <div class="chart-wrap"><canvas id="chartAeroTrend"></canvas></div>
-    </div>
-    <div class="card span2" id="yearCompCard">
-      <div class="card-title">Årssammenligning — kumulativ distanse (km)</div>
-      <div class="chart-wrap" style="height:260px"><canvas id="chartYearComp"></canvas></div>
-      <div id="yearCompTable"></div>
     </div>
     <div class="card span2">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap">
@@ -8117,7 +8117,22 @@ function renderWeeklyDistChart(sessions) {
             // was planned". A zero would draw a line to the floor and look like a missed week.
             data: distKeys.map(k => targetMap[k] != null ? +targetMap[k].toFixed(2) : null),
             borderColor:'rgba(255,255,255,.4)', backgroundColor:'transparent',
-            pointBackgroundColor:'rgba(255,255,255,.6)', pointRadius:4,
+            // The verdict lives on the BULLETS, not the bars. Colouring the bars would collide with
+            // this chart's own meaning — its default bar is already this blue, so an untargeted week
+            // would look identical to one that beat its target, and untargeted weeks are most of the
+            // history. A point only exists where a target does, so there is nothing to misread.
+            pointBackgroundColor: distKeys.map(k => {
+              const t = targetMap[k];
+              if (t == null) return 'transparent';
+              const pct = distMap[k] / t;
+              return pct >= 1.05 ? 'rgba(108,143,255,1)'    // over
+                   : pct >= 1.0  ? 'rgba(75,190,120,1)'     // reached
+                   : pct >= 0.8  ? 'rgba(240,192,80,1)'     // near
+                   :               'rgba(224,85,85,1)';     // under
+            }),
+            // A light rim on every bullet: when a week is OVER target the point sits below the bar
+            // top, i.e. on top of the blue bar, where an unbordered blue fill would vanish.
+            pointBorderColor:'#e8eaf0', pointBorderWidth:1, pointRadius:4,
             borderDash:[4,3], tension:0, spanGaps:false, order:1
           }] : [])
         ]

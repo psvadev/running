@@ -47,9 +47,11 @@ SEED = """() => {
   });
   localStorage.setItem('lpl_cache', JSON.stringify({
     sessions:[
-      run('a','2026-08-03','2026-32',10,12), run('b','2026-08-05','2026-32',8,8),
-      run('c','2026-08-10','2026-33',15,12),
-      run('d','2026-08-17','2026-34',9,null),
+      run('a','2026-08-03','2026-32',10,12), run('b','2026-08-05','2026-32',8,8),  // 18/20 = 90%  near
+      run('c','2026-08-10','2026-33',15,12),                                       // 15/12 = 125% over
+      run('d','2026-08-17','2026-34',9,null),                                      // no target at all
+      run('e','2026-08-24','2026-35',10,10),                                       // 10/10 = 100% reached
+      run('f','2026-08-31','2026-36',5,10),                                        //  5/10 = 50%  under
     ],
     shoes:[], shoeDefaults:{}, goals:{}, events:[], plannedSessions:[],
     settings:{zones:[]}, lastUpdated:'' }));
@@ -95,7 +97,20 @@ with sync_playwright() as pw:
     check("wk32 target = 12+8 = 20", ds[1]["d"][0], 20)
     check("wk33 target = 12", ds[1]["d"][1], 12)
     check("⚠️ untargeted week is null (a GAP), not 0", ds[1]["d"][2], None)
-    check("actual bars unchanged", ds[0]["d"], ["18.00", "15.00", "9.00"])
+    check("actual bars unchanged", ds[0]["d"], ["18.00", "15.00", "9.00", "10.00", "5.00"])
+
+    # The verdict is carried by the BULLETS. Bars stay uniform — colouring them would collide with
+    # this chart's default blue and make an untargeted week look like one that beat its target.
+    pts = pg.evaluate("() => Charts.weeklyDist.data.datasets[1].pointBackgroundColor")
+    check("90 % → amber (near)", pts[0], "rgba(240,192,80,1)")
+    check("125 % → blue (over)", pts[1], "rgba(108,143,255,1)")
+    check("⚠️ no target → transparent bullet, not a coloured verdict", pts[2], "transparent")
+    check("100 % → green (reached)", pts[3], "rgba(75,190,120,1)")
+    check("50 % → red (under)", pts[4], "rgba(224,85,85,1)")
+    check("every bullet gets a rim so 'over' stays visible on the bar",
+          pg.evaluate("() => Charts.weeklyDist.data.datasets[1].pointBorderColor"), "#e8eaf0")
+    check("bars are still one uniform colour",
+          pg.evaluate("() => typeof Charts.weeklyDist.data.datasets[0].backgroundColor"), "string")
     check("legend shown only with the overlay",
           pg.evaluate("() => Charts.weeklyDist.options.plugins.legend.display"), True)
 
@@ -114,9 +129,20 @@ with sync_playwright() as pw:
     check("back to one dataset", pg.evaluate("() => Charts.weeklyDist.data.datasets.length"), 1)
 
     print("== 402 px ==")
-    pg.set_viewport_size({"width": 402, "height": 900}); pg.wait_for_timeout(500)
-    check("no horizontal overflow",
-          pg.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1"), True)
+    # POLL, don't sleep-and-hope. A fixed wait here failed ~1 run in 4: the Nullstill above kicks off
+    # a full renderDashboard, and Chart.js canvases can still be mid-resize when the viewport changes,
+    # so the page transiently measures wider than the viewport. Probed it — the steady state is clean
+    # at every sample from 250 ms on, and the widest element (#weeklyTable, 450 px) lives inside its
+    # own overflow-x:auto card, so it never pushes the page.
+    # This still fails on a REAL overflow: that never settles, so the loop just runs out.
+    pg.set_viewport_size({"width": 402, "height": 900})
+    fits = False
+    for _ in range(20):
+        pg.wait_for_timeout(150)
+        if pg.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1"):
+            fits = True
+            break
+    check("no horizontal overflow (settled)", fits, True)
 
     check("no page errors", errs, [])
     b.close()
