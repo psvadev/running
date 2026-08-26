@@ -56,6 +56,19 @@ jobs:
           }
           Write-Host "OK - all $((Get-ChildItem tests/test_*.py).Count) suites have a run step."
 
+          # And no suite may hardcode an absolute path. test_charts.py was promoted from a scratch
+          # probe that opened "c:\temp\GitHub\running\puls.html" — valid on the author's machine, absent
+          # on this runner, so it died in 1s while passing locally every time. The lookbehind keeps
+          # "https://" from matching. Same spirit as the check above: fail here, before the WebKit
+          # install, rather than 2 minutes in with a cryptic navigation error.
+          $abs = @(Get-ChildItem tests/test_*.py | Where-Object {
+            (Get-Content $_.FullName -Raw) -match '(?<![A-Za-z])[A-Za-z]:[\\/]' } | ForEach-Object { $_.Name })
+          if ($abs.Count) {
+            Write-Host "::error::Suite(s) hardcoding an absolute path: $($abs -join ', '). Derive it from __file__, like every other suite."
+            exit 1
+          }
+          Write-Host "OK - no suite hardcodes an absolute path."
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

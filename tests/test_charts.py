@@ -16,7 +16,8 @@ break silently and impossible to see in a screenshot:
      contribute one, so a month where 2 of 4 weeks were planned sums to a half-size target while the
      bar shows the full month — it would read as "wildly over plan" when it is really missing data.
 
-The fixture is built for rule 1: two weeks with targets and one deliberately without.
+The fixture carries one week per verdict band plus one deliberately untargeted week, so rule 1 and
+all four bullet colours are exercised together.
 
 No local data file exists; every session is synthesised in-page.
 """
@@ -24,7 +25,7 @@ import pathlib, sys
 sys.stdout.reconfigure(encoding="utf-8")
 from playwright.sync_api import sync_playwright
 
-APP = pathlib.Path(r"c:\temp\GitHub\running\puls.html").as_uri()
+APP = (pathlib.Path(__file__).resolve().parent.parent / "puls.html").as_uri()
 passed = failed = 0
 
 
