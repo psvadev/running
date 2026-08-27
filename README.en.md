@@ -90,7 +90,7 @@ A motivational travel section (grew out of "Land løpt i") living in its own tab
 
 - **Verdenskart** — an inline SVG world map (real country borders, ~120 KB of baked-in geometry, **no library and no network calls**) with every country you've run in filled green. Hover for the name; **click a lit country** for its drill-down
 - **Reisestatistikk** — stat tiles (land · verdensdeler N/6 · utenlandsøkter · utenlands totalt · lengste utenlands · nyeste land) plus a venue meta line under a hairline: Første utenlands · 🏃 Mest ute *land* · ⚙️ Mest inne *land*
-- **Land & verdensdeler** — one flag chip per country (flag, Norwegian name, all-time run count, Norway first) and a row of continent pills (Europa ✓ green / Afrika 🔒 muted …)
+- **Land & verdensdeler** — one flag chip per country (flag, Norwegian name, all-time run count, Norway first) and a row of continent pills (Europa ✓ green / Afrika 🔒 muted …). Flags are **inline SVG in the file itself**, not fetched from an image CDN: one flag request per country would tell a third party exactly which countries you have run in, every time you open the tab. Only countries actually run in are carried (the whole set is 1.6 kB) — a country without one shows the **name alone** rather than a broken image
 
 #### Reiseutmerkelser
 

@@ -881,6 +881,86 @@ with sync_playwright() as b0:
     check("no page errors", perr, [])
     pg.close()
 
+    # ── FLAGS ARE LOCAL — the privacy fix, made executable ──────────────────────────────────
+    # Until 2026-08-27 every flag was <img src="https://flagcdn.com/h24/{cc}.png">, so opening
+    # Løpeatlas told a third party your IP and the exact set of countries you had run in. In an app
+    # that is otherwise entirely local that was the only outbound thing describing the user, and
+    # travel history is the most sensitive thing this app derives.
+    print("== flags never leave the machine ==")
+    ferr, freq = [], []
+    pg = b.new_page(viewport={"width": 1100, "height": 900})
+    pg.on("pageerror", lambda e: ferr.append(str(e)))
+    # Watch EVERY http(s) request, not just flagcdn — swapping one CDN for another would sail past a
+    # check that only knew the old hostname.
+    pg.on("request", lambda r: freq.append(r.url) if r.url.startswith("http") else None)
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      const S = (id, d, land) => ({ id, dato:d, uke:'', oktnavn:'Tur', okttype:'Easy',
+        treningsplan:'Egentrening', varighet:1800, distanse:5, tempo:360,
+        soner:[0,600,600,0,0], land, lopetype:'utendors' });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions:[S('a','2026-03-02',''), S('b','2026-04-06','PH'), S('c','2026-05-11','FR'),
+                  S('d','2026-06-15','SE'), S('e','2026-07-20','JP'), S('f','2026-08-03','BR')],
+        shoes:[], goals:{}, settings:{zones:[]}, events:[], plannedSessions:[], lastUpdated:'' }));
+    }""")
+    pg.goto(APP); pg.wait_for_timeout(600)
+    freq.clear()                              # ignore page-load chatter (Chart.js CDN, version ping)
+    pg.evaluate("() => switchTab('atlas')")
+    pg.wait_for_timeout(900)
+    check("⚠️ rendering the atlas makes NO outbound request", freq, [])
+
+    imgs = pg.evaluate("""() => [...document.querySelectorAll('#panel-atlas img')]
+        .map(i => ({ data: i.src.startsWith('data:'), ok: i.complete && i.naturalWidth > 0,
+                     lazy: i.loading === 'lazy',
+                     seen: i.getBoundingClientRect().top < window.innerHeight }))""")
+    check("...and it really did render flags", len(imgs) > 0, True)
+    check("every flag is an inline data URI", all(i["data"] for i in imgs), True)
+
+    # ⚠️ A malformed SVG still produces a perfectly valid data: URI, so the URI proves nothing about
+    # whether anything DRAWS. Checked per entry, off-DOM, rather than by inspecting rendered <img>s:
+    # the first version filtered to images inside the viewport (the rest are loading="lazy" and
+    # legitimately pending), which meant an unclosed tag in the Norwegian flag sailed through because
+    # that chip happened to sit below the fold. Layout decided what got tested. This does not.
+    wellformed = pg.evaluate("""() => Object.fromEntries(Object.entries(FLAG_SVG).map(([c, s]) =>
+        [c, !new DOMParser().parseFromString(s, 'image/svg+xml').querySelector('parsererror')]))""")
+    bad = [c for c, ok in wellformed.items() if not ok]
+    check("every flag is well-formed SVG", bad, [])
+    decoded = pg.evaluate("""async () => {
+      const out = {};
+      for (const c of Object.keys(FLAG_SVG)) {
+        out[c] = await new Promise(res => {
+          const i = new Image();
+          i.onload  = () => res(i.naturalWidth > 0 && i.naturalHeight > 0);
+          i.onerror = () => res(false);
+          i.src = landFlagUrl(c);
+        });
+      }
+      return out;
+    }""")
+    check("...and every one actually decodes to pixels",
+          [c for c, ok in decoded.items() if not ok], [])
+    check("...on every entry, not just the ones on screen", len(decoded) == len(wellformed) and len(decoded) > 0, True)
+
+    known = pg.evaluate("() => Object.keys(FLAG_SVG)")
+    check("every entry is a real ISO-3166 alpha-2 code",
+          all(len(k) == 2 and k.isupper() for k in known), True)
+    for c in known:
+        u = pg.evaluate("(c) => landFlagUrl(c)", c)
+        check(f"{c} resolves to an inline SVG", bool(u and u.startswith("data:image/svg+xml,")), True)
+    # ⚠️ THE ACCEPTED TRADE-OFF. flagcdn answered for all ~250 countries; this set carries only the
+    # ones actually run in. An unlisted country must therefore fall back to its NAME, not vanish and
+    # not render a broken image — that is what makes the small set safe to ship.
+    check("an unlisted country has no flag", pg.evaluate("() => landFlagUrl('BR')"), None)
+    check("...and gibberish still returns null", pg.evaluate("() => landFlagUrl('ZZ')"), None)
+    chips = pg.evaluate("""() => [...document.querySelectorAll('.land-chip')].map(c =>
+        ({ text: c.innerText.replace(/\\s+/g, ' ').trim(), flag: !!c.querySelector('img') }))""")
+    br = [c for c in chips if c["text"].startswith("Brasil")]
+    check("...but the country is still NAMED, flagless", (len(br), br and br[0]["flag"]), (1, False))
+    check("...while a known one keeps its flag",
+          [c["flag"] for c in chips if c["text"].startswith("Norge")], [True])
+    check("no flag page errors", ferr, [])
+    pg.close()
+
     # ── HTML ESCAPING, swept rather than spot-checked ────────────────────────────────────────
     # Found by the 2026-08-27 privacy audit: `prevBlock.title` reached innerHTML raw in the block
     # comparison, while every sibling line escaped. A hand-typed block name, so self-XSS rather than a

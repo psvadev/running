@@ -2402,8 +2402,47 @@ function landName(code) {           // 'NO' → "Norge"; raw fallback text passe
   if (!/^[A-Z]{2}$/.test(code)) return code;
   try { return LandNames.nb?.of(code) || code; } catch { return code; }
 }
+// Flags are INLINE SVG, not a CDN. Until 2026-08-27 this returned
+// `https://flagcdn.com/h24/{cc}.png`, which meant every render of Løpeatlas told a third party your
+// IP and the exact set of countries you have run in — one request per country. In an app that is
+// otherwise entirely local, that was the only thing leaving the machine that said anything about you,
+// and travel history is the most sensitive thing the app derives.
+//
+// Emoji flags were the obvious alternative and are wrong: Windows Chrome and Edge render regional
+// indicator pairs as bare letters ("NO"), and Edge is the primary browser here.
+//
+// ⚠️ ONLY THE COUNTRIES THE APP ACTUALLY HAS TO DRAW ARE CARRIED, so this returns null for everything
+// else — where the CDN answered for all ~250. A deliberate trade, not an oversight: every call site
+// already handles null by showing the country NAME alone, so an unlisted country degrades to plain
+// text rather than a broken image. The whole set is ~2 KB; a broad one would have been ~40 KB of flags
+// for countries never visited. ADDING ONE IS THE JOB when a new country appears — a fresh trip is
+// exactly when the atlas is worth opening, so do not leave it nameless.
+//
+// Two groups, and the split is on purpose. NO/SE/FR/PH/JP are the countries run in. ES/IT/TH are there
+// only because `tests/make-screenshots.py` uses them: that fixture deliberately does NOT mirror real
+// travel history, since the images are public — so without these three the published atlas screenshot
+// would show three flagless chips and document the feature as broken. 509 bytes to keep the docs
+// honest without putting anyone's real movements in a public PNG.
+const FLAG_SVG = {
+  NO: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 16'><path fill='#ba0c2f' d='M0 0h22v16H0z'/><path fill='#fff' d='M6 0h4v16H6zM0 6h22v4H0z'/><path fill='#00205b' d='M7 0h2v16H7zM0 7h22v2H0z'/></svg>",
+  SE: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'><path fill='#006aa7' d='M0 0h16v10H0z'/><path fill='#fecc00' d='M5 0h2v10H5zM0 4h16v2H0z'/></svg>",
+  FR: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3 2'><path fill='#fff' d='M0 0h3v2H0z'/><path fill='#002395' d='M0 0h1v2H0z'/><path fill='#ed2939' d='M2 0h1v2H2z'/></svg>",
+  JP: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 600'><path fill='#fff' d='M0 0h900v600H0z'/><circle cx='450' cy='300' r='180' fill='#bc002d'/></svg>",
+  PH: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 450'><path fill='#0038a8' d='M0 0h900v225H0z'/><path fill='#ce1126' d='M0 225h900v225H0z'/><path fill='#fff' d='M0 0L389.7 225L0 450Z'/><g fill='#fcd116'><circle cx='150' cy='225' r='46'/><path d='M165.0 175.0L150.0 129.0L135.0 175.0ZM196.0 200.3L217.9 157.1L174.7 179.0ZM200.0 240.0L246.0 225.0L200.0 210.0ZM174.7 271.0L217.9 292.9L196.0 249.7ZM135.0 275.0L150.0 321.0L165.0 275.0ZM104.0 249.7L82.1 292.9L125.3 271.0ZM100.0 210.0L54.0 225.0L100.0 240.0ZM125.3 179.0L82.1 157.1L104.0 200.3Z'/><path d='M75.0 42.0L80.4 58.6L97.8 58.6L83.7 68.8L89.1 85.4L75.0 75.2L60.9 85.4L66.3 68.8L52.2 58.6L69.6 58.6ZM75.0 360.0L80.4 376.6L97.8 376.6L83.7 386.8L89.1 403.4L75.0 393.2L60.9 403.4L66.3 386.8L52.2 376.6L69.6 376.6ZM321.0 201.0L326.4 217.6L343.8 217.6L329.7 227.8L335.1 244.4L321.0 234.2L306.9 244.4L312.3 227.8L298.2 217.6L315.6 217.6Z'/></g></svg>",
+  // Screenshot fixture only — see the note above. Spain is the civil flag: the arms sit on the hoist
+  // and are an unreadable smudge at 16px, which is every size this app draws a flag at.
+  ES: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3 2'><path fill='#aa151b' d='M0 0h3v2H0z'/><path fill='#f1bf00' d='M0 .5h3v1H0z'/></svg>",
+  IT: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3 2'><path fill='#fff' d='M0 0h3v2H0z'/><path fill='#008c45' d='M0 0h1v2H0z'/><path fill='#cd212a' d='M2 0h1v2H2z'/></svg>",
+  TH: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 4'><path fill='#a51931' d='M0 0h6v4H0z'/><path fill='#f4f5f8' d='M0 .667h6v2.666H0z'/><path fill='#2d2a4a' d='M0 1.333h6v1.334H0z'/></svg>",
+};
+// The SVGs keep single-quoted attributes and are percent-encoded at use, so the result is safe inside
+// the double-quoted src="" every call site writes. Memoised because the atlas re-renders often and
+// this is otherwise a string rebuild per flag per render.
+const _flagUriCache = {};
 function landFlagUrl(code) {
-  return /^[A-Z]{2}$/.test(code) ? `https://flagcdn.com/h24/${code.toLowerCase()}.png` : null;
+  if (!/^[A-Z]{2}$/.test(code) || !FLAG_SVG[code]) return null;
+  return _flagUriCache[code] ||
+    (_flagUriCache[code] = 'data:image/svg+xml,' + encodeURIComponent(FLAG_SVG[code]));
 }
 // Map an IANA timezone → ISO country code. Strava's location_country is
 // deprecated (usually null), but every activity still carries a `timezone`

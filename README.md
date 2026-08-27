@@ -90,7 +90,7 @@ En motiverende reiseseksjon (vokste ut av «Land løpt i») som bor i sin egen f
 
 - **Verdenskart** — et innebygd SVG-verdenskart (ekte landegrenser, ~120 KB innbakt geometri, **uten bibliotek og uten nettverkskall**) der hvert land du har løpt i er fylt grønt. Hold over for navnet; **klikk et opplyst land** for detaljvisningen
 - **Reisestatistikk** — statistikkruter (land · verdensdeler N/6 · utenlandsøkter · utenlands totalt · lengste utenlands · nyeste land) pluss en metalinje for sted under en hårstrek: Første utenlands · 🏃 Mest ute *land* · ⚙️ Mest inne *land*
-- **Land & verdensdeler** — én flaggbrikke per land (flagg, norsk navn, antall løp gjennom tidene, Norge først) og en rad med verdensdel-knapper (Europa ✓ grønn / Afrika 🔒 dempet …)
+- **Land & verdensdeler** — én flaggbrikke per land (flagg, norsk navn, antall løp gjennom tidene, Norge først) og en rad med verdensdel-knapper (Europa ✓ grønn / Afrika 🔒 dempet …). Flaggene er **innebygde SVG-er i selve fila**, ikke hentet fra et bilde-CDN: en flaggforespørsel per land ville fortalt en tredjepart nøyaktig hvilke land du har løpt i, hver gang du åpner fanen. Bare landene du faktisk har løpt i er med (hele settet er 1,6 kB) — et land uten flagg vises med **navnet alene** i stedet for et ødelagt bilde
 
 #### Reiseutmerkelser
 
