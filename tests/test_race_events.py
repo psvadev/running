@@ -881,6 +881,95 @@ with sync_playwright() as b0:
     check("no page errors", perr, [])
     pg.close()
 
+    # ── HTML ESCAPING, swept rather than spot-checked ────────────────────────────────────────
+    # Found by the 2026-08-27 privacy audit: `prevBlock.title` reached innerHTML raw in the block
+    # comparison, while every sibling line escaped. A hand-typed block name, so self-XSS rather than a
+    # remote hole — but the origin it would run on is psvadev.github.io, which holds the Drive and
+    # Strava tokens in localStorage, and a GitHub Pages user site shares that origin with every other
+    # project published under the same account.
+    #
+    # Written as a SWEEP, not one assertion about that line. The bug was not "this template forgot a
+    # call", it was "nothing anywhere checked", so pinning the one line would leave the next omission
+    # just as invisible. The payload is an <img> with a broken src: if it is ever inserted as markup
+    # rather than text, the browser fires onerror by itself — no click, no timing, no guessing which
+    # surface renders it.
+    print("== hand-typed names are escaped everywhere they render ==")
+    xerr = []
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    pg.on("pageerror", lambda e: xerr.append(str(e)))
+    pg.on("dialog", lambda d: d.accept())
+    PAYLOAD = '<img src=x onerror="window.__xss=1">'
+    pg.goto(APP)
+    pg.evaluate("""(p) => {
+      const S = (id, d, typ, km) => ({ id, dato:d, uke:'', oktnavn:p, okttype:typ, treningsplan:'Runna',
+        varighet: km*360, distanse: km, tempo:360, soner:[0,600,600,0,0], notater:p,
+        beskrivelse:p, land:'NO', sko:p, lopetype:'utendors' });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [S('x','2026-04-06','Easy',5),  S('y','2026-04-13','Long',9),
+                   S('a','2026-06-05','Easy',5),  S('b','2026-06-12','Long',10),
+                   S('c','2026-08-06','Easy',5),  S('d','2026-08-13','Long',12)],
+        shoes: [{ name:p, startKm:0, retired:false }],
+        customSessionTypes: [p], customPlans: [p],
+        goals: { '2026': 900 }, distanceGoals: { '5k': 1500 },
+        settings: { zones: [] },
+        // ⚠️ THREE blocks, and the sessions above span the first two. The comparison panel — where the
+        // bug actually was — renders only for a block that is BOTH finished and preceded by another
+        // (`prevBlock && !isCurrent`). Two blocks where the second is still running produces no
+        // comparison at all, which is how the first version of this sweep passed with the fix
+        // reverted: it walked every tab and clicked every list, and never once reached the markup.
+        events: [
+          { id:'b0', type:'plan', title:p, date:'2026-04-01', endDate:'2026-05-15' },
+          { id:'b1', type:'plan', title:p, date:'2026-06-01', endDate:'2026-07-15' },
+          { id:'b2', type:'plan', title:p, date:'2026-08-03', endDate:'2026-10-01' },
+          { id:'r1', type:'race', title:p, date:'2026-10-01', distanceKm:10 },
+          { id:'i1', type:'illness', title:p, date:'2026-07-20', endDate:'2026-07-22' }],
+        plannedSessions: [{ id:'p1', date:'2026-08-06', okttype:'Easy', distance:5, title:p }],
+        lastUpdated:'' }));
+    }""", PAYLOAD)
+    pg.goto(APP)
+    pg.wait_for_timeout(700)
+
+    for tab in ['dash', 'log', 'atlas', 'plan', 'tools', 'settings']:
+        pg.evaluate("(t) => switchTab(t)", tab)
+        pg.wait_for_timeout(350)
+    # Every drill-down, through the real click path.
+    pg.evaluate("() => switchTab('dash')")
+    pg.wait_for_timeout(500)
+    saw_comparison = False
+    for sel in ['#weeklyTable tbody tr', '.record-card', '#blocksCard [data-block]']:
+        loc = pg.locator(sel)
+        for i in range(min(loc.count(), 4)):
+            loc.nth(i).click()
+            pg.wait_for_timeout(400)
+            # ⚠️ innerHTML, not innerText. The detail modal scrolls, and innerText returns only what
+            # is RENDERED — the comparison section sits below the fold, so innerText omitted it and
+            # this read False on the one block that had it. Same family as is_visible() on an empty
+            # div: an API that quietly answers about layout when you asked about content.
+            if "Sammenlignet med" in pg.evaluate("() => document.getElementById('detailBody').innerHTML"):
+                saw_comparison = True
+            pg.keyboard.press("Escape")
+            pg.wait_for_timeout(150)
+
+    # ⚠️ The comparison markup MUST have rendered, or everything below is vacuous. Asserted rather
+    # than assumed, twice over: the first version of this sweep clicked four lists, reached the panel
+    # through none of them, and passed cleanly with the escape fix reverted. The second clicked the
+    # LAST block — the oldest, which has nothing before it to compare against. Hence every block, and
+    # a flag, rather than an index anyone would have to keep in step with the render order.
+    check("the block comparison panel actually opened", saw_comparison, True)
+
+    check("⚠️ no injected element executed anywhere",
+          pg.evaluate("() => window.__xss || 0"), 0)
+    check("...and none was even created as markup",
+          pg.evaluate("() => document.querySelectorAll('img[onerror]').length"), 0)
+    # Proof the sweep actually met the payload — without this it would pass just as happily on a page
+    # that rendered none of the seeded names, which is the vacuous version of this whole section.
+    # innerHTML again, and escaped: a correctly-escaped payload appears as &lt;img, so THAT is the
+    # string to look for. Finding it proves the names reached the DOM and were neutralised there.
+    check("...while the payload really did reach the DOM, escaped",
+          pg.evaluate("() => document.body.innerHTML.includes('&lt;img src=x onerror=')"), True)
+    check("no page errors", xerr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))

@@ -61,8 +61,13 @@ jobs:
           # on this runner, so it died in 1s while passing locally every time. The lookbehind keeps
           # "https://" from matching. Same spirit as the check above: fail here, before the WebKit
           # install, rather than 2 minutes in with a cryptic navigation error.
+          # ⚠️ The drive letter must be preceded by a QUOTE. The looser '(?<![A-Za-z])[A-Za-z]:[\\/]'
+          # this replaces flagged the literal "Repeat the following 3x:\n" in a Runna prescription
+          # fixture — "x" + ":" + the backslash of an escape — and turned CI red over a false positive.
+          # A hardcoded path always opens with a quote, so requiring one costs nothing in coverage:
+          # both "c:\temp\..." and 'C:/Users/...' still match. Falsified both ways before committing.
           $abs = @(Get-ChildItem tests/test_*.py | Where-Object {
-            (Get-Content $_.FullName -Raw) -match '(?<![A-Za-z])[A-Za-z]:[\\/]' } | ForEach-Object { $_.Name })
+            (Get-Content $_.FullName -Raw) -match '["''][A-Za-z]:[\\/]' } | ForEach-Object { $_.Name })
           if ($abs.Count) {
             Write-Host "::error::Suite(s) hardcoding an absolute path: $($abs -join ', '). Derive it from __file__, like every other suite."
             exit 1

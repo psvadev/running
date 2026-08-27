@@ -8188,7 +8188,11 @@ const DetailPanel = {
           : []),
         { l:'konsistens', v:(consDiff>=0?'+':'')+consDiff+'%', c:consDiff>=0?'#22c55e':'#ef4444' },
       ];
-      compHtml = `<div class="dp-section-label">Sammenlignet med "${prevBlock.title}"</div>
+      // escapeHtml, like every other place a hand-typed name reaches innerHTML. A block title comes
+      // from the Hendelser form, so this was self-XSS rather than a remote hole — but the origin it
+      // would run on is psvadev.github.io, which holds the Drive and Strava tokens in localStorage,
+      // and every sibling line here already escaped. Consistency is the defence that survives edits.
+      compHtml = `<div class="dp-section-label">Sammenlignet med "${escapeHtml(prevBlock.title)}"</div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
           ${pairs.map(p=>`<div class="dp-stat">
             <div class="dpv" style="font-size:16px;color:${p.c}">${p.v}</div>
