@@ -280,7 +280,8 @@ with sync_playwright() as p:
                      .concat(cfg.eventsExtra || []);
           d.plannedSessions = (cfg.planned || []).map((p, i) => ({
             id:'pl'+i, date: p.today ? today : iso(new Date(t.getTime() + 3*86400000)),
-            okttype: p.okttype, distance: p.distance, title: p.title || '' }));
+            okttype: p.okttype, distance: p.distance, title: p.title || '',
+            estimatedSecs: p.estimatedSecs || null }));
           // Idempotent: drop any run a PREVIOUS with_plan() added before adding this call's. Without
           // this they accumulate, and a leftover matching run makes the excused case report 'done'
           // instead (matched beats excused, by design).
@@ -303,6 +304,16 @@ with sync_playwright() as p:
     check("line appears", pg.locator(".wk-now-plan").count(), 1)
     check("names type and distance", pg.locator(".wk-now-plan").inner_text(), "📋 I dag: Easy · 5 km")
 
+    # ⚠️ Runna's own duration estimate, when the .ics carried one. Shown with "~" because the source
+    # is itself rounded UP to the nearest five minutes — printing "40:00" would claim a precision the
+    # field does not have.
+    with_plan([{"today": True, "okttype": "Intervaller", "distance": 6, "estimatedSecs": 3000}])
+    check("the estimate joins the line", pg.locator(".wk-now-plan").inner_text(),
+          "📋 I dag: Intervaller · 6 km · ~50 min")
+    check("...and is absent when the import carried none",
+          "min" in (lambda: (with_plan([{"today": True, "okttype": "Easy", "distance": 5}]),
+                             pg.locator(".wk-now-plan").inner_text())[1])(), False)
+
     # a flavoured Runna name is appended; a generic one is not (plannedTitle strips it)
     with_plan([{"today": True, "okttype": "Intervaller", "distance": 8, "title": "Rolling 300s"}])
     check("flavoured title shown", "Rolling 300s" in pg.locator(".wk-now-plan").inner_text(), True)
@@ -310,10 +321,13 @@ with sync_playwright() as p:
     check("generic title not repeated", pg.locator(".wk-now-plan").inner_text(), "📋 I dag: Easy · 5 km")
 
     # logged today -> the same line answers "have I done it"
-    with_plan([{"today": True, "okttype": "Easy", "distance": 5}],
+    with_plan([{"today": True, "okttype": "Easy", "distance": 5, "estimatedSecs": 2400}],
               sessions_extra=[{"okttype": "Easy", "distance": 5.0, "varighet": 1800}])
     txt2 = pg.locator(".wk-now-plan").inner_text()
     check("done shows a tick", txt2.startswith("✓"), True)
+    # ⚠️ The estimate goes once the session is done. What it actually took is a fact on the logged
+    # session; an estimate sitting beside it invites comparing a rounded-up guess with a measurement.
+    check("...and drops the estimate", "min" in txt2, False)
     check("done is styled apart", pg.locator(".wk-now-plan-done").count(), 1)
 
     # excused by a registered Sykdom -> suppressed, same as the streak nudge

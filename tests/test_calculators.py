@@ -320,7 +320,153 @@ with sync_playwright() as b0:
     check("no page errors", errs, [])
     pg.close()
 
-    # ── 5. Store-free — the design rule, made executable ────────────────────────────────────
+    # ── 5. Fra plan — a session whose pace changes between reps ─────────────────────────────
+    # Added 2026-08-27. Enkel assumes N x one distance x one pace, so a pyramid or a progression falls
+    # outside it entirely. The text already exists (Runna writes it, the .ics carries it), so this
+    # PARSES rather than asking you to rebuild the session in a form.
+    #
+    # THE THREE ANCHORS ARE CROSS-CHECKED AGAINST RUNNA ITSELF, which is what makes them evidence
+    # rather than a snapshot of whatever the code happened to do:
+    #   pyramid   47:28 vs Runna's X-WORKOUT-ESTIMATED-DURATION 3000s (= 50:00, its own value rounded
+    #             UP to the nearest 5 min)
+    #   400m reps 39:35 vs 2400s (= 40:00), same rounding
+    #   completed 54:36 vs 55:55 actually run
+    print("== Fra plan ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    perrs = []
+    pg.on("pageerror", lambda e: perrs.append(str(e)))
+    boot(pg)
+
+    PYRAMID = ("1km warm up at a conversational pace (no faster than 6:50/km), 90s walking rest\n\n"
+               "200m at 5:05/km, 60s walking rest\n400m at 5:15/km, 90s walking rest\n"
+               "800m at 5:40/km, 90s walking rest\n1.2km at 5:50/km, 120s walking rest\n"
+               "800m at 5:40/km, 90s walking rest\n400m at 5:15/km, 90s walking rest\n"
+               "200m at 5:05/km, 60s walking rest\n\n"
+               "1km cool down at a conversational pace (or slower!)")
+
+    P = lambda t: pg.evaluate("(t) => parseWorkoutPrescription(t)", t)
+    mmss = lambda s: f"{round(s)//60}:{round(s)%60:02d}"
+
+    r = P(PYRAMID)
+    check("seven reps, expanded", len([s for s in r["segs"] if s["role"] == "work"]), 7)
+    check("arbeid", mmss(r["workSecs"]), "22:18")
+    check("pause", mmss(r["restSecs"]), "10:00")
+    check("⚠️ blokk excludes the warm-up's rest", mmss(r["blockSecs"]), "32:18")
+    check("hele økten matches Runna's own estimate", mmss(r["fullSecs"]), "47:28")
+    check("...and the block itself is exact", r["blockCertainty"], "exact")
+    check("...while the session is a floor (warm-up gives a ceiling)", r["certainty"], "atleast")
+    check("nothing left unparsed", r["unparsed"], [])
+    check("cool-down borrows the warm-up's pace, as Runna does",
+          [s["paceSec"] for s in r["segs"] if s["role"] == "cooldown"], [410])
+
+    # "N reps of:" compression, and a BAND after the target must not be read as the target.
+    r = P("1.5km warm up at a conversational pace (no faster than 7:15/km), 90s walking rest\n\n"
+          "5 reps of:\n• 400m at 5:40/km (5:30-5:50/km), 60s walking rest\n\n"
+          "1.5km cool down at a conversational pace (or slower!)")
+    check("'5 reps of:' expands to five", len([s for s in r["segs"] if s["role"] == "work"]), 5)
+    check("the band is ignored; the target is used", r["segs"][1]["paceSec"], 340)
+    check("400m repeats match Runna's estimate", mmss(r["fullSecs"]), "39:35")
+
+    # A group can hold MORE than one rep — five supersets of two, not five singles.
+    r = P("3 reps of:\n• 1km at 5:40/km, 90s walking rest\n• 400m at 5:10/km, 60s walking rest")
+    check("a superset repeats the whole body", [s["km"] for s in r["segs"]],
+          [1, 0.4, 1, 0.4, 1, 0.4])
+
+    # The other grouping form, fenced by dashes.
+    r = P("Repeat the following 3x:\n----------\n1000m at 5:30/km\n500m at 6:10/km\n----------\n\n90s walking rest")
+    check("'Repeat the following 3x:' expands too", len(r["segs"]), 6)
+    check("...and the trailing rest attaches to the last rep", r["segs"][-1]["restSec"], 90)
+
+    # ⚠️ PAST RUNS MUST NOT PRODUCE A WRONG ANSWER. A completed event is in kph, and carries a
+    # "♻️ Laps:" block of what was ACTUALLY run — including the walking rests as 15:00/km placeholder
+    # laps. Totalling those would inflate every number on the card while looking perfectly plausible.
+    COMPLETED = ("1.5km warm up at a conversational pace (no faster than 8.1kph), 90s walking rest\n\n"
+                 "200m at 10.6kph, 60s walking rest\n400m at 10.3kph, 90s walking rest\n"
+                 "800m at 9.6kph, 90s walking rest\n1.2km at 9.4kph, 120s walking rest\n"
+                 "800m at 9.6kph, 90s walking rest\n400m at 10.3kph, 90s walking rest\n"
+                 "200m at 10.6kph, 60s walking rest\n\n"
+                 "1km cool down at a conversational pace (or slower!)\n\n"
+                 "♻️ Laps:\n1.50 km @ 8:14 /km\n0.10 km @ 15:00 /km\n0.20 km @ 5:39 /km\n"
+                 "0.00 km @ 59:59 /km")
+    r = P(COMPLETED)
+    check("kph parses as well as pace", len([s for s in r["segs"] if s["role"] == "work"]), 7)
+    check("...to the same seven reps, not seven plus eighteen laps", len(r["segs"]), 9)
+    check("hele økten vs the 55:55 actually run", mmss(r["fullSecs"]), "54:36")
+    check("⚠️ no 15:00/km rest lap leaked in",
+          any(abs(s["paceSec"] - 900) < 1 for s in r["segs"] if s["paceSec"]), False)
+
+    # Prose interpolated mid-line names a SECOND pace. The first is the one to run.
+    r = P("4 reps of:\n• 400m at 5:05/km, just faster than your target pace of 5:20/km, 90s walking rest")
+    check("a second pace in the prose is ignored", r["segs"][0]["paceSec"], 305)
+
+    # Runna's own header line carries "6km" and "45m" and is not a segment.
+    r = P("Intervals • 6km • 45m - 50m\n\n200m at 5:05/km, 60s walking rest")
+    check("the header line is not parsed as distance", [s["km"] for s in r["segs"]], [0.2])
+    # ⚠️ …and it must not land in `unparsed` either. Falsified: dropping the header filter left the
+    # segment list correct — RX_DIST is anchored, so "Intervals • 6km" never matched — and the check
+    # above passed. What it actually broke was the card warning "these lines were not understood"
+    # about Runna's own title, on every paste. That warning is the mechanism that makes the parser
+    # safe to trust; crying wolf on every session is exactly how it stops being read.
+    check("...nor reported as an unrecognised line", r["unparsed"], [])
+
+    # A range as the PRIMARY target (not a band after one) has no single pace — midpoint, flagged.
+    r = P("5km race at 5:30-5:40/km")
+    check("a primary range uses the midpoint", r["segs"][0]["paceSec"], 335)
+    check("...and says the number is not exact", r["certainty"], "range")
+
+    # ⚠️ THE HONESTY CASE. Most Long runs are "8km at a conversational pace" with no pace ANYWHERE —
+    # unlike a cool-down there is no ceiling in the text to borrow. The time must not silently cover
+    # only part of the distance.
+    r = P("8km at a conversational pace\n3km at 5:50/km")
+    check("an untimeable segment is kept, not dropped", len(r["segs"]), 2)
+    check("...and reported as unknown distance", r["unknownKm"], 8)
+    check("...with the timed distance stated separately", (r["timedKm"], r["workKm"]), (3, 11))
+    check("...and the whole thing graded partial", r["certainty"], "partial")
+
+    check("strength is refused outright, not totalled as zero",
+          P("4 sets of:\n• Bodyweight Squat\n• Fire Hydrants"), None)
+    check("gibberish is refused", P("hva som helst"), None)
+    check("empty is refused", P(""), None)
+
+    # A line with a distance but nothing else is REPORTED, never dropped — a dropped rep understates
+    # the block, which is the direction that gets you off the treadmill too early.
+    r = P("200m at 5:05/km, 60s walking rest\nsomething Runna invented next year")
+    check("an unrecognised line is listed", r["unparsed"], ["something Runna invented next year"])
+
+    print("== Fra plan, on screen ==")
+    check("Enkel is the default", pg.locator("#ivEnkel").is_visible(), True)
+    check("...and Fra plan is hidden", pg.locator("#ivPlan").is_visible(), False)
+    pg.click("#ivModes .tc-mode[data-mode='plan']")
+    pg.wait_for_timeout(200)
+    check("toggling swaps them", (pg.locator("#ivEnkel").is_visible(), pg.locator("#ivPlan").is_visible()),
+          (False, True))
+    check("empty box asks, rather than showing 0", txt(pg, "#ivPlanOut").startswith("–"), True)
+
+    fill(pg, "#ivPaste", PYRAMID)
+    pg.wait_for_timeout(250)
+    check("the block leads", txt(pg, "#ivPlanOut").startswith("32:18 BLOKK"), True)
+    check("...and the session is marked approximate", "~47:28" in txt(pg, "#ivPlanOut"), True)
+    check("the treadmill setting is the headline",
+          txt(pg, "#ivPlanHero"), "Raskeste drag: 11.8 km/t · 5:05 /km")
+    segs = txt(pg, "#ivPlanSegs")
+    check("every rep is listed with its speed", "1.2 km 10.3 km/t 7:00" in segs, True)
+    check("...and the warm-up is shown as context", segs.startswith("oppv. 1 km 8.8 km/t 6:50"), True)
+    check("the floor is explained, not just marked",
+          "minimum" in txt(pg, "#ivPlanNote"), True)
+
+    # The partial case on screen: the lead stat must be true BY ITSELF. "17:30" beside "11 km" reads
+    # as a 1:35/km session to anyone who only takes in the big number.
+    fill(pg, "#ivPaste", "8km at a conversational pace\n3km at 5:50/km")
+    pg.wait_for_timeout(250)
+    check("⚠️ the lead stat names what its time actually covers",
+          "3 AV 11 KM" in txt(pg, "#ivPlanOut").upper(), True)
+    check("...and the note says which segment had no pace",
+          "conversational" in txt(pg, "#ivPlanNote"), True)
+
+    check("no page errors", perrs, [])
+    pg.close()
+
+    # ── 6. Store-free — the design rule, made executable ────────────────────────────────────
     print("== reads nothing from Store ==")
 
     def snapshot(seed):
@@ -330,8 +476,18 @@ with sync_playwright() as b0:
         p.fill("#ivReps", "6");  p.fill("#ivVal", "400")
         p.fill("#ivPace", "5:30"); p.fill("#ivRest", "90")
         p.wait_for_timeout(200)
+        # ⚠️ Read the Enkel surfaces BEFORE switching mode. Fra plan hides #ivEnkel, and inner_text on
+        # a hidden element returns "" — so capturing afterwards would compare "" to "" and report
+        # agreement for half the snapshot. This suite's whole point is that it cannot do that.
         s = (txt(p, "#tcOut"), txt(p, "#tcSplits"), txt(p, "#ivHero"), txt(p, "#ivOut"),
              txt(p, "#pcTable"))
+        assert all(s), "a Store-free snapshot went blank — the selectors moved"
+        # Fra plan too. It is the ONE tool whose input the app also stores, so it is the one most
+        # likely to acquire a Store read by accident — pasting must stay the only way in.
+        p.click("#ivModes .tc-mode[data-mode='plan']")
+        p.fill("#ivPaste", "200m at 5:05/km, 60s walking rest\n400m at 5:15/km, 90s walking rest")
+        p.wait_for_timeout(250)
+        s += (txt(p, "#ivPlanOut"), txt(p, "#ivPlanSegs"), txt(p, "#ivPlanHero"))
         p.close()
         return s
 
@@ -339,7 +495,7 @@ with sync_playwright() as b0:
     check("output identical with and without sessions", empty, seeded)
     check("...and it was not simply blank", empty[0].startswith("1:02:30"), True)
 
-    # ── 6. Decimal point, never a comma ─────────────────────────────────────────────────────
+    # ── 7. Decimal point, never a comma ─────────────────────────────────────────────────────
     print("== decimal point on output, either separator on input ==")
     pg = b.new_page(viewport={"width": 1280, "height": 900})
     boot(pg)
@@ -354,7 +510,7 @@ with sync_playwright() as b0:
     check("no comma in the interval hero", "," in txt(pg, "#ivHero"), False)
     pg.close()
 
-    # ── 7. Mobile, 402 px ───────────────────────────────────────────────────────────────────
+    # ── 8. Mobile, 402 px ───────────────────────────────────────────────────────────────────
     print("== mobile 402px ==")
     pg = b.new_page(viewport={"width": 402, "height": 850})
     merr = []

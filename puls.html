@@ -238,6 +238,24 @@
   .iv-strip .ivs-lead { width:100%; font-size:10px; text-transform:uppercase; letter-spacing:.05em;
                         margin-bottom:2px; }
   .iv-strip .ivs-t { color:var(--text); font-weight:600; }
+  .iv-paste-label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .iv-paste { width:100%; box-sizing:border-box; background:var(--surface2); border:1px solid var(--border);
+              border-radius:8px; color:var(--text); font:inherit; font-size:12px; line-height:1.6;
+              padding:10px 12px; resize:vertical; margin-bottom:14px; }
+  .iv-paste:focus { outline:none; border-color:var(--accent); }
+  /* One row per rep, scrolling inside its own box: a 15-rep session must not stretch the card, and at
+     402px the four columns still need their width. Not the pc-table multi-column flow — these rows are
+     ORDERED (rep 1 first) and a column flow would send rep 2 to the top of the next column. */
+  .iv-seg-table { display:grid; grid-template-columns:auto 1fr auto auto; gap:2px 12px; font-size:12px;
+                  max-height:420px; overflow:auto; }
+  .iv-seg-table .ivg-n { color:var(--muted); font-variant-numeric:tabular-nums; }
+  .iv-seg-table .ivg-d { color:var(--text); font-weight:600; }
+  .iv-seg-table .ivg-s, .iv-seg-table .ivg-t { text-align:right; font-variant-numeric:tabular-nums; }
+  .iv-seg-table .ivg-s { color:var(--muted); }
+  .iv-seg-table .ivg-t { color:var(--text); }
+  .iv-seg-table .ivg-warm { opacity:.62; }          /* oppvarming/nedjogg are context, not the block */
+  .iv-note { font-size:11px; color:var(--muted); line-height:1.6; margin-top:12px; }
+  .iv-note b { color:var(--text); }
   @media (max-width: 700px) { .iv-hero { font-size:16px; } .tc-stat-v.tc-lead { font-size:22px; } }
 
   /* Sko list rows — actions wrap to their own line when the card is too narrow (mobile) */
@@ -1358,8 +1376,16 @@
 
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Intervaller</div>
-    <p class="tc-help">Gjør en intervalløkt om til tallene du faktisk trenger når du står klar: farten å stille inn, tiden per drag, og hvor lenge hele blokken tar.</p>
+    <p class="tc-help">Gjør en intervalløkt om til tallene du faktisk trenger når du står klar: farten å stille inn, tiden per drag, og hvor lenge hele blokken tar. <b>Enkel</b> er like drag hele veien; <b>Fra plan</b> tar imot en øktbeskrivelse fra Runna og regner ut drag som skifter fart underveis.</p>
 
+    <div class="tc-modes" id="ivModes">
+      <button type="button" class="tc-mode tc-on" data-mode="enkel">Enkel</button>
+      <button type="button" class="tc-mode" data-mode="plan">Fra plan</button>
+    </div>
+
+    <!-- Enkel stays the default and stays untouched: its value is being a headline you read in ten
+         seconds, and burying the common case behind a toggle would be a regression. -->
+    <div id="ivEnkel">
     <div class="pc-io">
       <label class="pc-field">🔁 Antall
         <input type="text" id="ivReps" placeholder="6" inputmode="numeric" autocomplete="off">
@@ -1405,8 +1431,30 @@
     <!-- Distance ladder at the entered pace. The card proper assumes a uniform session, but a pyramid
          or a ladder normally holds ONE pace and varies the distance — so the belt setting never
          changes and the only missing numbers are the rep times. This gives all of them at once.
-         It cannot help a session where the speed changes too; that needs the parked set builder. -->
+         A session where the SPEED changes too is what Fra plan handles. -->
     <div class="iv-strip" id="ivStrip"></div>
+    </div>
+
+    <!-- Paste, don't rebuild. A row builder for this would be ~35 fields for a seven-rep pyramid and
+         two or three wrapped lines per row at 402px — slower to fill in than doing the arithmetic by
+         hand, which is the whole point of the card. The text already exists: Runna writes it, the
+         .ics carries it, and the log form stores it as Øktbeskrivelse.
+         ⚠️ Deliberately NOT auto-loaded from a stored session. The Verktøy cards read nothing from
+         Store — that rule is asserted, not just commented (test_calculators compares output with and
+         without sessions byte-for-byte) — and it is what lets these tools answer for a session you
+         have never run. Paste keeps them stateless. -->
+    <div id="ivPlan" style="display:none">
+      <label class="iv-paste-label" for="ivPaste">Lim inn øktbeskrivelsen fra planen</label>
+      <textarea id="ivPaste" class="iv-paste" rows="6" spellcheck="false"
+                placeholder="1km warm up at a conversational pace (no faster than 6:50/km), 90s walking rest&#10;&#10;200m at 5:05/km, 60s walking rest&#10;400m at 5:15/km, 90s walking rest&#10;…"></textarea>
+      <div class="iv-hero" id="ivPlanHero"></div>
+      <div class="tc-out" id="ivPlanOut"></div>
+      <div class="tc-splits-wrap" id="ivPlanWrap" style="display:none">
+        <div class="pc-legend">📍 drag <span class="pc-legend-sep">·</span> ⚡ fart <span class="pc-legend-sep">·</span> ⏱️ tid</div>
+        <div id="ivPlanSegs" class="iv-seg-table"></div>
+      </div>
+      <div class="iv-note" id="ivPlanNote"></div>
+    </div>
   </div>
 
 </div>
@@ -1982,7 +2030,14 @@ function parseRunnaIcs(text) {
     const beskrivelse = (afterDesc != null ? afterDesc : desc)
       .split('\n').filter(l => !/^\s*📲/.test(l)).join('\n').trim();
     const planWeek = parseInt((uid.match(/_plan_week_(\d+)_/) || [])[1] || '', 10) || null;
-    const urlM = desc.match(/https:\/\/club\.runna\.com\/\S+/);
+    // Runna's own estimate for the whole session, in seconds. UPCOMING events only — a completed one
+    // carries none, which is fine: what you want there is what you actually ran, and that comes from
+    // Strava. Verified against the prescription arithmetic on real sessions: it is that total ROUNDED
+    // UP to the nearest 5 minutes (39:35 → 2400, 47:28 → 3000), so it is honest but coarse. Worth
+    // storing because it covers the sessions the prescription parser must refuse — a Long run built
+    // from "8km at a conversational pace" carries no pace anywhere, and this is the only number that
+    // can answer "how long will today take" for it.
+    const estimatedSecs = parseInt(field('X-WORKOUT-ESTIMATED-DURATION'), 10) || null;
     const title = summary.replace(/^[^\p{L}\p{N}]+/u, '').replace(/^[\d.]+\s*km\s+/i, '').replace(/\s*•\s*[\d.]+\s*km\s*$/i, '').trim();
     const id = uid.slice(uid.indexOf('-') + 1);          // prefix-independent id (dayId or activityId) → natural dedup
     // ⚠️ Which KIND of event this came from, because it decides whether adherence is measurable at
@@ -1990,10 +2045,168 @@ function parseRunnaIcs(text) {
     // leaves no event behind — so a plan rebuilt from completions can only ever score 100%. The
     // ticks are true; the ratio is not, and the display suppresses it rather than flatter you.
     const fromCompleted = /^COMPLETED_/.test(uid);
+    // ⚠️ `sourceUrl` used to be stored here — the club.runna.com link, carrying a personal share token
+    // and the day/activity UUID. It was read by NOTHING, so the most identifying string in the whole
+    // import was being persisted into puls.json for no purpose. Dropped 2026-08-27. GEO, LOCATION and
+    // X-USER-TIMEZONE are likewise never parsed, so nothing locating you can reach storage at all.
+    // Do not re-add a URL here without a reader that needs it.
     byId[id] = { id, date, planWeek, okttype, distance: parseFloat(distM[1]), title, beskrivelse,
-                 fromCompleted, sourceUrl: urlM ? urlM[0] : '' };
+                 fromCompleted, estimatedSecs };
   });
   return Object.values(byId).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ── Runna prescription → timed segments ───────────────────────────────────────────────────────────
+//
+// Turns the Øktbeskrivelse text into the numbers you actually stand on the treadmill wanting: the
+// speed per rep, the time per rep, and how long the whole block takes. The Intervaller card already
+// does this for N × one distance × one pace; a pyramid or a progression changes pace every rep and
+// falls outside it entirely.
+//
+// PARSED BY SHAPE, NOT BY WHOLE-LINE PATTERNS. Runna interpolates prose mid-line ("…, just faster
+// than your target pace of 5:20/km, 90s walking rest", "…, keeping things easy, 90s walking rest"),
+// so any exact-match regex would be one marketing tweak from silently matching nothing. Instead each
+// line is mined for the three things that matter — a leading distance, the FIRST pace or speed, and a
+// trailing walking rest — and anything it cannot place is REPORTED, never dropped. A dropped rep
+// understates the block, which is the dangerous direction: it would tell you a session is shorter
+// than it is.
+//
+// Handles both units. Upcoming events are all pace (`5:40/km`); the April exports are all kph, so the
+// display setting evidently changed, and a file can hold either.
+const RX_DIST  = /^(\d+(?:[.,]\d+)?)\s*(km|m)\b/;
+const RX_PACE  = /(\d{1,2}):(\d{2})\s*\/\s*km/;
+const RX_KPH   = /(\d+(?:[.,]\d+)?)\s*kph/i;
+const RX_REST  = /(\d+)\s*s\s+walking rest/i;
+const RX_REPS  = /^(\d+)\s+reps? of:/i;
+const RX_XTIMES= /repeat the following\s+(\d+)\s*x/i;
+const RX_SETS  = /^(\d+)\s+sets? of:/i;          // strength — no distances, never a run
+
+function parseWorkoutPrescription(text) {
+  if (!text) return null;
+  // Everything from "♻️ Laps:" on is what you ACTUALLY ran, lap by lap, on a completed event. It is
+  // not the prescription and must not be totalled as one — and the walking rests appear there as
+  // 15:00/km placeholder laps, which would poison every number on the card.
+  const body = String(text).split(/♻️\s*Laps:/)[0].split(/📋\s*Description:\s*/).pop();
+  const lines = body.split('\n').map(l => l.trim()).filter(Boolean)
+    // 📲 is the app link; a line carrying "•" that does not START with one is Runna's header
+    // ("Intervals • 6km • 45m - 50m") — whose "6km" and "45m" would otherwise parse as two segments.
+    .filter(l => !/^📲/.test(l) && !(l.includes('•') && !l.startsWith('•')))
+    .filter(l => l !== '-'.repeat(10));
+
+  const segs = [], unparsed = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // A strength block has no distances at all. Bail rather than emit an empty result that would read
+    // as "this session takes 0 minutes".
+    if (RX_SETS.test(line)) return null;
+
+    const mReps = line.match(RX_REPS), mX = line.match(RX_XTIMES);
+    if (mReps || mX) {
+      // A group repeats its whole BODY, which can be more than one rep — "5 reps of: • 1km … • 400m …"
+      // is five supersets of two, not five singles. Bullets for "N reps of:", the fenced block for
+      // "Repeat the following Nx:".
+      const n = parseInt((mReps || mX)[1], 10);
+      const bodyLines = [];
+      i++;
+      while (i < lines.length && (mReps ? lines[i].startsWith('•') : !RX_REPS.test(lines[i]) && !RX_XTIMES.test(lines[i]) && RX_DIST.test(lines[i].replace(/^•\s*/, '')))) {
+        bodyLines.push(lines[i].replace(/^•\s*/, ''));
+        i++;
+      }
+      for (let r = 0; r < n; r++) bodyLines.forEach(b => pushSeg(b, segs, unparsed));
+      continue;
+    }
+    pushSeg(line, segs, unparsed);
+    i++;
+  }
+  if (!segs.length) return null;
+  return { segs, unparsed, ...sumPrescription(segs) };
+}
+
+function pushSeg(line, segs, unparsed) {
+  const mDist = line.match(RX_DIST);
+  const mRest = line.match(RX_REST);
+  // A bare "90s walking rest" between groups is extra recovery, not a rep. Hang it on the previous
+  // segment rather than inventing a zero-distance one.
+  if (!mDist && mRest) {
+    if (segs.length) segs[segs.length - 1].restSec += +mRest[1];
+    else segs.push({ km: 0, paceSec: null, restSec: +mRest[1], role: 'rest', certainty: 'exact', label: line });
+    return;
+  }
+  if (!mDist) { unparsed.push(line); return; }
+
+  const km = parseFloat(mDist[1].replace(',', '.')) / (mDist[2] === 'm' ? 1000 : 1);
+  const role = /warm ?up/i.test(line) ? 'warmup' : /cool ?down/i.test(line) ? 'cooldown' : 'work';
+
+  // FIRST pace/speed only. A band follows the target ("5:40/km (5:30-5:50/km)") and prose can name a
+  // second one ("just faster than your target pace of 5:20/km") — in both cases the first is the one
+  // to run. The exception is a primary that IS a range ("5km race at 5:30-5:40/km"), detected by the
+  // range sitting immediately after "at": then the midpoint, flagged, since there is no single target.
+  const after = line.slice(mDist.index + mDist[0].length);
+  const mRange = after.match(/\bat\s+(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*\/\s*km/)
+              || after.match(/\bat\s+(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*kph/i);
+  let paceSec = null, certainty = 'exact';
+  if (mRange) {
+    const isPace = mRange.length === 5;
+    const a = isPace ? +mRange[1] * 60 + +mRange[2] : 3600 / parseFloat(String(mRange[1]).replace(',', '.'));
+    const b = isPace ? +mRange[3] * 60 + +mRange[4] : 3600 / parseFloat(String(mRange[2]).replace(',', '.'));
+    paceSec = (a + b) / 2; certainty = 'range';
+  } else {
+    const mP = line.match(RX_PACE), mK = line.match(RX_KPH);
+    if (mP) paceSec = +mP[1] * 60 + +mP[2];
+    else if (mK) paceSec = 3600 / parseFloat(mK[1].replace(',', '.'));
+    // "no faster than X" is a CEILING, not a target — the time it gives is a minimum, and the copy has
+    // to say so rather than present it as the answer. Runna prices a cool-down at the warm-up's
+    // ceiling, which reproduces its own estimate to the second, so borrowing it is its arithmetic.
+    if (paceSec != null && /no faster than/i.test(line)) certainty = 'atleast';
+    // "8km at a conversational pace" with no number anywhere. Most Long runs are built from these and
+    // they are genuinely untimeable: unlike a cool-down there is no ceiling in the event to borrow.
+    if (paceSec == null) certainty = 'unknown';
+  }
+  segs.push({ km, paceSec, restSec: mRest ? +mRest[1] : 0, role, certainty, label: line });
+}
+
+function sumPrescription(segs) {
+  const t = r => segs.filter(s => s.role === r);
+  const secsOf = list => list.reduce((n, s) => n + (s.paceSec ? s.km * s.paceSec : 0), 0);
+  const work = t('work');
+  // A cool-down carries no pace of its own; Runna times it at the warm-up's ceiling. Borrow that and
+  // nothing else — never a work pace, which would time a jog at interval speed.
+  const wuPace = t('warmup').find(s => s.paceSec)?.paceSec || null;
+  segs.forEach(s => {
+    if (s.role === 'cooldown' && s.paceSec == null && wuPace) { s.paceSec = wuPace; s.certainty = 'atleast'; }
+  });
+  const workSecs = secsOf(work);
+  // ⚠️ The BLOCK is the reps and THEIR recoveries only. The 90 s after the warm-up belongs to getting
+  // to the start line, not to the block — counting it made the pyramid read 33:48 where every other
+  // surface, and the Intervaller card's own definition of "blokk", says 32:18.
+  const workRest = work.reduce((n, s) => n + s.restSec, 0);
+  const around = t('warmup').concat(t('cooldown'));
+  const aroundSecs = secsOf(around) + around.reduce((n, s) => n + s.restSec, 0)
+                   + t('rest').reduce((n, s) => n + s.restSec, 0);
+  const unknown = segs.filter(s => s.paceSec == null);
+  const grade = list => list.some(s => s.paceSec == null) ? 'partial'
+                      : list.some(s => s.certainty === 'atleast') ? 'atleast'
+                      : list.some(s => s.certainty === 'range') ? 'range' : 'exact';
+  return {
+    workSecs, restSecs: workRest, aroundSecs,
+    blockSecs: workSecs + workRest,
+    workKm: work.reduce((n, s) => n + s.km, 0),
+    // ⚠️ Distance that was actually TIMED, which is not the same as distance covered. A Long run of
+    // "8km conversational + 3km at 5:50" times 3 km and covers 12 — printing 17:30 beside 12.00 km
+    // states a 1:27/km pace. The card must show what the time actually covers.
+    timedKm: work.filter(s => s.paceSec).reduce((n, s) => n + s.km, 0),
+    totalKm: segs.reduce((n, s) => n + s.km, 0),
+    fullSecs: workSecs + workRest + aroundSecs,
+    unknownKm: unknown.reduce((n, s) => n + s.km, 0),
+    // Graded SEPARATELY for the block and the whole session, because they usually differ: an interval
+    // block is exact while the session around it rests on the warm-up's ceiling. One combined grade
+    // would drag the exact number down to the vaguest thing in the text. 'exact' only when every
+    // timed segment had a real target — a number presented as exact when it is a floor is worse than
+    // no number at all.
+    blockCertainty: grade(work),
+    certainty: grade(segs),
+  };
 }
 
 // Planned sessions falling within a training block's window. The end bound matters because an
@@ -8327,7 +8540,13 @@ function renderWeekNow(allSessions) {
   if (pt && pt.status !== 'excused') {
     const done = pt.status === 'done';
     const flavour = plannedTitle(pt.p);           // '' for generic names like "Easy Run"
-    const what = [pt.p.okttype, pt.p.distance ? `${pt.p.distance} km` : null].filter(Boolean).join(' · ');
+    // Runna's own estimate, when the import carried one. Rounded to whole minutes and prefixed "~"
+    // because the source is itself rounded up to the nearest five — presenting 2400 as "40:00" would
+    // claim a precision it does not have. Dropped once the session is done: what it took is a fact
+    // sitting on the logged session, and an estimate beside it would only invite the wrong comparison.
+    const mins = !done && pt.p.estimatedSecs ? Math.round(pt.p.estimatedSecs / 60) : 0;
+    const what = [pt.p.okttype, pt.p.distance ? `${pt.p.distance} km` : null,
+                  mins ? `~${mins} min` : null].filter(Boolean).join(' · ');
     planHtml = `<span class="wk-now-plan${done ? ' wk-now-plan-done' : ''}">`
       + `${done ? '✓' : '📋'} I dag: ${escapeHtml(what)}${flavour ? ` — ${escapeHtml(flavour)}` : ''}</span>`;
   }
@@ -10027,7 +10246,95 @@ const IntervalCalc = {
       document.getElementById(id).addEventListener('change', () => this.render()));
     bindPaceSpeed(document.getElementById('ivPace'), document.getElementById('ivKmh'), () => this.render());
 
+    document.getElementById('ivModes').addEventListener('click', e => {
+      const btn = e.target.closest('.tc-mode');
+      if (btn) this.setMode(btn.dataset.mode);
+    });
+    document.getElementById('ivPaste').addEventListener('input', () => this.renderPlan());
+
+    this.setMode('enkel');
     this.render();
+  },
+
+  setMode(mode) {
+    document.querySelectorAll('#ivModes .tc-mode').forEach(b =>
+      b.classList.toggle('tc-on', b.dataset.mode === mode));
+    document.getElementById('ivEnkel').style.display = mode === 'enkel' ? '' : 'none';
+    document.getElementById('ivPlan').style.display  = mode === 'plan'  ? '' : 'none';
+    if (mode === 'plan') this.renderPlan();
+  },
+
+  // Fra plan. Everything numeric comes from parseWorkoutPrescription; this only decides what is honest
+  // to SHOW, which is where the judgement lives:
+  //   • the BLOCK leads, because it is the number you cannot get any other way and it is usually exact
+  //   • the whole session follows, usually as a floor — the warm-up gives a ceiling pace ("no faster
+  //     than"), so the time it implies is a minimum, and the copy says so instead of rounding it into
+  //     a confident answer
+  //   • a segment nobody can time is NAMED with its distance, never quietly left out of the total
+  renderPlan() {
+    const hero = document.getElementById('ivPlanHero');
+    const out  = document.getElementById('ivPlanOut');
+    const wrap = document.getElementById('ivPlanWrap');
+    const note = document.getElementById('ivPlanNote');
+    const raw  = document.getElementById('ivPaste').value;
+    const r = parseWorkoutPrescription(raw);
+
+    if (!r) {
+      hero.style.display = 'none'; wrap.style.display = 'none'; note.innerHTML = '';
+      out.innerHTML = `<div class="tc-stat"><span class="tc-stat-v tc-lead">–</span><span class="tc-stat-l">${
+        raw.trim() ? 'fant ingen drag i teksten' : 'lim inn en øktbeskrivelse'}</span></div>`;
+      return;
+    }
+
+    const work = r.segs.filter(s => s.role === 'work');
+    // Fastest work rep decides the belt setting you start on. Printed as speed AND pace: the treadmill
+    // takes km/t, the plan is written in min/km, and this card exists to stop you converting by hand.
+    const fastest = work.filter(s => s.paceSec).sort((a, b) => a.paceSec - b.paceSec)[0];
+    hero.style.display = '';
+    hero.innerHTML = fastest
+      ? `Raskeste drag: <b>${PaceConv.fmtKmh(PaceConv.kmhFromPace(fastest.paceSec))} km/t</b> · ${secsToMmSs(Math.round(fastest.paceSec))} /km`
+      : 'Ingen fart oppgitt i teksten';
+
+    const approx = c => c === 'exact' ? '' : '~';
+    // ⚠️ When part of the session has no pace, the lead stat says so in its own LABEL. The note below
+    // already explains it, but a reader who only takes in the big number would otherwise pair "17:30"
+    // with "11 km" beside it and read a 1:35/km session. A stat has to be true on its own.
+    const partial = r.unknownKm > 0;
+    const blockLabel = partial ? `blokk · ${+r.timedKm.toFixed(2)} av ${+r.workKm.toFixed(2)} km` : 'blokk';
+    out.innerHTML =
+        statHtml(approx(r.blockCertainty) + fmtDur(Math.round(r.blockSecs)), blockLabel, true)
+      + statHtml(fmtDur(Math.round(r.workSecs)), 'arbeid')
+      + statHtml(fmtDur(Math.round(r.restSecs)), `pause (${work.filter(s => s.restSec).length})`)
+      + statHtml((+r.workKm.toFixed(2)) + ' km', 'dragdistanse')
+      + (r.aroundSecs ? statHtml(approx(r.certainty) + fmtDur(Math.round(r.fullSecs)), 'hele økten') : '');
+
+    wrap.style.display = '';
+    let n = 0;
+    document.getElementById('ivPlanSegs').innerHTML = r.segs.map(s => {
+      const dim = s.role === 'work' ? '' : ' ivg-warm';
+      const label = s.role === 'warmup' ? 'oppv.' : s.role === 'cooldown' ? 'nedjogg'
+                  : s.role === 'rest' ? 'pause' : `${++n}`;
+      const km = s.km ? `${+s.km.toFixed(2)} km` : '—';
+      const kmh = s.paceSec ? `${PaceConv.fmtKmh(PaceConv.kmhFromPace(s.paceSec))} km/t` : '—';
+      const t = s.paceSec ? fmtDur(Math.round(s.km * s.paceSec)) : '—';
+      return `<span class="ivg-n${dim}">${label}</span><span class="ivg-d${dim}">${km}</span>`
+           + `<span class="ivg-s${dim}">${kmh}</span><span class="ivg-t${dim}">${t}</span>`
+           + (s.restSec ? `<span class="ivg-n${dim}"></span><span class="ivg-n${dim}">pause</span>`
+                        + `<span class="ivg-s${dim}">—</span><span class="ivg-t${dim}">${fmtDur(s.restSec)}</span>` : '');
+    }).join('');
+
+    // Everything the numbers above are NOT allowed to imply. A total that quietly excluded 9 km, or a
+    // floor presented as an answer, is the kind of plausible-but-wrong number this app refuses to print.
+    const notes = [];
+    if (r.unknownKm > 0)
+      notes.push(`<b>${+r.unknownKm.toFixed(2)} km</b> har ingen fart oppgitt («at a conversational pace»), så tiden dekker bare ${+r.timedKm.toFixed(2)} av ${+r.workKm.toFixed(2)} km.`);
+    if (r.certainty === 'atleast' || r.blockCertainty === 'atleast')
+      notes.push('Oppvarming og nedjogg har bare et tak («no faster than»), så tiden for hele økten er et <b>minimum</b> — løper du roligere, tar den lenger tid.');
+    if (r.certainty === 'range' || r.blockCertainty === 'range')
+      notes.push('Farten er oppgitt som et intervall, så tiden er regnet fra midten av det.');
+    if (r.unparsed.length)
+      notes.push(`Disse linjene ble ikke forstått og er <b>ikke</b> med i tallene: ${r.unparsed.map(escapeHtml).join(' · ')}`);
+    note.innerHTML = notes.map(t => `<div>${t}</div>`).join('');
   },
 };
 

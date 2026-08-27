@@ -359,6 +359,42 @@ with sync_playwright() as b0:
     check("completed: prescription taken from after 'Description:'",
           desc['2026-08-12'], '1.5km warm up then 8 x 400m repeats')
     check("...NOT the actuals that precede it", 'Distance: 4.27km' in desc['2026-08-12'], False)
+
+    # ── WHAT THE IMPORT MAY AND MAY NOT KEEP ────────────────────────────────────────────────
+    # ⚠️ PRIVACY, asserted rather than trusted. A Runna .ics carries GEO coordinates and a LOCATION on
+    # every completed session, X-USER-TIMEZONE on all of them, and a club.runna.com link holding a
+    # personal share token plus the day/activity UUID. NONE of it may reach storage. `sourceUrl` used
+    # to — stored on every planned session and read by nothing, so the single most identifying string
+    # in the file was persisted for no purpose. Removed 2026-08-27.
+    LOCATED = "\r\n".join([
+        "BEGIN:VCALENDAR", "VERSION:2.0",
+        "BEGIN:VEVENT", "UID:COMPLETED_PLAN_WORKOUT-secret-uuid-1234",
+        "DTSTART;VALUE=DATE:20260812", "SUMMARY:\U0001F3C3 400m Repeats",
+        "DESCRIPTION:\U0001F4CA Summary:\\nDistance: 4.27km\\n\\n\U0001F4CB Description:\\n1.5km warm up"
+        "\\n\\n\U0001F4F2 View in the Runna app: https://club.runna.com/n9Tx/activities?activityId=secret-uuid-1234",
+        "LOCATION:Skøyen, Oslo, Norway",
+        "GEO:59.91616325015404;10.634521393154518",
+        "X-USER-TIMEZONE:Europe/Oslo", "END:VEVENT", "END:VCALENDAR"])
+    blob = pg.evaluate("(t) => JSON.stringify(parseRunnaIcs(t))", LOCATED)
+    for needle, what in [("59.916", "GEO latitude"), ("10.634", "GEO longitude"),
+                         ("Skøyen", "LOCATION"), ("Europe/Oslo", "timezone"),
+                         ("club.runna.com", "the Runna link"), ("n9Tx", "the personal share token")]:
+        check(f"{what} never reaches the parsed session", needle in blob, False)
+    check("no sourceUrl field at all",
+          pg.evaluate("(t) => 'sourceUrl' in parseRunnaIcs(t)[0]", LOCATED), False)
+    # The opaque activity id IS kept — it is the dedup key, and re-import correctness depends on it.
+    check("...but the id is still there, since dedup needs it",
+          pg.evaluate("(t) => parseRunnaIcs(t)[0].id", LOCATED), "secret-uuid-1234")
+
+    # Runna's own estimate for the session. UPCOMING only — a completed event carries none.
+    EST = "\r\n".join([
+        "BEGIN:VCALENDAR", "VERSION:2.0",
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d9_plan_week_2_INTERVALS_0",
+        "DTSTART;VALUE=DATE:20260901", "SUMMARY:\U0001F3C3 Pyramid Intervals • 6km",
+        "DESCRIPTION:Intervals • 6km • 45m - 50m\\n\\n1km warm up at a conversational pace",
+        "X-WORKOUT-ESTIMATED-DURATION:3000", "END:VEVENT", "END:VCALENDAR"])
+    check("X-WORKOUT-ESTIMATED-DURATION is read", pg.evaluate("(t) => parseRunnaIcs(t)[0].estimatedSecs", EST), 3000)
+    check("...and is null when absent", pg.evaluate("(t) => parseRunnaIcs(t)[0].estimatedSecs", LOCATED), None)
     pg.close()
 
     # ── 3. THE IMPORT INVARIANT ─────────────────────────────────────────────────────────────
