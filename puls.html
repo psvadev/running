@@ -3112,6 +3112,26 @@ const Store = {
     if (this.data.shoes.length && typeof this.data.shoes[0] === 'string') {
       this.data.shoes = this.data.shoes.map(s => ({ name: s }));
     }
+    // `fromCompleted` arrived 2026-08-18 with the adherence guard (9081274), but the rows already in
+    // the file carry no provenance — and a missing field is falsy, which reads as "captured while
+    // still upcoming": exactly backwards for rows that came from COMPLETED events. One such row is
+    // enough to defeat `due.every(p => p.fromCompleted)`, so the guard silently no-opped on the very
+    // block it was written for — Runna 10K #1 scored "33 av 33 fullført · 100%" for a plan rebuilt
+    // from completions, where a miss could never have been recorded in the first place.
+    // The provenance is still recoverable from the id, which survived: an UPCOMING event's id keeps
+    // its "<dayId>_plan_week_N_TYPE_i" suffix, a COMPLETED one is a bare activityId.
+    // ⚠️ Only rows whose id is POSITIVELY a Runna one are touched. "no _plan_week_ suffix" alone is
+    // far too broad — it also matches any hand-seeded or non-Runna row, and silently reclassifying
+    // those would suppress adherence for a plan whose misses are perfectly well known. Claim only
+    // what can be identified; leave everything else undefined, which is the behaviour it already had.
+    // Only `undefined` is filled, so a row that already knows its provenance is never overwritten.
+    const RUNNA_PLAN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(_plan_week_|$)/i;
+    (this.data.plannedSessions || []).forEach(p => {
+      const id = p.id || '';
+      if (p.fromCompleted === undefined && RUNNA_PLAN_ID.test(id)) {
+        p.fromCompleted = !/_plan_week_/.test(id);
+      }
+    });
     this.data.sessions.forEach(s => {
       if (s.snittkmh != null && s.snittkmh !== +s.snittkmh.toFixed(2)) s.snittkmh = +s.snittkmh.toFixed(2);
       // Heal sessions whose varighet was zeroed by the edit-form populate-order bug

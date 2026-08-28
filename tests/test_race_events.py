@@ -1050,6 +1050,77 @@ with sync_playwright() as b0:
     check("no page errors", xerr, [])
     pg.close()
 
+    # ── Legacy plan rows recover their provenance ────────────────────────────────────────────────
+    # `fromCompleted` shipped 2026-08-18 with the adherence guard, but nothing backfilled the rows
+    # already in the file. A missing field is falsy, which reads as "captured while still upcoming" —
+    # the exact opposite of the truth for a row rebuilt from a COMPLETED event. One such row defeats
+    # `due.every(p => p.fromCompleted)`, so the guard silently no-opped on the very block it was
+    # written for: Runna 10K #1 reported "33 av 33 fullført · 100%" for a plan in which a miss could
+    # never have been recorded. The guard was right; the data was never migrated to match it.
+    print("== legacy plan rows recover fromCompleted ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    merr = []
+    pg.on("pageerror", lambda e: merr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      // `id` is load-bearing: matchPlannedSessions stores the ACTUAL's id as the match value, so an
+      // id-less run matches and still reads as undefined — a silent zero for `done`.
+      const run = (d, t, km) => ({ id:'s'+d.replace(/-/g,''), dato:d, okttype:t, distanse:km,
+                                   varighet:1800, treningsplan:'Runna', sted:'Ute' });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [run('2026-06-03','Easy',5), run('2026-06-05','Long',8), run('2026-06-10','Easy',5)],
+        shoes: [], goals: {}, settings: { zones: [] },
+        events: [{ id:'b', type:'plan', title:'Runna 10K #1', date:'2026-06-01', endDate:'2026-06-30' }],
+        plannedSessions: [
+          // Bare activityId — a COMPLETED event's id shape — and no fromCompleted field at all.
+          // These are the real thing: ids copied from the shape his own 10K #1 rows turned out to have.
+          { id:'d493bc72-89b9-446c-9886-8d6a06592efb', date:'2026-06-03', okttype:'Easy', distance:5, title:'' },
+          { id:'7424665d-faef-4c08-9c03-3a3fac356c67', date:'2026-06-05', okttype:'Long', distance:8, title:'' },
+          { id:'cf21c286-a811-4524-a790-efe20b5d4f1b', date:'2026-06-10', okttype:'Easy', distance:5, title:'' },
+          // An UPCOMING event's id keeps its "_plan_week_N_TYPE_i" suffix. Legacy as well, but
+          // genuinely prospective — dated ahead of FREEZE so it stays 'pending' and out of `due`.
+          { id:'898ccdf5-84d7-4ed9-9d7c-2373b2de9330_plan_week_3_EASY_0',
+            date:'2026-09-01', okttype:'Easy', distance:5, title:'' },
+          // Bare id, but already knows its provenance. The migration fills only `undefined`, so
+          // flipping this to true would mean it is overwriting rows that already have an answer.
+          { id:'5606034f-fa4d-4b48-90ca-e89994a701da', date:'2026-09-03', okttype:'Long',
+            distance:9, title:'', fromCompleted:false }
+        ], lastUpdated: '' }));
+    }""")
+    pg.goto(APP)
+    pg.wait_for_timeout(300)
+
+    # Positive control FIRST: every assertion below reads off Store, and all of them pass just as
+    # happily against an empty one. This is the line that says the fixture actually loaded.
+    check("the seeded plan really loaded", pg.evaluate("() => Store.data.plannedSessions.length"), 5)
+
+    prov = pg.evaluate("() => Store.data.plannedSessions.map(p => p.fromCompleted)")
+    check("rows rebuilt from completions are marked fromCompleted", prov[:3], [True, True, True])
+    check("...an UPCOMING-shaped id is not", prov[3], False)
+    check("...and a row that already knew is left alone", prov[4], False)
+
+    adh = pg.evaluate("() => { const r = plannedAdherence(Store.data.plannedSessions, '2026-08-05'); "
+                      "return { pct: r.pct, measurable: r.measurable, due: r.due.length, done: r.done }; }")
+    check("a plan rebuilt from completions reports no percentage",
+          (adh["measurable"], adh["pct"]), (False, None))
+    check("...while still counting the sessions it does know about",
+          (adh["due"], adh["done"]), (3, 3))
+
+    # The falsification, run in-page rather than by breaking the source: with the field falsy — which
+    # is precisely the pre-migration state — the same rows claim a perfect score. Without this the
+    # assertion above would pass just as well if `plannedAdherence` returned null unconditionally.
+    ctrl = pg.evaluate("""() => {
+      const rows = Store.data.plannedSessions.map(p => ({ ...p, fromCompleted: undefined }));
+      const r = plannedAdherence(rows, '2026-08-05');
+      return { pct: r.pct, measurable: r.measurable };
+    }""")
+    check("control: un-migrated, the same rows would claim 100%",
+          (ctrl["measurable"], ctrl["pct"]), (True, 100))
+
+    check("no page errors", merr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
