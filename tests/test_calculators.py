@@ -531,9 +531,21 @@ with sync_playwright() as b0:
     }""")
     check("nothing clipped in the tools panel", over["bad"], [])
     check("page does not scroll sideways", over["bodyW"] <= over["docW"] + 1, True)
-    # The 7th tab must not break the bar — it scrolls, it does not wrap or overflow the page.
-    check("tab bar still scrolls", pg.evaluate(
-        "() => { const t = document.querySelector('.tabs'); return t.scrollWidth > t.clientWidth; }"), True)
+    # Was "tab bar still scrolls" — the 402px nav became a fixed BOTTOM BAR on 2026-09-01, so the
+    # horizontal strip it asserted no longer exists. The property that still matters is the same one
+    # the old check was really protecting: adding a tab must not make the bar overflow the page.
+    # Verktøy has to be reachable in one tap here, since this suite is about the Verktøy panel.
+    nav = pg.evaluate("""() => {
+      const t = document.querySelector('.tabs');
+      const slots = [...document.querySelectorAll('.tabs > .tab, .tab-more-btn')]
+        .filter(e => getComputedStyle(e).display !== 'none');
+      return { pos: getComputedStyle(t).position,
+               fits: t.scrollWidth <= t.clientWidth + 1,
+               slots: slots.map(e => e.dataset.tab || 'mer') };
+    }""")
+    check("nav is the fixed bottom bar", nav["pos"], "fixed")
+    check("...and does not overflow sideways", nav["fits"], True)
+    check("...with Verktøy reachable in one tap", "tools" in nav["slots"], True)
     check("no mobile page errors", merr, [])
     pg.close()
 

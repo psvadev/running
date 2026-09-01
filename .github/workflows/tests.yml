@@ -124,3 +124,6 @@ jobs:
 
       - name: Mål km overlay + removed chart cards
         run: python tests/test_charts.py
+
+      - name: Tab nav — desktop unchanged, bottom bar on phones
+        run: python tests/test_nav.py

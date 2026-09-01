@@ -55,6 +55,24 @@
   .tab { padding: 12px 20px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-weight: 500; transition: color .15s, border-color .15s; white-space: nowrap; }
   .tab:hover { color: var(--text); }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .t-ico { margin-right: 6px; }
+  .t-short { display: none; }              /* bottom-bar label — phones only */
+  .tabs-more { display: contents; }        /* invisible to layout: its 2 tabs stay flex children of .tabs */
+  .tab-more-btn, .more-backdrop { display: none; }
+  /* Desktop order is PINNED, because grouping Løpeatlas + Innstillinger into .tabs-more changed the DOM
+     order and this was meant to be a mobile-only change. `display:contents` keeps all seven as flex
+     items of .tabs, so `order` restores exactly what was on screen before. */
+  .tab[data-tab="form"]  { order: 1; }
+  .tab[data-tab="dash"]  { order: 2; }
+  .tab[data-tab="log"]   { order: 3; }
+  .tab[data-tab="atlas"] { order: 4; }
+  .tab[data-tab="plan"]  { order: 5; }
+  .tab[data-tab="tools"] { order: 6; }
+  .tab[data-tab="settings"] { order: 7; }
+  /* Mer must sort LAST. Without this it defaults to order:0 and lands ahead of every tab — which is
+     exactly how it first rendered, while a test asserting the order passed anyway because it read
+     DOM order instead of x-position. */
+  .tab-more-btn { order: 8; }
 
   /* ── Main layout ── */
   .panel { display: none; padding: 24px 20px; }
@@ -366,10 +384,57 @@
     header { padding: 0 12px; gap: 8px; }
     header h1 { font-size: 16px; }
     .file-controls { gap: 6px; }
-    .tabs { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; padding: 0 12px; }
-    .tabs::-webkit-scrollbar { display: none; }
-    .tab { padding: 10px 12px; font-size: 13px; }
-    .panel { padding: 16px 12px; }
+    /* ── Bottom nav ──────────────────────────────────────────────────────────────────────────────
+       Replaces the horizontally-scrolling tab strip that used to live here: tabs past the right edge
+       were reachable but invisible, so Verktøy and Innstillinger were effectively undiscoverable.
+       Six slots — Legg til · Oversikt · Logg · Plan · Verktøy · Mer — with Løpeatlas and
+       Innstillinger behind Mer.
+       ⚠️ These rules MUST stay in this block. They first went in a second `@media (max-width: 600px)`
+       higher up the sheet, where the old strip rules here silently overrode half of them (same
+       breakpoint, same specificity, later wins) — the bar rendered with 12px side padding and
+       clipped labels, and measuring it produced numbers that described the bug rather than the
+       design. One phone block, not two. */
+    /* z-index too, not just position: `body:not(.is-dash) .tabs` pins it to 101 and outranks the
+       plain `.tabs` rule below, so on every non-dashboard tab the bar sank under the 199 backdrop and
+       the two tabs inside the Mer sheet could not be tapped at all. Caught by the sheet test. */
+    body:not(.is-dash) .tabs { position: fixed; top: auto; z-index: 200; }
+    .tabs {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+      padding: 0; gap: 0; border-bottom: none; border-top: 1px solid var(--border);
+      /* The home indicator sits over a bar flush to the bottom on every modern iPhone. */
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.35);
+    }
+    .tab, .tab-more-btn {
+      flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 2px; padding: 7px 2px; border-bottom: none;
+      font-size: 10px; line-height: 1.15; text-align: center; white-space: nowrap;
+    }
+    .tab .t-ico, .tab-more-btn .t-ico { margin-right: 0; font-size: 18px; }
+    .tab .t-lbl { display: none; }
+    .tab .t-short, .tab-more-btn .t-short { display: block; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    /* A bottom bar cannot use the underline — it reads as belonging to whatever sits above it. */
+    .tab.active { border-top: 2px solid var(--accent); padding-top: 5px; }
+    .tab-more-btn { display: flex; cursor: pointer; color: var(--muted); }
+
+    /* The two overflow tabs, as a sheet above the bar. */
+    .tabs-more { display: none; }
+    body.more-open .tabs-more {
+      display: block; position: fixed; left: 8px; right: 8px; z-index: 201;
+      bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+      background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow); overflow: hidden;
+    }
+    body.more-open .tabs-more .tab {
+      flex-direction: row; justify-content: flex-start; gap: 10px;
+      padding: 14px 16px; font-size: 14px; border-top: none;
+    }
+    body.more-open .tabs-more .tab + .tab { border-top: 1px solid var(--border); }
+    body.more-open .tabs-more .tab .t-ico { font-size: 18px; }
+    body.more-open .tabs-more .tab.active { border-top-width: 0; padding-top: 14px; }
+    body.more-open .more-backdrop { display: block; position: fixed; inset: 0; z-index: 199; background: rgba(0,0,0,0.35); }
+    /* Content must clear the fixed bar, or the last card sits under it and reads as cut off. */
+    .panel { padding: 16px 12px calc(72px + env(safe-area-inset-bottom, 0px)); }
     /* Not sticky on mobile: the bar wraps to ~5 rows here, so pinning it would
        eat a quarter of the viewport for the whole scroll. Scroll-to-top covers it. */
     .dash-filter-bar { position: static; padding: 10px 12px; gap: 8px; }
@@ -557,15 +622,32 @@
   <input type="file" id="fileInput" accept=".json" style="display:none">
 </header>
 
+<!-- ONE nav, restyled at ≤600px into a fixed bottom bar — never a second copy. switchTab() toggles
+     `.tab.active` across every `.tab`, so a duplicate mobile nav would be a second source of truth for
+     which tab is current, which is this codebase's most repeated defect shape.
+     The last three live in `.tabs-more`, which is `display:contents` on desktop (invisible to layout,
+     so the seven tabs lay out exactly as before) and becomes the "Mer" sheet on phones. Desktop visual
+     order is pinned by `order:` below, because grouping them changed the DOM order and this was meant
+     to be a mobile-only change.
+     Each label is split into icon / full / short: the bottom bar has ~80px per slot, and deriving a
+     short label by truncating at runtime would eventually mangle one. Explicit beats clever. -->
 <div class="tabs">
-  <div class="tab active" data-tab="form">➕ Legg til økt</div>
-  <div class="tab" data-tab="dash">📊 Oversikt</div>
-  <div class="tab" data-tab="log">📋 Treningslogg</div>
-  <div class="tab" data-tab="atlas">🗺️ Løpeatlas</div>
-  <div class="tab" data-tab="plan">📅 Planlegging</div>
-  <div class="tab" data-tab="tools">🧮 Verktøy</div>
-  <div class="tab" data-tab="settings">⚙️ Innstillinger</div>
+  <div class="tab active" data-tab="form"><span class="t-ico">➕</span><span class="t-lbl">Legg til økt</span><span class="t-short">Legg til</span></div>
+  <div class="tab" data-tab="dash"><span class="t-ico">📊</span><span class="t-lbl">Oversikt</span><span class="t-short">Oversikt</span></div>
+  <div class="tab" data-tab="log"><span class="t-ico">📋</span><span class="t-lbl">Treningslogg</span><span class="t-short">Logg</span></div>
+  <div class="tab" data-tab="plan"><span class="t-ico">📅</span><span class="t-lbl">Planlegging</span><span class="t-short">Plan</span></div>
+  <div class="tab" data-tab="tools"><span class="t-ico">🧮</span><span class="t-lbl">Verktøy</span><span class="t-short">Verktøy</span></div>
+  <div class="tabs-more" id="tabsMore">
+    <div class="tab" data-tab="atlas"><span class="t-ico">🗺️</span><span class="t-lbl">Løpeatlas</span><span class="t-short">Løpeatlas</span></div>
+    <div class="tab" data-tab="settings"><span class="t-ico">⚙️</span><span class="t-lbl">Innstillinger</span><span class="t-short">Innstillinger</span></div>
+  </div>
+  <!-- Phones only. Not a `.tab`: it switches no panel, and giving it that class would put it in
+       switchTab()'s querySelectorAll and let it be marked active. -->
+  <div class="tab-more-btn" id="tabMoreBtn" role="button" tabindex="0" aria-expanded="false" aria-controls="tabsMore">
+    <span class="t-ico">⋯</span><span class="t-short">Mer</span>
+  </div>
 </div>
+<div class="more-backdrop" id="moreBackdrop"></div>
 
 <!-- ══════════════ TAB 1: FORM ══════════════ -->
 <div class="panel active" id="panel-form">
@@ -11644,12 +11726,28 @@ const Settings = {
 // TABS & REFRESH
 // ═══════════════════════════════════════════════════════
 const tabScrollPos = {};
+// ── Mer sheet (bottom nav, phones only) ────────────────────────────────────────────────────────
+// State lives in ONE place: `body.more-open`. The CSS reads it, `aria-expanded` mirrors it, and every
+// close path funnels through closeMoreSheet() — a second boolean tracking "is it open" would be a
+// second source of truth for something the DOM already knows.
+function closeMoreSheet() {
+  document.body.classList.remove('more-open');
+  document.getElementById('tabMoreBtn')?.setAttribute('aria-expanded', 'false');
+}
+function toggleMoreSheet() {
+  const open = document.body.classList.toggle('more-open');
+  document.getElementById('tabMoreBtn')?.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
 function switchTab(name, skipHistory = false) {
   const currentTab = document.querySelector('.panel.active')?.id?.replace('panel-', '');
   if (currentTab) tabScrollPos[currentTab] = window.scrollY;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-'+name));
   document.body.classList.toggle('is-dash', name === 'dash');
+  // Any tab choice closes the Mer sheet — including the two tabs that live INSIDE it, which is the
+  // case that matters: tapping Løpeatlas there must reveal the atlas, not leave the sheet covering it.
+  closeMoreSheet();
   if (!skipHistory) history.pushState({ tab: name }, '', '#' + name);
   if (name === 'dash') renderDashboard();
   if (name === 'atlas') renderAtlas(Store.data.sessions, Store.data.events);
@@ -11698,6 +11796,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => switchTab(tab.dataset.tab));
   });
+  // `.tab-more-btn` is deliberately NOT a `.tab`, so it stays out of VALID_TABS above and out of
+  // switchTab()'s active-marking — it opens a sheet, it does not select a panel.
+  const moreBtn = document.getElementById('tabMoreBtn');
+  moreBtn?.addEventListener('click', toggleMoreSheet);
+  moreBtn?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMoreSheet(); }
+  });
+  document.getElementById('moreBackdrop')?.addEventListener('click', closeMoreSheet);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMoreSheet(); });
   window.addEventListener('popstate', e => {
     const tab = e.state?.tab || window.location.hash.slice(1);
     switchTab(VALID_TABS.includes(tab) ? tab : 'form', true);
