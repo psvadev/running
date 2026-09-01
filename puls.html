@@ -832,6 +832,16 @@
   <div class="card" id="weekNowCard" style="display:none"></div>
 
   <div class="dash-grid">
+    <!-- Innsikter leads the grid: it is the only card here carrying DEADLINES — a race countdown, a
+         streak about to lapse, an ACWR "ro ned". Those decay, so they are worth something today and
+         nothing next week. Everything below it is reference (records, prognoses, goals) that you
+         consult deliberately rather than glance at. It matters most at 402px, where the whole grid
+         stacks and Rekorder — PRs + Prognose + Tidsmål + Formkurve in one card — used to push a
+         warning far below the fold. -->
+    <div class="card span2" id="insightCard">
+      <div class="card-title">Innsikter</div>
+      <div id="insightContent"></div>
+    </div>
     <div class="card span2" id="goalCard" style="display:none">
       <div class="card-title" id="goalCardTitle">Årsmål</div>
       <div id="goalProgress"></div>
@@ -860,10 +870,6 @@
         <div style="height:180px"><canvas id="chartFormkurve"></canvas></div>
         <div style="font-size:10px;color:var(--muted);margin-top:4px">Hvert testløp Riegel-normalisert til 5 km-tid — lavere er bedre. Oppover i grafen = bedre form.</div>
       </div>
-    </div>
-    <div class="card span2" id="insightCard">
-      <div class="card-title">Innsikter</div>
-      <div id="insightContent"></div>
     </div>
     <div class="card span2" id="rhythmCard">
       <div class="card-title">Treningsrytme — siste 12 uker</div>
