@@ -5452,6 +5452,14 @@ window._testRunningContinuity = function () {
     r = A(fl, sharp);
     check('one flat GPS second: not stopped', r.stoppedTimeSeconds === 0, 's=' + r.stoppedTimeSeconds);
     check('one flat GPS second: run stays continuous', approx(r.longestContinuousRunSeconds, r.movingTimeSeconds, 2), 'lr=' + r.longestContinuousRunSeconds + ' m=' + r.movingTimeSeconds); }
+  // ⚠️ COVERAGE GAP found 2026-09-04: every check above pins `smoothingWindowSeconds: 0` via `sharp`
+  // — sensible, since a zero window makes segment boundaries exact — but the side effect is that
+  // NOTHING exercised the smoothing window, so deleting it outright would have failed nothing. These
+  // two are the only checks that run a real window; do not fold them back into `sharp`.
+  r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 4, seconds: 40 }, { kmh: 11, seconds: 60 }]),
+        { smoothingWindowSeconds: 5, definiteWalkMaxKmh: 5.5, definiteRunMinKmh: 6.5 });
+  check('real 5s window: walk still detected', approx(r.walkingTimeSeconds, 40, 4), 'w=' + r.walkingTimeSeconds);
+  check('real 5s window: 1 transition', r.runToWalkTransitions === 1, 't=' + r.runToWalkTransitions);
   r = A(synth([{ kmh: 11, seconds: 150 }], { noMoving: true }), sharp);
   check('no-moving: warns', r.warnings.some(w => /moving/i.test(w)), r.warnings.join('|'));
   check('no-moving: not høy', r.datakvalitet !== 'høy');
