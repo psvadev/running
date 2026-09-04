@@ -127,3 +127,6 @@ jobs:
 
       - name: Tab nav — desktop unchanged, bottom bar on phones
         run: python tests/test_nav.py
+
+      - name: Event markers — which charts draw them
+        run: python tests/test_event_markers.py

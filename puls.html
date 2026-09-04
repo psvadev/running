@@ -7550,6 +7550,13 @@ function renderElevChart(sessions) {
   Charts.elev = new Chart(el, {
     type: 'bar',
     data: {
+      // `eventLinesPlugin` is registered globally, but it reads `_rawLabels` and falls back to
+      // `labels` — which here are display strings ("Uke 36 '26"), so this chart silently had no
+      // markers. Not a decision anyone made: every chart that pretty-prints its axis opted out by
+      // accident. Elevation drops for the same reasons volume does, and Ukentlig distanse (which
+      // does carry markers) is the same shape.
+      _rawLabels: keys,
+      _labelKind: elevGroupBy === 'week' ? 'week' : 'month',   // "YYYY-NN" is ambiguous — must declare
       labels: keys.map(fmtKey),
       datasets: [{ label: 'Høydemeter', data: keys.map(k => Math.round(elev[k] || 0)), backgroundColor: 'rgba(75,190,120,.75)' }]
     },
@@ -7604,6 +7611,13 @@ function renderContinuityTrend(sessions) {
   Charts.contTrend = new Chart(el, {
     type: 'line',
     data: {
+      // Markers matter more here than on any other chart: a «Lengste løp» dip during a deload or
+      // taper is the metric's most confusing reading (slow prescribed pace → more ambiguous
+      // stretches → the longest run gets cut, with Løping % barely moving), and the event type is
+      // what tells you it is benign. Without a 🪫/📉 on the week that context lives on a different
+      // card entirely. See [[project-runwalk-continuity]] — 2026-09-04 cost an afternoon to this.
+      _rawLabels: keys,
+      _labelKind: contTrendGroupBy === 'week' ? 'week' : 'month',
       labels: keys.map(fmtKey),
       datasets: [{
         label: isRunning ? 'Andel løping' : 'Lengste løp',
