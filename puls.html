@@ -4333,7 +4333,7 @@ function streamArr(streams, k) {
   return null;
 }
 
-const CONTINUITY_ANALYSIS_VERSION  = 3;   // bump when the algorithm / output shape changes (v2: recording gaps count as stopped · v3: a stop must also have covered no ground)
+const CONTINUITY_ANALYSIS_VERSION  = 4;   // bump when the algorithm / output shape changes (v2: recording gaps count as stopped · v3: a stop must also have covered no ground · v4: classify on ground covered, not on twice-smoothed velocity)
 const CONTINUITY_THRESHOLD_VERSION = 2;   // bump when the numeric threshold DEFAULTS below change (v2: 7.0/7.5, calibrated on 4 real runs)
 // Defaults calibrated 2026-07-29 against 4 real outdoor runs: this runner walks ~6–7 km/h
 // (brisk) and runs ~8+, so 5.5/6.5 hid the walking. 7.0/7.5 gave a stable ~25–35% walk across
@@ -4392,13 +4392,36 @@ function analyzeRunningContinuity(streams, options = {}) {
   } else if (grade) warnings.push('«grade_smooth» ufullstendig — motbakke utelatt');
   else warnings.push('Ingen «grade_smooth» — motbakke ikke tilgjengelig');
 
-  // 3. Centered time-window speed smoothing (real dt from the time stream — never assume 1 Hz).
+  // 3. Centered time-window speed, measured as GROUND COVERED ÷ elapsed time over the window
+  //    (real dt from the time stream — never assume 1 Hz).
+  //
+  //    v4 (2026-09-04). This used to average `velocity_smooth`, which Strava has ALREADY smoothed —
+  //    so every classification ran through TWO smoothing passes, pulling brief speed changes toward
+  //    the middle of the run/walk band. Measured across 22 real outdoor runs: ~52 s per run sat in
+  //    the ambiguous band while the distance stream showed ground covered ABOVE the run floor. That
+  //    is not cosmetic, because an unclassified stretch longer than `graceSeconds` ENDS the longest
+  //    continuous run (step 9) while adding no transition (step 8) — so phantom ambiguity silently
+  //    cut the metric. 3 of the 22 lost 0.51–1.60 km to a single such stretch; the worst was a 13 s
+  //    segment on a −10.3 % descent that covered ground at 7.59 km/h against a 7.5 km/h run floor.
+  //
+  //    Distance is the authoritative signal and is smoothed exactly once here. Differencing the
+  //    window's ENDPOINTS (rather than averaging per-sample speeds) also makes an interior GPS spike
+  //    cancel out completely instead of being spread across the window.
+  //
+  //    `velocity_smooth` stays required in step 2 — a stream without it is not a run we can analyse —
+  //    and remains the last-resort fallback below.
   const half = cfg.smoothingWindowSeconds / 2;
-  const smoothAt = (i) => {
-    const t0 = time[i]; let sum = 0, cnt = 0;
-    for (let j = i; j >= 0 && (t0 - time[j]) <= half; j--) { const v = velocity[j]; if (typeof v === 'number' && isFinite(v)) { sum += v; cnt++; } }
-    for (let j = i + 1; j < n && (time[j] - t0) <= half; j++) { const v = velocity[j]; if (typeof v === 'number' && isFinite(v)) { sum += v; cnt++; } }
-    return cnt ? sum / cnt : (typeof velocity[i] === 'number' && isFinite(velocity[i]) ? velocity[i] : 0);
+  const groundSpeedAt = (i) => {
+    const t0 = time[i];
+    let lo = i, hi = i + 1;                      // always spans at least interval i itself
+    while (lo > 0 && (t0 - time[lo - 1]) <= half) lo--;
+    while (hi < n - 1 && (time[hi + 1] - t0) <= half) hi++;
+    const wdt = time[hi] - time[lo], wdd = distance[hi] - distance[lo];
+    if (wdt > 0 && isFinite(wdd) && wdd >= 0) return wdd / wdt;
+    const rdt = time[i + 1] - time[i], rdd = distance[i + 1] - distance[i];   // degenerate window
+    if (rdt > 0 && isFinite(rdd) && rdd >= 0) return rdd / rdt;
+    const v = velocity[i];                                                    // distance unusable
+    return (typeof v === 'number' && isFinite(v)) ? v : 0;
   };
 
   // 4. Per-INTERVAL classification (interval i spans sample i→i+1). Strict boundaries; a
@@ -4410,7 +4433,7 @@ function analyzeRunningContinuity(streams, options = {}) {
     if (dt > 5) irregularCount++;
     let dd = distance[i + 1] - distance[i];
     if (!(dd >= 0) || !isFinite(dd)) dd = 0;              // GPS jitter can go backwards
-    const kmh = smoothAt(i) * 3.6;
+    const kmh = groundSpeedAt(i) * 3.6;
     // v3: a stop must actually have covered no ground. Two independent signals say "stopped" and
     // they disagree, so neither is trusted alone:
     //   · Strava's `moving` flag over-reports. On a 32-minute outdoor run it marks 450 s as stopped
@@ -4419,8 +4442,10 @@ function analyzeRunningContinuity(streams, options = {}) {
     //     discarded in step 7) — 1176 m "covered while standing still" on the worst run. Real walking
     //     was being counted as a pause, which shrinks the moving-time denominator and inflates Løping%.
     //   · The flag also UNDER-reports: it never marks a recording gap, where the clock jumps while
-    //     no ground is covered and `smoothAt` would hand the interval the running speed of the
-    //     samples either side — so a three-minute stop at a crossing used to count as RUN.
+    //     no ground is covered. Under v3's velocity averaging that handed the interval the running
+    //     speed of the samples either side, so a three-minute stop at a crossing counted as RUN.
+    //     v4's ground-covered speed no longer would — but the explicit gap test stays, because
+    //     WALK is just as wrong as RUN for a standstill and only this branch yields STOP.
     // Ground covered is therefore necessary in both cases; the flag (or gap length) only says which
     // kind of standstill it is. Must precede the speed test either way.
     const noGround = isStoppedInterval(dt, dd);
@@ -5370,15 +5395,21 @@ window._testRunningContinuity = function () {
   // Pin structural tests to fixed thresholds so they stay valid regardless of CONTINUITY_DEFAULTS
   // (the default is user-tunable / was bumped to 7.0/7.5). Exact-threshold tests override these.
   const sharp = { smoothingWindowSeconds: 0, definiteWalkMaxKmh: 5.5, definiteRunMinKmh: 6.5 };
-  // Build key_by_type streams at `hz` from phases [{ kmh, seconds, moving?, grade? }].
+  // Build key_by_type streams at `hz` from phases [{ kmh, seconds, moving?, grade?, vKmh? }].
   // A phase of the form { gap: seconds } emits NO samples: the clock jumps and the distance creeps a
   // couple of metres, which is the shape a real recording gap takes (see isStoppedInterval).
+  // `kmh` drives the DISTANCE stream; `vKmh` (optional) drives `velocity_smooth` independently, so a
+  // phase can reproduce v4's real-world case — Strava's smoothed velocity dipping into the ambiguous
+  // band while the ground actually covered says running. Omit it and the two agree, as before.
   const synth = (phases, opt = {}) => {
     const hz = opt.hz || 1, dt = 1 / hz; const time = [], distance = [], velocity = [], moving = [], grade = [];
     let t = 0, d = 0;
     phases.forEach(p => { if (p.gap) { t += p.gap; d += (p.gapMeters != null ? p.gapMeters : 2); return; }
-      const v = (p.kmh || 0) / 3.6; const steps = Math.max(1, Math.round(p.seconds * hz));
-      for (let k = 0; k < steps; k++) { time.push(+t.toFixed(3)); distance.push(d); velocity.push(v); moving.push(p.moving === false ? false : true); grade.push(p.grade != null ? p.grade : 0); t += dt; d += v * dt; } });
+      // `mps` sets the speed exactly (no /3.6 rounding), so a test can land ON a threshold: v4 reads
+      // accumulated distance, and a difference of accumulated sums cannot hit a round-tripped km/h.
+      const v = (p.mps != null ? p.mps : (p.kmh || 0) / 3.6), vs = (p.vKmh != null ? p.vKmh / 3.6 : v);
+      const steps = Math.max(1, Math.round(p.seconds * hz));
+      for (let k = 0; k < steps; k++) { time.push(+t.toFixed(3)); distance.push(d); velocity.push(vs); moving.push(p.moving === false ? false : true); grade.push(p.grade != null ? p.grade : 0); t += dt; d += v * dt; } });
     time.push(+t.toFixed(3)); distance.push(d); velocity.push(velocity[velocity.length - 1] || 0); moving.push(moving[moving.length - 1] !== false); grade.push(grade[grade.length - 1] || 0);
     const wrap = a => ({ data: a }); const out = { time: wrap(time), distance: wrap(distance), velocity_smooth: wrap(velocity) };
     if (!opt.noMoving) out.moving = wrap(moving); if (!opt.noGrade) out.grade_smooth = wrap(grade); return out;
@@ -5408,14 +5439,16 @@ window._testRunningContinuity = function () {
   check('stop: excluded from moving (≈80s)', approx(r.movingTimeSeconds, 80, 2), 'm=' + r.movingTimeSeconds);
   check('stop: breaks longest run (≈40s)', approx(r.longestContinuousRunSeconds, 40, 2), 'lr=' + r.longestContinuousRunSeconds);
   check('stop: 0 run→walk transitions', r.runToWalkTransitions === 0);
-  // Exact-threshold equality → unclassified. Feed a speed and set the threshold to the SAME
-  // round-tripped km/h the algorithm computes (both sides evaluate the identical v*3.6), so the
-  // boundary is hit exactly regardless of float representation — this tests the strict < / >.
-  { const kmhBack = (5.5 / 3.6) * 3.6;
-    r = A(synth([{ kmh: 5.5, seconds: 60 }]), Object.assign({}, sharp, { definiteWalkMaxKmh: kmhBack, definiteRunMinKmh: kmhBack + 1 }));
+  // Exact-threshold equality → unclassified, testing the strict < / >. The boundary is built from an
+  // exactly-representable 2 m/s: distance then accumulates in whole metres, so the classifier's
+  // (dd/dt)*3.6 and the threshold's 2*3.6 are the identical double. (Until v4 this round-tripped a
+  // km/h through velocity_smooth; v4 reads accumulated distance, where a difference of sums carries
+  // rounding and can no longer land exactly on a threshold derived that way.)
+  { const kmhBack = 2 * 3.6;
+    r = A(synth([{ mps: 2, seconds: 60 }]), Object.assign({}, sharp, { definiteWalkMaxKmh: kmhBack, definiteRunMinKmh: kmhBack + 1 }));
     check('= walkMax exactly → unclassified', r.walkingTimeSeconds === 0 && r.runningTimeSeconds === 0 && approx(r.unclassifiedRatio, 1, 0.02), JSON.stringify({ w: r.walkingTimeSeconds, run: r.runningTimeSeconds, u: r.unclassifiedRatio })); }
-  { const kmhBack = (6.5 / 3.6) * 3.6;
-    r = A(synth([{ kmh: 6.5, seconds: 60 }]), Object.assign({}, sharp, { definiteWalkMaxKmh: kmhBack - 1, definiteRunMinKmh: kmhBack }));
+  { const kmhBack = 2 * 3.6;
+    r = A(synth([{ mps: 2, seconds: 60 }]), Object.assign({}, sharp, { definiteWalkMaxKmh: kmhBack - 1, definiteRunMinKmh: kmhBack }));
     check('= runMin exactly → unclassified', r.runningTimeSeconds === 0 && r.walkingTimeSeconds === 0 && approx(r.unclassifiedRatio, 1, 0.02)); }
   r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 4, seconds: 4 }, { kmh: 6.0, seconds: 4 }, { kmh: 11, seconds: 60 }]), sharp);
   check('adjacent-short diff-class: 0 transitions', r.runToWalkTransitions === 0, 't=' + r.runToWalkTransitions);
@@ -5452,6 +5485,26 @@ window._testRunningContinuity = function () {
     r = A(fl, sharp);
     check('one flat GPS second: not stopped', r.stoppedTimeSeconds === 0, 's=' + r.stoppedTimeSeconds);
     check('one flat GPS second: run stays continuous', approx(r.longestContinuousRunSeconds, r.movingTimeSeconds, 2), 'lr=' + r.longestContinuousRunSeconds + ' m=' + r.movingTimeSeconds); }
+  // ── v4: classification reads GROUND COVERED, not Strava's already-smoothed velocity ──
+  // The real case (03.09.2026, run 20017007914): a 13 s stretch on a −10.3 % descent covered ground at
+  // 7.59 km/h — ABOVE the 7.5 run floor — while velocity_smooth sat in the ambiguous band. Being
+  // longer than graceSeconds it ended the longest continuous run (step 9) while adding no transition
+  // (step 8), costing 0.51 km of a 3.09 km best stretch. `vKmh` drives the two streams apart.
+  r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 9, vKmh: 6.0, seconds: 20 }, { kmh: 11, seconds: 60 }]), sharp);
+  check('v4: ground says run, velocity says ambiguous → run', r.unclassifiedTimeSeconds === 0, 'u=' + r.unclassifiedTimeSeconds);
+  check('v4: …so the longest run is not cut', approx(r.longestContinuousRunSeconds, r.movingTimeSeconds, 2), 'lr=' + r.longestContinuousRunSeconds + ' m=' + r.movingTimeSeconds);
+  // POSITIVE CONTROL — without this the pair above would pass just as well if v4 had relabelled every
+  // ambiguous stretch as running. Same shape, but the ground genuinely IS slow.
+  r = A(synth([{ kmh: 11, seconds: 60 }, { kmh: 6.0, seconds: 20 }, { kmh: 11, seconds: 60 }]), sharp);
+  check('v4 control: genuinely slow ground stays unclassified', approx(r.unclassifiedTimeSeconds, 20, 2), 'u=' + r.unclassifiedTimeSeconds);
+  check('v4 control: …and still breaks the longest run', approx(r.longestContinuousRunSeconds, 60, 2), 'lr=' + r.longestContinuousRunSeconds);
+  // The only test that runs a REAL smoothing window — every other one pins it to 0 for exact segment
+  // boundaries, so nothing else would notice if the window stopped working. A single-sample GPS jump
+  // must not fake a run out of a walk.
+  { const sp = synth([{ kmh: 4, seconds: 120 }]); sp.distance.data[60] += 20;
+    r = A(sp, { smoothingWindowSeconds: 5, definiteWalkMaxKmh: 5.5, definiteRunMinKmh: 6.5 });
+    check('v4: one-sample GPS spike does not fake a run', r.runningTimeSeconds === 0, 'run=' + r.runningTimeSeconds);
+    check('v4: …and creates no transition', r.runToWalkTransitions === 0, 't=' + r.runToWalkTransitions); }
   r = A(synth([{ kmh: 11, seconds: 150 }], { noMoving: true }), sharp);
   check('no-moving: warns', r.warnings.some(w => /moving/i.test(w)), r.warnings.join('|'));
   check('no-moving: not høy', r.datakvalitet !== 'høy');
@@ -8007,7 +8060,7 @@ const DetailPanel = {
     // subtle ⓘ affordance (native <details>, no JS). Expanding shows the current grenser + caveat.
     const hint = `<details style="margin-top:10px">`
       + `<summary style="font-size:10px;color:var(--muted);cursor:pointer;list-style:none;user-select:none">ⓘ Hvordan beregnes dette?</summary>`
-      + `<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">Estimert fra Strava sin fart sekund for sekund: under ${thr.definiteWalkMaxKmh} km/t = gange, over ${thr.definiteRunMinKmh} km/t = løping, imellom = uklart. Gange og rolig jogg overlapper ofte, så tallene er en trend, ikke fasit. Juster grensene i Innstillinger.</div>`
+      + `<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">Estimert fra distansen du faktisk tilbakelegger, sekund for sekund: under ${thr.definiteWalkMaxKmh} km/t = gange, over ${thr.definiteRunMinKmh} km/t = løping, imellom = uklart. Gange og rolig jogg overlapper ofte, så tallene er en trend, ikke fasit. Juster grensene i Innstillinger.</div>`
       + `</details>`;
     return `${label}${bar}${legend}${tilesHtml}${uphill}${warn}${hint}`;
   },
