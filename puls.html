@@ -7017,11 +7017,14 @@ function renderInsights(sessions) {
       // thing you are being compared against was a holiday" beats "affected by taper/deload".
       const recentLow = lowLoadInRange(w4ago, today);
       const priorLow  = lowLoadInRange(w8ago2, w4ago);
+      // Same terse shape as the Belastning card, and the same reason: the base sentence has already
+      // said "Siste 4 uker vs. forrige 4", so `nå`/`før` are unambiguous and the windows do not need
+      // naming twice.
       let volNote = '';
       if (recentLow.length && priorLow.length)
-        volNote = ` · begge periodene inneholder redusert løping (${recentLow.join('/')} nå, ${priorLow.join('/')} før)`;
-      else if (priorLow.length) volNote = ` · forrige periode inneholder ${priorLow.join('/')}`;
-      else if (recentLow.length) volNote = ` · perioden inneholder ${recentLow.join('/')}`;
+        volNote = ` · redusert løping i begge periodene (${recentLow.join('/')} nå, ${priorLow.join('/')} før)`;
+      else if (priorLow.length) volNote = ` · redusert løping før (${priorLow.join('/')})`;
+      else if (recentLow.length) volNote = ` · redusert løping nå (${recentLow.join('/')})`;
       candidates.push({ icon: up ? '📈' : '📉', val: `${Math.abs(volPct)}% ${up ? 'mer' : 'mindre'} volum`,
         sub: `Siste 4 uker (${recentKm.toFixed(0)} km) vs. forrige 4 (${priorKm.toFixed(0)} km)${volNote}`,
         priority: Math.abs(volPct) >= 25 ? 4 : 3 });
@@ -7174,13 +7177,19 @@ function renderInsights(sessions) {
       // at all only because this card fires in one direction (it is silent below 1.3).
       const baseLow  = lowLoadInRange(dl35, dl7);
       const acuteLow = lowLoadInRange(dl7, today);
+      //
+      // Deliberately terse (2026-09-05, second pass): the sentence immediately above already names
+      // both windows, so the qualifier only says WHICH label sits in WHICH one. The first version
+      // re-named them — "siste 7 dager" twice in one card — and that repetition, not the labels,
+      // was what pushed these two cards a line taller than the rest of the grid. `før`/`nå` refer
+      // back to the windows the base sentence just named; measured at the real 11px card width.
       let note = '';
       if (baseLow.length && acuteLow.length)
-        note = `. Både 4-ukersgrunnlaget (${baseLow.join('/')}) og siste 7 dager (${acuteLow.join('/')}) inneholder redusert løping`;
+        note = `. Redusert løping i begge periodene (${baseLow.join('/')} før, ${acuteLow.join('/')} nå)`;
       else if (baseLow.length)
-        note = `. 4-ukersgrunnlaget inneholder ${baseLow.join('/')}, som løfter tallet`;
+        note = `. Redusert løping i grunnlaget (${baseLow.join('/')}) løfter tallet`;
       else if (acuteLow.length)
-        note = `. Siste 7 dager inneholder ${acuteLow.join('/')}, så tallet er høyt likevel`;
+        note = `. Redusert løping nå (${acuteLow.join('/')}) — tallet er høyt likevel`;
       candidates.push({ icon: '⚠️', val: `Belastning ×${acwr.toFixed(1).replace('.', ',')}`,
         sub: (urgent ? 'siste 7 dager langt over 4-ukers snittet — stor belastningsøkning, ro ned'
                      : 'siste 7 dager vs 4-ukers snitt — øk rolig') + note,

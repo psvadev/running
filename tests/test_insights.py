@@ -208,6 +208,22 @@ with sync_playwright() as p:
         return {'id': f'{kind}{frm}', 'type': kind, 'title': kind,
                 'date': days_ago(frm), 'endDate': days_ago(to)}
 
+    def card_with(marker):
+        """Text of the ONE .insight-item containing `marker`.
+
+        ⚠️ Wording assertions must be scoped to their own card. The two qualifiers share vocabulary
+        — the volume card's "(deload/taper nå, ferie før)" contains the literal 'taper nå' — so a
+        check about the BELASTNING card that searches the whole panel is satisfied by the VOLUME
+        card and can never fail. Found by falsification: swapping the ACWR pairing to "deload nå,
+        taper før" left 'taper nå' green. Reads textContent, not innerText, per the off-DOM rule.
+        Returns '' when no card matches, so a True-expecting check fails loudly rather than passing.
+        """
+        for t in pg.eval_on_selector_all('.insight-item', "els => els.map(e => e.textContent)"):
+            t = " ".join(t.split())
+            if marker in t:
+                return t
+        return ''
+
     print('== low-load qualifier ==')
     clean = with_events([])
     # ⚠️ POSITIVE CONTROL FIRST. Every assertion below is about the WORDING of two cards; if the
@@ -218,7 +234,11 @@ with sync_playwright() as p:
     check('the risk claim is gone', 'skaderisiko' in clean, False)
     check('...replaced by what was measured', 'stor belastningsøkning' in clean, True)
     check('the instruction survives', 'ro ned' in clean, True)
-    check('no events → no qualifier at all', 'inneholder redusert løping' in clean, False)
+    # 'redusert løping' is the stem every qualifier variant shares, in both cards and all three
+    # window cases — so its absence is the honest "no qualifier at all". (It used to pin
+    # 'inneholder redusert løping'; the 2026-09-05 reword dropped the verb, which would have left
+    # this check passing because the phrase no longer exists ANYWHERE. Restated, not loosened.)
+    check('no events → no qualifier at all', 'redusert løping' in clean, False)
     check('...and no direction claim either', 'løfter tallet' in clean, False)
 
     # Deload in the ACWR baseline (days 8-35) only — direction is knowable, so it is stated.
@@ -236,11 +256,17 @@ with sync_playwright() as p:
     # amount, so naming a direction would be a guess; the card names what is where instead.
     both = with_events([ev('deload', 26, 20), ev('taper', 5, 0), ev('vacation', 54, 48)])
     check('both windows → no direction claim', 'løfter tallet' in both, False)
-    check('...names the baseline content', '4-ukersgrunnlaget (deload)' in both, True)
-    check('...and the acute content', 'siste 7 dager (taper)' in both, True)
+    # The label must stay ATTACHED to its window, and be read off the card that owns it.
+    acwr_card, vol_card = card_with('Belastning ×'), card_with('mer volum')
+    check('control: both cards located individually',
+          bool(acwr_card) and bool(vol_card), True)
+    check('...names the baseline content', 'deload før' in acwr_card, True)
+    check('...and the acute content', 'taper nå' in acwr_card, True)
     # The volume card must NEVER claim a direction: it fires both ways (📈/📉), so "makes it bigger"
     # flips meaning with the sign.
-    check('volum names both periods', 'begge periodene inneholder redusert løping' in both, True)
+    check('volum names both periods', 'redusert løping i begge periodene' in vol_card, True)
+    check('...and attaches each label to its own period',
+          'deload/taper nå, ferie før' in vol_card, True)
     check('...without a direction claim', 'ser større ut' in both, False)
 
     # An event that STARTS before a window and ends inside it still belongs to that window.
