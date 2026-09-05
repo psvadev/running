@@ -164,14 +164,21 @@ with sync_playwright() as pw:
     # at every sample from 250 ms on, and the widest element (#weeklyTable, 450 px) lives inside its
     # own overflow-x:auto card, so it never pushes the page.
     # This still fails on a REAL overflow: that never settles, so the loop just runs out.
+    # ⚠️ 2026-09-05: this went RED in pre-push while passing 3/3 standalone, on a change that touched
+    # only the log tab (measured: no overflow on either tab at 402 px). The bug was in the check, not
+    # the app. The old version broke out of the loop on success and asserted a bare bool, so RUNNING
+    # OUT OF BUDGET and REAL OVERFLOW produced the identical failure — and under pre-push, with 15
+    # browser suites back to back, the render simply needs longer than 20x150 ms to settle.
+    # Now it keeps the last MEASUREMENT and reports it: a failure says how many pixels wide the page
+    # actually was, so "0" (a timing artefact) can never again be mistaken for a real overflow.
     pg.set_viewport_size({"width": 402, "height": 900})
-    fits = False
-    for _ in range(20):
+    over = None
+    for _ in range(40):                       # 6 s, generous enough for a loaded machine
         pg.wait_for_timeout(150)
-        if pg.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1"):
-            fits = True
+        over = pg.evaluate("() => document.documentElement.scrollWidth - window.innerWidth")
+        if over <= 1:
             break
-    check("no horizontal overflow (settled)", fits, True)
+    check(f"no horizontal overflow (settled, last measured {over:+} px)", over <= 1, True)
 
     check("no page errors", errs, [])
     b.close()
