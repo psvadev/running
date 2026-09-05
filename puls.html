@@ -2034,7 +2034,11 @@ function formatSessionTsv(sessions, opts = {}) {
     if (s.utenforAnalyse) metaParts.push('[Avvik]');
     if (!(s.soner?.some(z => z > 0))) metaParts.push('[Uten pulsdata]');
     if (s.beskrivelse) metaParts.push(`[Øktbeskrivelse]\n${s.beskrivelse}`);
-    if (s.notater && !opts.omitNotes) metaParts.push(s.notater);
+    // Labelled since 2026-09-05. It was the only unlabelled section, and with a multi-paragraph
+    // Øktbeskrivelse above it the note read as one more paragraph of the plan's prescription —
+    // blank lines separate the parts, so nothing said where one ended and the other began. Anything
+    // reading the export would attribute your note to Runna.
+    if (s.notater && !opts.omitNotes) metaParts.push(`[Notater]\n${s.notater}`);
     // Everything a human wrote sits ABOVE the data row, everything derived from Strava sits BELOW it:
     // the row and the analysis are one machine-measured group, read together. Notes keep their place
     // immediately above the row — that adjacency is the reason this block format exists — so putting

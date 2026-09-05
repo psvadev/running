@@ -166,9 +166,22 @@ with sync_playwright() as pw:
     # ── «Uten notater» (2026-09-05) ────────────────────────────────────────────────────────
     # ⚠️ The positive control comes FIRST. "the note is absent" is trivially true of a broken export,
     # an empty string, or a fixture that never carried a note — so it proves nothing on its own.
+    # The note is LABELLED (2026-09-05). It used to be the only unlabelled section, so with a
+    # multi-paragraph Øktbeskrivelse above it — parts are separated by blank lines — the note read as
+    # one more paragraph of the plan's prescription, and anything parsing the export would credit
+    # Runna with what he wrote.
+    print("== [Notater] header ==")
+    check("the note carries a header", "[Notater]" in out["withNote"], True)
+    check("...immediately above the note text",
+          out["withNote"].split("[Notater]")[1].startswith("\nKjentes tungt."), True)
+    check("...and after the description, not inside it",
+          out["descKept"].index("[Øktbeskrivelse]") < out["descKept"].index("[Notater]"), True)
+
     print("== uten notater ==")
     check("control: the note IS there without the option", "Kjentes tungt." in out["withNote"], True)
     check("omitNotes drops it", "Kjentes tungt." in out["noNotes"], False)
+    # A label left behind announcing a section that isn't there is worse than no label at all.
+    check("...taking its header with it", "[Notater]" in out["noNotes"], False)
     # ⚠️ And the block must still be WELL-FORMED, not merely note-free. Removing the only metaPart
     # changes which branch builds the body (`metaParts.length ? … : …`), so this is the one line that
     # would catch a stray blank line or a lost header — invisible to a substring check for absence.
