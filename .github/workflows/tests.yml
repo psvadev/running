@@ -33,7 +33,12 @@ jobs:
     # Windows on purpose: the layout assertions (402 px mobile overflow, "the event row stays on one
     # line") depend on font metrics, and Linux has a different font stack. Free for public repos.
     runs-on: windows-latest
-    timeout-minutes: 20
+    # Raised from 20 on 2026-09-05: the run for 75362a6 was cancelled at exactly 20m. Not a hang —
+    # timed locally, all 15 suites total ~3 min — the job had grown past its budget as suites were
+    # added. WebKit is cached below, which is the real fix; this is the headroom so a cold cache or
+    # a slow runner does not read as a failure. ⚠️ A cancelled job is not a passing one: pre-push had
+    # run everything locally, so the red here was CI capacity, not the code.
+    timeout-minutes: 35
 
     steps:
       - uses: actions/checkout@v4
@@ -78,11 +83,33 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Playwright + WebKit
+      - name: Install Playwright (pip)
         run: |
           python -m pip install --upgrade pip
           pip install playwright
-          playwright install webkit
+
+      # Resolved rather than hardcoded so the cache key follows the version pip actually installed —
+      # a new Playwright expects a different WebKit build, and a stale cache would be worse than none.
+      - name: Resolve Playwright version
+        id: pw
+        shell: pwsh
+        run: |
+          $v = python -c "import importlib.metadata as m; print(m.version('playwright'))"
+          "v=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "playwright $v"
+
+      # ⚠️ Added 2026-09-05 after the job was CANCELLED at timeout-minutes 20. Nothing hung — the
+      # suites total ~3 min locally and the slowest is 41 s — the job had simply grown past its
+      # budget, and the largest single cost is downloading WebKit on a Windows runner every run.
+      # Cache it; `playwright install` below is then a no-op on a hit.
+      - name: Cache WebKit
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: ${{ runner.os }}-webkit-${{ steps.pw.outputs.v }}
+
+      - name: Install WebKit
+        run: playwright install webkit
 
       # One step per suite: the log then shows which one broke, instead of a single opaque result.
       # Each suite sys.exit(1)s on any failed assertion.
