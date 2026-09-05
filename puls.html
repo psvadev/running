@@ -1211,6 +1211,14 @@
     <button class="btn-secondary btn-sm" id="btnCopySelected" disabled>Kopier valgte</button>
     <button class="btn-secondary btn-sm" id="btnCopyAll">Kopier alle filtrerte</button>
     <button class="btn-secondary btn-sm" id="btnDownloadTsv">Last ned TSV</button>
+    <!-- Governs all three export buttons, so it sits with them rather than in the filter bar above:
+         the filters decide WHICH sessions go out, this decides what each one carries. Deliberately
+         NOT persisted — an export months from now should not silently drop notes because of a box
+         ticked today. Only Notater; Øktbeskrivelse is the programme's prescription, not a comment. -->
+    <label style="font-size:12px;color:var(--muted);display:flex;gap:5px;align-items:center;cursor:pointer"
+           title="Utelater dine egne notater fra eksporten. Øktbeskrivelse fra planen tas fortsatt med.">
+      <input type="checkbox" id="chkNoNotes"> Uten notater
+    </label>
     <span id="logCopyFeedback" style="font-size:11px;color:var(--accent);opacity:0;transition:opacity .4s">Kopiert!</span>
   </div>
 
@@ -2007,7 +2015,16 @@ function sessionAnalysisLines(s) {
   return out.length ? `[Analyse]\n${out.join('\n')}` : '';
 }
 
-function formatSessionTsv(sessions) {
+// `opts.omitNotes` drops the free-text Notater from every block — for an export you are handing to
+// something else and do not want to strip by hand, run by run.
+//
+// ⚠️ It omits ONLY `notater`. Øktbeskrivelse stays: it is the programme's prescription (warm-up, reps,
+// pace targets), machine-filled from the plan rather than written by you, and it is exactly the
+// context an analysis needs. Two different things wearing the same "text field" shape.
+//
+// Kept as an argument rather than read from the DOM in here, so the function stays pure and the three
+// export buttons remain the only place that knows a checkbox exists.
+function formatSessionTsv(sessions, opts = {}) {
   const HDR = TSV_COLS.map(c => c[0]).join('\t');
   const blocks = sessions.map(s => {
     const dataRow = TSV_COLS.map(c => c[1](s)).join('\t');
@@ -2017,7 +2034,7 @@ function formatSessionTsv(sessions) {
     if (s.utenforAnalyse) metaParts.push('[Avvik]');
     if (!(s.soner?.some(z => z > 0))) metaParts.push('[Uten pulsdata]');
     if (s.beskrivelse) metaParts.push(`[Øktbeskrivelse]\n${s.beskrivelse}`);
-    if (s.notater) metaParts.push(s.notater);
+    if (s.notater && !opts.omitNotes) metaParts.push(s.notater);
     // Everything a human wrote sits ABOVE the data row, everything derived from Strava sits BELOW it:
     // the row and the analysis are one machine-measured group, read together. Notes keep their place
     // immediately above the row — that adjacency is the reason this block format exists — so putting
@@ -11884,22 +11901,26 @@ document.addEventListener('DOMContentLoaded', () => {
     LogExport.update();
   });
 
+  // One reader for the three buttons — three copies would let them drift, and an export that honours
+  // the checkbox from one button but not another is worse than not having it.
+  const exportOpts = () => ({ omitNotes: document.getElementById('chkNoNotes')?.checked === true });
+
   document.getElementById('btnCopySelected').addEventListener('click', async () => {
-    const tsv = formatSessionTsv(LogExport.getSelected());
+    const tsv = formatSessionTsv(LogExport.getSelected(), exportOpts());
     await copyToClipboard(tsv);
     LogExport.flash();
   });
 
   document.getElementById('btnCopyAll').addEventListener('click', async () => {
     const sessions = Log.lastFiltered || Store.data.sessions;
-    const tsv = formatSessionTsv([...sessions].sort((a,b) => a.dato.localeCompare(b.dato)));
+    const tsv = formatSessionTsv([...sessions].sort((a,b) => a.dato.localeCompare(b.dato)), exportOpts());
     await copyToClipboard(tsv);
     LogExport.flash();
   });
 
   document.getElementById('btnDownloadTsv').addEventListener('click', () => {
     const sessions = Log.lastFiltered || Store.data.sessions;
-    const tsv = formatSessionTsv([...sessions].sort((a,b) => a.dato.localeCompare(b.dato)));
+    const tsv = formatSessionTsv([...sessions].sort((a,b) => a.dato.localeCompare(b.dato)), exportOpts());
     const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = 'løpelogg.tsv'; a.click();

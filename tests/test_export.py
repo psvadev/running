@@ -75,6 +75,15 @@ BUILD = """
     none:     formatSessionTsv([base()]),
     withNote: formatSessionTsv([base({ notater: 'Kjentes tungt.',
                                        stravaAnalysis: { aerobic: aero() } })]),
+    // «Uten notater» (2026-09-05). Same session three ways, so the checkbox can be compared against
+    // the note being present and against the note never having existed.
+    noNotes:  formatSessionTsv([base({ notater: 'Kjentes tungt.',
+                                       stravaAnalysis: { aerobic: aero() } })], { omitNotes: true }),
+    neverHad: formatSessionTsv([base({ stravaAnalysis: { aerobic: aero() } })], { omitNotes: true }),
+    // Notes off must NOT take the plan's prescription with it — different provenance, different call.
+    descOnly: formatSessionTsv([base({ notater: 'Privat notat.', beskrivelse: '3x1km @ 4:30' })],
+                               { omitNotes: true }),
+    descKept: formatSessionTsv([base({ notater: 'Privat notat.', beskrivelse: '3x1km @ 4:30' })]),
   };
 }"""
 
@@ -153,6 +162,66 @@ with sync_playwright() as pw:
     check("analysis comes after it", w.index(ROW) < w.index("[Analyse]"), True)
     check("...and nothing at all separates note from row",
           w.split("Kjentes tungt.")[1].startswith("\n\n" + ROW), True)
+
+    # ── «Uten notater» (2026-09-05) ────────────────────────────────────────────────────────
+    # ⚠️ The positive control comes FIRST. "the note is absent" is trivially true of a broken export,
+    # an empty string, or a fixture that never carried a note — so it proves nothing on its own.
+    print("== uten notater ==")
+    check("control: the note IS there without the option", "Kjentes tungt." in out["withNote"], True)
+    check("omitNotes drops it", "Kjentes tungt." in out["noNotes"], False)
+    # ⚠️ And the block must still be WELL-FORMED, not merely note-free. Removing the only metaPart
+    # changes which branch builds the body (`metaParts.length ? … : …`), so this is the one line that
+    # would catch a stray blank line or a lost header — invisible to a substring check for absence.
+    check("...and the block is byte-identical to one that never had a note",
+          out["noNotes"] == out["neverHad"], True)
+
+    # Notater and Øktbeskrivelse are different things: one you wrote, one the programme prescribed.
+    print("== Øktbeskrivelse survives ==")
+    check("control: both present by default",
+          ("Privat notat." in out["descKept"]) and ("3x1km @ 4:30" in out["descKept"]), True)
+    check("omitNotes drops only the note", "Privat notat." in out["descOnly"], False)
+    check("...and keeps the prescription", "3x1km @ 4:30" in out["descOnly"], True)
+    check("...with its [Øktbeskrivelse] label intact", "[Øktbeskrivelse]" in out["descOnly"], True)
+
+    # ── The checkbox is actually WIRED — to all three buttons ──────────────────────────────
+    # ⚠️ Everything above tests the `omitNotes` OPTION. That would all pass with a checkbox that does
+    # nothing, which is the likelier bug: three separate handlers each have to read it, and one left
+    # behind is an export that honours the box from one button and ignores it from another.
+    # Captures the second ARGUMENT rather than the output, so no session data is needed and the
+    # assertion is exactly "did this button pass the checkbox state".
+    print("== checkbox wiring ==")
+    # A real logged session, because btnCopySelected is disabled until a row is selected — forcing it
+    # enabled would bypass the path being tested.
+    p.evaluate("""() => localStorage.setItem('lpl_cache', JSON.stringify({
+      sessions:[{ id:'x1', dato:'2026-08-10', uke:'2026-33', oktnavn:'Runna Easy', okttype:'Easy',
+                  treningsplan:'Runna', løpetype:'utendors', varighet:1800, distanse:5, tempo:360,
+                  soner:[0,600,900,300,0], notater:'Kjentes tungt.' }],
+      shoes:[], shoeDefaults:{}, goals:{}, events:[], plannedSessions:[],
+      settings:{zones:[]}, lastUpdated:'' }))""")
+    p.reload()
+    p.wait_for_timeout(600)
+    p.evaluate("""() => {
+      switchTab('log');
+      window.__calls = [];
+      const real = window.formatSessionTsv;
+      window.formatSessionTsv = (s, o) => { window.__calls.push(o); return real(s, o); };
+      window.copyToClipboard = async () => {};   // headless has no clipboard permission
+    }""")
+    BUTTONS = ["btnCopyAll", "btnDownloadTsv", "btnCopySelected"]
+
+    def opts_after(btn, ticked):
+        p.evaluate(f"() => {{ document.getElementById('chkNoNotes').checked = {str(ticked).lower()}; window.__calls = []; }}")
+        # btnCopySelected is disabled until something is selected; select all first.
+        if btn == "btnCopySelected":
+            p.evaluate("() => { document.getElementById('chkSelectAll').checked = true; "
+                       "document.getElementById('chkSelectAll').dispatchEvent(new Event('change')); }")
+        p.evaluate(f"() => document.getElementById('{btn}').click()")
+        p.wait_for_timeout(150)
+        return p.evaluate("() => window.__calls.map(o => o && o.omitNotes)")
+
+    for btn in BUTTONS:
+        check(f"{btn} passes omitNotes:true when ticked", opts_after(btn, True), [True])
+        check(f"{btn} passes omitNotes:false when clear", opts_after(btn, False), [False])
 
     check("no page errors", errs, [])
     b.close()
