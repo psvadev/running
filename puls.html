@@ -1945,8 +1945,15 @@ function tsvIsoWeek(dateStr) {
 // reading it in Excel. Pairing the name with its accessor makes that divergence unrepresentable
 // rather than merely tested for. (Same defect shape as the hand-written VALID_TABS that broke the
 // #tools deep link; that one could be derived from the DOM, this one cannot, so it is fused instead.)
+// One definition of "this session has zone data", used by BOTH the zone columns and the
+// [Uten pulsdata] flag — they answer the same question and must never disagree about it.
+const hasZoneData = s => (s.soner || []).some(z => z > 0);
+
 const TSV_COLS = [
-  ['Dato',           s => { const [y,m,d] = s.dato.split('-'); return `${parseInt(m)}/${parseInt(d)}/${y}`; }],
+  // ISO, same as the block header six lines above it. Was M/D/YYYY from the Excel era (the import
+  // was retired 2026-07-09): "8/10/2026" cannot be read without knowing the convention, and both a
+  // Norwegian reader and a Norwegian Excel would take it for 8 October.
+  ['Dato',           s => s.dato],
   ['Uke',            s => tsvIsoWeek(s.dato)],
   ['Øktnavn',        s => s.oktnavn || ''],
   ['Økt-type',       s => s.okttype || ''],
@@ -1957,7 +1964,12 @@ const TSV_COLS = [
   ['Gj.snittspuls',  s => s.gjsnittspuls || ''],
   ['Toppuls',        s => s.toppuls || ''],
   // Generated, so the five can never disagree with each other about format or order.
-  ...[0,1,2,3,4].map(i => [`Sone${i+1} (min)`, s => secsToHms((s.soner || [])[i] || 0)]),
+  // ⚠️ BLANK, not 0:00:00, when the session carries no zone data at all — the same way Gj.snittspuls
+  // and Toppuls already report absence. A zero is a claim ("measured, and it was zero"), so printing
+  // five of them for a run logged without a watch invents five measurements, and anything averaging
+  // zone time across sessions quietly pulls them in. A session that DOES have zones still prints a
+  // real 0:00:00 for a zone it never entered — that one is a measurement.
+  ...[0,1,2,3,4].map(i => [`Sone${i+1} (min)`, s => hasZoneData(s) ? secsToHms((s.soner || [])[i] || 0) : '']),
   ['Kalorier',       s => s.kalorier || ''],
   ['Tempo (min/km)', s => s.tempo ? secsToMmSs(s.tempo) : ''],
   ['Snitt km/t',     s => s.snittkmh != null ? s.snittkmh.toFixed(1) : ''],
@@ -2029,10 +2041,17 @@ function formatSessionTsv(sessions, opts = {}) {
   const blocks = sessions.map(s => {
     const dataRow = TSV_COLS.map(c => c[1](s)).join('\t');
     const distLabel = s.distanse ? ` | ${parseFloat(s.distanse.toFixed(2)).toString()} km` : '';
-    const hdr = `=== ${s.dato}${s.oktnavn ? ` | ${s.oktnavn}` : ''}${distLabel} ===`;
+    // The two form checkboxes ride on the header line rather than each taking its own blank-line
+    // paragraph below it. They qualify the WHOLE session — this run is an outlier, this run has no
+    // HR — which is identity, not content, and a section whose entire body is its own label was
+    // three lines saying one word. Scanning the === lines now tells you which runs to treat
+    // carefully without reading a single body.
+    const flags = [];
+    if (s.utenforAnalyse) flags.push('Avvik');
+    if (!hasZoneData(s)) flags.push('Uten pulsdata');
+    const hdr = `=== ${s.dato}${s.oktnavn ? ` | ${s.oktnavn}` : ''}${distLabel}`
+              + `${flags.length ? ` | ${flags.join(' | ')}` : ''} ===`;
     const metaParts = [];
-    if (s.utenforAnalyse) metaParts.push('[Avvik]');
-    if (!(s.soner?.some(z => z > 0))) metaParts.push('[Uten pulsdata]');
     if (s.beskrivelse) metaParts.push(`[Øktbeskrivelse]\n${s.beskrivelse}`);
     // Labelled since 2026-09-05. It was the only unlabelled section, and with a multi-paragraph
     // Øktbeskrivelse above it the note read as one more paragraph of the plan's prescription —
@@ -2044,7 +2063,12 @@ function formatSessionTsv(sessions, opts = {}) {
     // immediately above the row — that adjacency is the reason this block format exists — so putting
     // the analysis underneath costs nothing and stops it splitting the description from the note.
     const analysis = sessionAnalysisLines(s);
-    const body = metaParts.length ? `${hdr}\n\n${metaParts.join('\n\n')}\n\n${dataRow}` : `${hdr}\n${dataRow}`;
+    // The row is labelled too, so every part of a block says what it is. It was the last unlabelled
+    // section, and once the note above it gained a header the bare tab-separated row was the only
+    // thing left that a reader had to infer — with the column names hundreds of lines up at the top
+    // of the file, that inference is not free.
+    const labelledRow = `[Data]\n${dataRow}`;
+    const body = metaParts.length ? `${hdr}\n\n${metaParts.join('\n\n')}\n\n${labelledRow}` : `${hdr}\n${labelledRow}`;
     return analysis ? `${body}\n\n${analysis}` : body;
   });
   return [HDR, ...blocks].join('\n\n');

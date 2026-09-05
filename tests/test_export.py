@@ -84,6 +84,10 @@ BUILD = """
     descOnly: formatSessionTsv([base({ notater: 'Privat notat.', beskrivelse: '3x1km @ 4:30' })],
                                { omitNotes: true }),
     descKept: formatSessionTsv([base({ notater: 'Privat notat.', beskrivelse: '3x1km @ 4:30' })]),
+    // Format pass 2026-09-05: ISO date, zones blank when absent, [Data] label, flags on the header.
+    flagged:  formatSessionTsv([base({ utenforAnalyse: true, soner: [0,0,0,0,0] })]),
+    zoneless: formatSessionTsv([base({ soner: [] })]),
+    zeroZone: formatSessionTsv([base({ soner: [0, 600, 900, 300, 0] })]),   // HAS data; real zeros
   };
 }"""
 
@@ -157,11 +161,15 @@ with sync_playwright() as pw:
     # The data row STARTS with the formatted date, not the session name — an earlier version of this
     # check anchored on "Runna Easy" and matched mid-row, so it measured a gap that was really the
     # row's own first two fields.
-    ROW = "8/10/2026\t2026-33"
+    ROW = "2026-08-10\t2026-33"   # ISO since 2026-09-05; was M/D/YYYY from the Excel era
     check("notes come before the data row", w.index("Kjentes tungt.") < w.index(ROW), True)
     check("analysis comes after it", w.index(ROW) < w.index("[Analyse]"), True)
-    check("...and nothing at all separates note from row",
-          w.split("Kjentes tungt.")[1].startswith("\n\n" + ROW), True)
+    # The adjacency this block format exists for. Since 2026-09-05 the row carries its own [Data]
+    # label, so the property is "nothing but the row's own header intrudes" — not "nothing at all".
+    # Deliberately still exact: loosening this to a `in` check would stop it noticing if the
+    # [Analyse] block ever drifted back up between the note and the row.
+    check("...and nothing but the row's own label separates note from row",
+          w.split("Kjentes tungt.")[1].startswith("\n\n[Data]\n" + ROW), True)
 
     # ── «Uten notater» (2026-09-05) ────────────────────────────────────────────────────────
     # ⚠️ The positive control comes FIRST. "the note is absent" is trivially true of a broken export,
@@ -195,6 +203,31 @@ with sync_playwright() as pw:
     check("omitNotes drops only the note", "Privat notat." in out["descOnly"], False)
     check("...and keeps the prescription", "3x1km @ 4:30" in out["descOnly"], True)
     check("...with its [Øktbeskrivelse] label intact", "[Øktbeskrivelse]" in out["descOnly"], True)
+
+    # ── Format pass, 2026-09-05 ────────────────────────────────────────────────────────────
+    print("== ISO date, both places ==")
+    check("the data row's Dato column is ISO", ROW in out["none"], True)
+    check("...and no M/D/YYYY survives anywhere", "8/10/2026" in out["none"], False)
+    check("...matching the block header", "=== 2026-08-10 |" in out["none"], True)
+
+    print("== [Data] labels the row ==")
+    check("the row carries a header", "[Data]" in out["none"], True)
+    check("...immediately above it", out["none"].split("[Data]")[1].startswith("\n" + ROW), True)
+
+    # ⚠️ A zero is a claim. Blank means "not measured" — the same way Gj.snittspuls already behaves.
+    # The zeroZone control is what stops this becoming "zones are never zero", which would be wrong.
+    print("== zones: blank when absent, zero when measured ==")
+    ZEROES = "\t0:00:00\t0:00:00\t0:00:00\t0:00:00\t0:00:00\t"
+    check("no zone data → five blanks, not five zeros", ZEROES in out["zoneless"], False)
+    check("...and the row is still emitted", ROW in out["zoneless"], True)
+    check("control: a session WITH zones keeps its real 0:00:00",
+          "\t0:00:00\t0:10:00\t0:15:00\t0:05:00\t0:00:00\t" in out["zeroZone"], True)
+
+    print("== flags ride on the header line ==")
+    check("Avvik is on the === line", "| Avvik |" in out["flagged"], True)
+    check("Uten pulsdata too", "| Uten pulsdata ===" in out["flagged"], True)
+    check("...and not as their own paragraphs", "[Avvik]" in out["flagged"], False)
+    check("a clean session gets neither", "Avvik" in out["none"], False)
 
     # ── The checkbox is actually WIRED — to all three buttons ──────────────────────────────
     # ⚠️ Everything above tests the `omitNotes` OPTION. That would all pass with a checkbox that does
