@@ -170,6 +170,84 @@ with sync_playwright() as p:
     check('fires at 183', FIRES in insights_text(pg, fixture, 183), True)
     check('silent at 195 after the fix', FIRES in insights_text(pg, fixture, 195), False)
 
+    # ── Low-load qualifier on Belastning + volum  (2026-09-05) ─────────────────────────────────
+    # ⚠️ Uses days_ago(), i.e. FAKE_TODAY — the suite freezes window.Date via add_init_script, so
+    # the app's localISODate() is 2026-08-12 regardless of the real clock. Building these fixtures
+    # off datetime.date.today() instead puts every event on the wrong side of the ACWR and volume
+    # windows, and the cards still render, just with the wrong qualifier. That failure is silent:
+    # the cards fire, the control passes, and only the wording is wrong.
+
+    def ramp_sessions():
+        """A genuine ramp: last 4 weeks heavier than the prior 4, last 7 days heavier still, so
+        BOTH the volume card and the ACWR card clear their thresholds."""
+        out = []
+        for i, n in enumerate(range(56, -1, -2)):
+            if n <= 7:      zones, dur, km = [0, 300, 900, 1500, 600], 3300, 14
+            elif n < 28:    zones, dur, km = [0, 600, 1200, 600, 0], 2400, 11
+            else:           zones, dur, km = [0, 600, 600, 300, 0], 1500, 6
+            out.append({'id': f'r{i}', 'dato': days_ago(n), 'okttype': 'Easy', 'distanse': km,
+                        'varighet': dur, 'tempo': 360, 'snittkmh': 10.0, 'gjsnittspuls': 150,
+                        'toppuls': 170, 'soner': zones, 'løpetype': 'utendors',
+                        'treningsplan': 'Runna'})
+        return out
+
+    def with_events(evts):
+        data = {'sessions': ramp_sessions(), 'shoes': [], 'shoeDefaults': {}, 'goals': {},
+                'events': evts, 'plannedSessions': [], 'customSessionTypes': [], 'customPlans': [],
+                'consistencySettings': {'kmThreshold': 15, 'runThreshold': 2},
+                'settings': {'maxHR': 195, 'zones': []}, 'lastUpdated': ''}
+        pg.goto(APP)
+        pg.evaluate("d => localStorage.setItem('lpl_cache', JSON.stringify(d))", data)
+        pg.goto(APP)
+        pg.wait_for_timeout(500)
+        pg.evaluate("() => switchTab('dash')")
+        pg.wait_for_timeout(400)
+        return " ".join(pg.inner_text('#insightCard').split())
+
+    def ev(kind, frm, to):
+        return {'id': f'{kind}{frm}', 'type': kind, 'title': kind,
+                'date': days_ago(frm), 'endDate': days_ago(to)}
+
+    print('== low-load qualifier ==')
+    clean = with_events([])
+    # ⚠️ POSITIVE CONTROL FIRST. Every assertion below is about the WORDING of two cards; if the
+    # fixture stopped making them fire, they would all read "phrase absent" and pass as though the
+    # feature worked. This is the only line that proves there is anything to inspect.
+    check('control: both cards fire on a clean ramp',
+          ('Belastning ×' in clean) and ('mer volum' in clean), True)
+    check('the risk claim is gone', 'skaderisiko' in clean, False)
+    check('...replaced by what was measured', 'stor belastningsøkning' in clean, True)
+    check('the instruction survives', 'ro ned' in clean, True)
+    check('no events → no qualifier at all', 'inneholder redusert løping' in clean, False)
+    check('...and no direction claim either', 'løfter tallet' in clean, False)
+
+    # Deload in the ACWR baseline (days 8-35) only — direction is knowable, so it is stated.
+    base_only = with_events([ev('deload', 26, 20)])
+    check('deload in the baseline alone → direction stated', 'løfter tallet' in base_only, True)
+
+    # Taper inside the acute 7 days only — it suppresses the numerator, so a high ratio despite it
+    # is the interesting reading, and the wording has to say so rather than blame the baseline.
+    acute_only = with_events([ev('taper', 5, 0)])
+    check('taper in the acute window alone → different direction',
+          'høyt likevel' in acute_only, True)
+    check('...and it does NOT claim the baseline lifted it', 'løfter tallet' in acute_only, False)
+
+    # Both windows affected — his real 2026-09-05 layout. They push opposite ways by an unknown
+    # amount, so naming a direction would be a guess; the card names what is where instead.
+    both = with_events([ev('deload', 26, 20), ev('taper', 5, 0), ev('vacation', 54, 48)])
+    check('both windows → no direction claim', 'løfter tallet' in both, False)
+    check('...names the baseline content', '4-ukersgrunnlaget (deload)' in both, True)
+    check('...and the acute content', 'siste 7 dager (taper)' in both, True)
+    # The volume card must NEVER claim a direction: it fires both ways (📈/📉), so "makes it bigger"
+    # flips meaning with the sign.
+    check('volum names both periods', 'begge periodene inneholder redusert løping' in both, True)
+    check('...without a direction claim', 'ser større ut' in both, False)
+
+    # An event that STARTS before a window and ends inside it still belongs to that window.
+    # Start-date-only matching was the actual bug in the console probe this feature came from.
+    overlap = with_events([ev('vacation', 40, 30)])
+    check('an event overlapping the baseline counts', 'løfter tallet' in overlap, True)
+
     if errs:
         print('  PAGE ERRORS:', errs)
         failed += 1
