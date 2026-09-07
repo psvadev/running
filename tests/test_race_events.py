@@ -1121,6 +1121,86 @@ with sync_playwright() as b0:
     check("no page errors", merr, [])
     pg.close()
 
+    # ── 5. The plan prefill: what it fills, when it refuses, and what it takes back ──────────
+    # Reported 2026-09-07 as Øktbeskrivelse "lingering" after logging the day's run, surviving
+    # reloads and appearing on every device. None of that was persistence: applyPlannedDefault()
+    # re-derives from the synced plan every time the form opens, and save() ends in clear(), which
+    # runs it again for today's date — so logging the planned run put the prescription straight back
+    # into the emptied form.
+    print("== plan prefill: fill, refuse, withdraw ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    perr = []
+    pg.on("pageerror", lambda e: perr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    BESK = "Oppvarming 10 min\n5 km rolig\nNedjogg 5 min"
+    pg.goto(APP)
+    pg.evaluate("""([besk]) => localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [{ id: 'logged', dato: '2026-08-06', okttype: 'Long', distanse: 12,
+                     varighet: 4200, soner: [0,0,0,0,0], løpetype: 'utendors' }],
+        shoes: [], shoeDefaults: {}, goals: {}, events: [], customSessionTypes: [], customPlans: [],
+        plannedSessions: [
+          { id: 'p1', date: '2026-08-05', okttype: 'Easy', distance: 6.5,
+            title: 'Runna Easy', beskrivelse: besk },
+          { id: 'p2', date: '2026-08-06', okttype: 'Long', distance: 12,
+            title: 'Runna Long', beskrivelse: 'Langtur 12 km' }],
+        consistencySettings: { kmThreshold: 15, runThreshold: 2 },
+        settings: { maxHR: 195, zones: [] }, lastUpdated: ''
+    }))""", [BESK])
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('form')")
+    pg.wait_for_timeout(400)
+
+    def setdate(d):
+        pg.evaluate("""d => { const el = document.getElementById('fDato'); el.value = d;
+                              el.dispatchEvent(new Event('change', { bubbles: true })); }""", d)
+        pg.wait_for_timeout(200)
+
+    def form():
+        return pg.evaluate("""() => ({
+            besk: document.getElementById('fBeskrivelse').value,
+            mal:  document.getElementById('fMalDistanse').value,
+            hint: document.getElementById('planPrefillHint').textContent })""")
+
+    # ⚠️ POSITIVE CONTROL FIRST. Everything below asserts that fields are EMPTY, which is also what
+    # a form that never prefilled at all would show. This is the only line proving there is a
+    # mechanism to withdraw.
+    setdate("2026-08-05")
+    f = form()
+    check("control: an unlogged planned date fills beskrivelse", f["besk"], BESK)
+    check("...and Mål distanse", f["mal"], "6.5")
+    check("...and names the source", "Fra planen" in f["hint"], True)
+
+    # The bug found while investigating: moving to a date with no plan used to leave both values
+    # sitting there while the 📋 hint — the one thing naming their source — disappeared.
+    setdate("2026-08-07")
+    f = form()
+    check("a date with no plan withdraws the prescription", f["besk"], "")
+    check("...and the target distance", f["mal"], "")
+    check("...and clears the hint", f["hint"], "")
+
+    # The reported bug: the day's planned run is already logged, so the prescription must not come
+    # back. This is the state save() → clear() lands in.
+    setdate("2026-08-06")
+    f = form()
+    check("an already-logged planned date does not prefill", f["besk"], "")
+    check("...nor its distance", f["mal"], "")
+    check("...and stays silent about the plan", f["hint"], "")
+    # Distinguish "refused because logged" from "refused because it cannot find the plan at all":
+    # without this, deleting the lookup entirely would pass every assertion above.
+    check("control: that date really does have a planned session",
+          pg.evaluate("() => Store.data.plannedSessions.some(p => p.date === '2026-08-06')"), True)
+
+    # Withdrawal must never touch what you typed. Only the exact value the prefill wrote is taken
+    # back — anything edited by hand, or filled from Strava, no longer matches and survives.
+    setdate("2026-08-05")
+    check("control: prefill fired again", form()["besk"], BESK)
+    pg.evaluate("() => { document.getElementById('fBeskrivelse').value = 'Mine egne ord'; }")
+    setdate("2026-08-07")
+    check("a hand-edited beskrivelse is NOT withdrawn", form()["besk"], "Mine egne ord")
+
+    check("no page errors", perr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))

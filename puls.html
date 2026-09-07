@@ -5609,6 +5609,7 @@ const Form = {
   returnTab: null,
   lastAutoOktnavn: '',
   planTouched: false,   // set once Treningsplan is hand-picked; syncPlanForType then keeps its hands off
+  planPrefill: null,    // {fieldId: value} applyPlannedDefault() wrote, so clearPlanPrefill can take back only that
 
   init() {
     document.getElementById('fDato').value = localISODate();
@@ -5779,26 +5780,69 @@ const Form = {
     }
   },
 
-  // Prefill Økt-type + Mål distanse from an imported Runna planned session matching the form's date.
-  // New sessions only (never during an edit); exact-date match; Mål-distanse fills only when empty so
-  // a date change never clobbers a typed value. Øktbeskrivelse is deliberately left to Strava; Øktnavn
-  // updates for free via maybeAutoName() (caller runs it after). Shows/clears the #planPrefillHint line.
+  // Prefill Økt-type + Mål distanse + Øktbeskrivelse from an imported Runna planned session matching
+  // the form's date. New sessions only (never during an edit); exact-date match; the two text fields
+  // fill only when empty so a date change never clobbers a typed value. Øktnavn updates for free via
+  // maybeAutoName() (caller runs it after). Shows/clears the #planPrefillHint line.
+  //
+  // A planned session carries only what was PRESCRIBED — type, target distance, the session text.
+  // Varighet, puls, soner and høydemeter do not exist until the run has happened, which is why those
+  // stay empty here and arrive from «Hent fra Strava» instead.
   applyPlannedDefault() {
     const hint = document.getElementById('planPrefillHint');
     if (this.editId) { if (hint) hint.textContent = ''; return; }
     const date = document.getElementById('fDato').value;
     const p = (Store.data.plannedSessions || []).find(x => x.date === date);
-    if (!p) { if (hint) hint.textContent = ''; return; }
+    // ⚠️ Already logged → do NOT re-offer the prescription. save() ends in clear(), which runs this
+    // again for today's date, so logging the day's planned run put the whole Øktbeskrivelse straight
+    // back into the empty form. It read as text lingering from the session just saved (reported
+    // 2026-09-07) and it also survived reloads and appeared on every device — because it is derived
+    // from the synced plan each time, not stored anywhere.
+    // Trade-off, taken deliberately: on a double day the second run gets no prefill. The plan holds
+    // one session per date, so the alternative is guessing WHICH run consumed it, and a wrong guess
+    // silently attaches one run's prescription to another.
+    const logged = (Store.data.sessions || []).some(s => s.dato === date);
+    if (!p || logged) { this.clearPlanPrefill(); if (hint) hint.textContent = ''; return; }
+    // Økt-type is deliberately NOT tracked for withdrawal: it survives clear() by design (see the
+    // comment there), so taking it back would fight a rule that predates this.
     if (p.okttype) document.getElementById('fOkttype').value = p.okttype;
-    const mal = document.getElementById('fMalDistanse');
-    if (p.distance && !mal.value) mal.value = p.distance;
     // Fill-when-empty, the same guard the Strava populate uses, so whichever arrives first wins and
     // neither can clobber text you typed. In practice the plan is the reliable source: Runna often
     // does not push the prescription to Strava, which is why this field sat empty for most easy and
     // interval sessions and why the export's [Øktbeskrivelse] was usually blank.
-    const besk = document.getElementById('fBeskrivelse');
-    if (p.beskrivelse && besk && !besk.value) besk.value = p.beskrivelse;
+    //
+    // ⚠️ THE RECORD IS "holds the plan's value", NOT "was written by this call" — this function runs
+    // more than once for the same date (clear() prefills, then the date-change handler fires it
+    // again), and the second pass fills nothing because the guards above are already satisfied.
+    // Recording only what THIS call wrote therefore stored an empty set on the second pass and left
+    // clearPlanPrefill with nothing to take back. Caught by the tests, not by reading it.
+    const written = {};
+    const record = (id, planValue) => {
+      if (planValue === null || planValue === undefined || planValue === '') return;
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (!el.value) el.value = String(planValue);
+      if (el.value === String(planValue)) written[id] = el.value;
+    };
+    record('fMalDistanse', p.distance);
+    record('fBeskrivelse', p.beskrivelse);
+    this.planPrefill = written;
     if (hint) hint.textContent = `📋 Fra planen (Runna): ${p.okttype}${p.distance ? ` · ${p.distance} km` : ''}`;
+  },
+
+  // Take back ONLY what the prefill itself wrote, and only while it is still exactly that. Anything
+  // typed by hand or filled from Strava is left alone, because the stored value no longer matches.
+  // Without this, moving the date to a day with no plan left the previous day's target distance and
+  // prescription sitting in the form while the 📋 hint — the one thing naming their source —
+  // disappeared. Same shape as lastAutoOktnavn, which already does this for the auto-name.
+  clearPlanPrefill() {
+    const written = this.planPrefill;
+    this.planPrefill = null;
+    if (!written) return;
+    Object.entries(written).forEach(([id, val]) => {
+      const el = document.getElementById(id);
+      if (el && el.value === val) el.value = '';
+    });
   },
 
   // The single place that decides what the venue-dependent fields look like. This rule used to be
