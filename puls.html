@@ -76,7 +76,15 @@
 
   /* ── Main layout ── */
   .panel { display: none; padding: 24px 20px; }
-  #panel-form { max-width: 1200px; margin: 0 auto; }
+  /* Width is decided by what a tab CONTAINS, not for visual uniformity across tabs.
+     Uncapped — dash, log, atlas — hold surfaces that genuinely scale: a chart grid reads better per
+     extra pixel, the log table has many columns, the map is a map.
+     Capped — form, plan, tools, settings — are forms and prose. A field is 200-340px whatever the
+     window does, so extra width only moves the empty space, and long text lines get harder to read.
+     ⚠️ ONE rule, listing the capped panels. This lived in FOUR places (this rule for #panel-form,
+     plus an inline `max-width:1200px;margin:0 auto` on each of plan/tools/settings) — four copies of
+     one decision, which is how they drift apart. Add a capped panel here, never inline. */
+  #panel-form, #panel-plan, #panel-tools, #panel-settings { max-width: 1200px; margin: 0 auto; }
   .panel.active { display: block; }
 
   /* ── Buttons ── */
@@ -1255,7 +1263,7 @@
 </div>
 
 <!-- ══════════════ TAB 4: PLANLEGGING ══════════════ -->
-<div class="panel" id="panel-plan" style="max-width:1200px;margin:0 auto">
+<div class="panel" id="panel-plan">
 
   <!-- Hendelser -->
   <div class="card" style="margin-bottom:16px">
@@ -1383,7 +1391,7 @@
      becomes a derived surface and inherits every provenance question the dashboard has.
      Tempo ↔ km/t sits FIRST at his request (2026-08-09) — it is the quick lookup you open the tab
      for, so it should not be scrolled past. The two calculators follow. -->
-<div class="panel" id="panel-tools" style="max-width:1200px;margin:0 auto">
+<div class="panel" id="panel-tools">
 
   <!-- Tempo ↔ km/t. Moved here from the bottom of Planlegging 2026-08-09 when it stopped being the
        only tool. Unchanged apart from its address. -->
@@ -1556,7 +1564,7 @@
 </div>
 
 <!-- ══════════════ TAB 5: SETTINGS ══════════════ -->
-<div class="panel" id="panel-settings" style="max-width:1200px;margin:0 auto">
+<div class="panel" id="panel-settings">
 
   <!-- Profil & Puls -->
   <div class="card" style="margin-bottom:16px">

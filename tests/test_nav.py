@@ -155,6 +155,37 @@ with sync_playwright() as p:
     check("no mobile page errors", merr, [])
     pg.close()
 
+    # ── Which tabs are width-capped, and which run full-bleed (2026-09-08) ──────────────────────
+    # Not a styling preference: width follows what a tab CONTAINS. dash/log/atlas hold surfaces that
+    # scale with width (chart grid, many-column table, map); form/plan/tools/settings are forms and
+    # prose, where a field is 200-340px regardless and extra width only moves the empty space.
+    # Pinned because the rule USED to live in four places — a CSS rule for #panel-form plus an inline
+    # max-width on each of plan/tools/settings — and four copies of one decision drift. Measured at
+    # 1600px, wide enough that the 1200px cap actually bites; at 1200 or below every panel is full
+    # width and this whole check would pass vacuously.
+    print("== panel widths follow content, not uniformity ==")
+    pg = b.new_page(viewport={"width": 1600, "height": 900})
+    werr = []
+    pg.on("pageerror", lambda e: werr.append(str(e)))
+    pg.goto(APP)
+    pg.wait_for_timeout(500)
+    CAPPED = ["form", "plan", "tools", "settings"]
+    FULL   = ["dash", "log", "atlas"]
+    widths = {}
+    for tab in CAPPED + FULL:
+        pg.evaluate(f"() => switchTab('{tab}')")
+        pg.wait_for_timeout(150)
+        widths[tab] = pg.evaluate(
+            f"() => Math.round(document.getElementById('panel-{tab}').getBoundingClientRect().width)")
+    check("the form/settings family is capped at 1200",
+          [widths[t] for t in CAPPED], [1200] * len(CAPPED))
+    check("dash/log/atlas run the full 1600", [widths[t] for t in FULL], [1600] * len(FULL))
+    # Control: 1600 really is wider than the cap, so "capped" above measured something. Without this,
+    # running the suite at a narrow viewport would make both lists agree for the wrong reason.
+    check("control: the viewport is wider than the cap", widths["dash"] > 1200, True)
+    check("no width page errors", werr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
