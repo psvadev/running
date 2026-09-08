@@ -180,6 +180,32 @@ with sync_playwright() as pw:
             break
     check(f"no horizontal overflow (settled, last measured {over:+} px)", over <= 1, True)
 
+    # ── One number, one name (2026-09-08) ───────────────────────────────────────────────────────
+    # The weekly-session threshold is shown on three surfaces and had drifted to THREE different
+    # names — «Mål løp/uke» in the Hendelser plan form, «Løp-grense per uke» in Innstillinger and
+    # «N+ løp/uke» on the Treningsrytme tile. Renamed to «økt» together: in Norwegian «løp» is both a
+    # run and a RACE, and the plan field sits beside the race settings, where "Mål løp/uke" reads as
+    # "target races per week". This pins that they keep agreeing — copy drift is silent, and this is
+    # the drift that already happened once.
+    print("== the weekly-session threshold has ONE name ==")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.evaluate("() => switchTab('dash')")
+    pg.wait_for_timeout(400)
+    labels = pg.evaluate("""() => ({
+        plan: document.getElementById('newEvtRunTarget').placeholder,
+        inst: document.querySelector('label[for], .form-group label') && [...document.querySelectorAll('.form-group label')]
+                .map(l => l.textContent).find(t => t.includes('grense per uke') && t.includes('Økt')) || '',
+        tile: document.getElementById('consistencyContent').textContent })""")
+    check("plan-event field says økter/uke", 'økter/uke' in labels['plan'], True)
+    check("Innstillinger says Økt-grense", labels['inst'], 'Økt-grense per uke')
+    check("Treningsrytme tile says økter/uke", 'økter/uke' in labels['tile'], True)
+    # Positive control: the tile really did render, so the assertion above had text to inspect —
+    # an empty #consistencyContent would fail it, but for the wrong reason.
+    check("control: the tile rendered at all", 'uker' in labels['tile'], True)
+    # And the old word is gone from all three, not merely joined by the new one.
+    check("no surface still says løp/uke",
+          any('løp/uke' in v for v in labels.values()), False)
+
     check("no page errors", errs, [])
     b.close()
 

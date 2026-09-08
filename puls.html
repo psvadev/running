@@ -1287,7 +1287,7 @@
     <div id="evtPlanTargets" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       <input type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
       <input type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <input type="number" id="newEvtRunTarget" placeholder="Mål løp/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input type="number" id="newEvtRunTarget" placeholder="Mål økter/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
     </div>
     <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -1611,7 +1611,7 @@
         <input type="number" id="csKmThreshold" min="1" max="200" placeholder="15">
       </div>
       <div class="form-group">
-        <label>Løp-grense per uke</label>
+        <label>Økt-grense per uke</label>
         <input type="number" id="csRunThreshold" min="1" max="14" placeholder="2">
       </div>
     </div>
@@ -7347,7 +7347,13 @@ function renderConsistency(sessions) {
   const stats = [
     { val: `${activeWeeks} / ${availableWeeks}`, sub: unavailable.size ? 'aktive av tilgjengelige uker' : 'aktive uker' },
     { val: `${kmWeeks} uker`,            sub: `over ${kmThr} km` },
-    { val: `${runWeeks} uker`,           sub: `${runThr}+ løp/uke` },
+    // «økter», not «løp» — in Norwegian «løp» is both a run and a RACE, and this label sat beside the
+    // race settings in the Hendelser form, where "Mål løp/uke" reads as "target races per week".
+    // «Økt» is already the app's word for a training session (Øktnavn, Øktbeskrivelse, Økt-type,
+    // «Planlagte økter», «N økter» in the import summary). Nothing but runs is ever logged, so the
+    // slightly broader word cannot mislead about what is counted. All three surfaces naming this one
+    // number were reworded together — they had drifted to three different names.
+    { val: `${runWeeks} uker`,           sub: `${runThr}+ økter/uke` },
     { val: `${currentStreak} uker`,      sub: 'nåværende streak' },
   ];
 
