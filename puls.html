@@ -10372,6 +10372,49 @@ function initToolValidation() {
     el.addEventListener('input', () => markInvalidInput(el)));
 }
 
+// WebKit silently DROPS a comma in a number field: 7,5 is stored as 75 and 1,5 as 15. Both are
+// legal distances, so nothing downstream can catch it — not checkValidity, not the :invalid border,
+// not a max. The error is in the ENTRY, never in the value, which is why no threshold can find it.
+// On iOS this is every browser, not just Safari (Apple mandates WebKit), and the Norwegian decimal
+// pad offers a comma, so on the phone it is the natural key to press. Chromium converts the comma
+// itself and is unaffected — this rewrite produces exactly what it already does, so only the engine
+// that is currently wrong changes behaviour.
+//
+// Two entry paths need two hooks, because the comma survives to different depths:
+//   typing → keydown is the LAST place it exists. By `beforeinput` WebKit has already discarded it
+//            and the event arrives with data === "", so there is nothing left to rewrite.
+//   paste  → keydown never fires, but `beforeinput` still carries the full text.
+//
+// Delegated on document and scoped by input TYPE rather than a list of ids, so a number field added
+// later is covered without anyone remembering this exists.
+const numberFieldOf = e =>
+  e.target instanceof HTMLInputElement && e.target.type === 'number' ? e.target : null;
+
+// execCommand is deprecated but is the only API that inserts at the CARET in a number input —
+// setSelectionRange throws on type=number, so a manual splice cannot know where to write. The
+// fallback appends, which is right for the common case of typing at the end, and dispatches the
+// input event execCommand would have fired so autoCalcPace still runs.
+function insertAtCaret(el, text) {
+  if (document.execCommand('insertText', false, text)) return;
+  el.value += text;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function initCommaDecimals() {
+  document.addEventListener('keydown', e => {
+    if (e.key !== ',' || !numberFieldOf(e)) return;
+    e.preventDefault();
+    insertAtCaret(e.target, '.');
+  });
+  document.addEventListener('beforeinput', e => {
+    if (e.inputType !== 'insertFromPaste' || !numberFieldOf(e)) return;
+    const text = e.data ?? e.dataTransfer?.getData('text') ?? '';
+    if (!text.includes(',')) return;
+    e.preventDefault();
+    insertAtCaret(e.target, text.replace(/,/g, '.'));
+  });
+}
+
 // Two-way pace/speed binding, extracted because all three cards need it and each handler must write
 // ONLY to the other field — setting .value programmatically fires no input event, so they can't
 // ping-pong. Same pattern PaceConv.init uses; this is the reusable form of it.
@@ -12367,6 +12410,8 @@ document.addEventListener('DOMContentLoaded', () => {
   IntervalCalc.init();
   // After the three, so it attaches to every field they own without each having to remember to.
   initToolValidation();
+  // Delegated on document, so it covers every number field in the app and needs no ordering.
+  initCommaDecimals();
   CustomLists.refreshDropdowns();
 
   // DetailPanel close

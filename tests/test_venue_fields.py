@@ -274,6 +274,99 @@ with sync_playwright() as p:
     check("no validation page errors", verr, [])
     pg.close()
 
+    # ---- 8. a typed comma must reach the field as a decimal point (2026-09-09)
+    #
+    # THIS SUITE RUNS ON WEBKIT, which is the whole point of the group: WebKit silently DROPS a
+    # comma in a number field, so `7,5` was stored as 75 and `1,5` as 15. Both are legal distances,
+    # so no range, no checkValidity and no :invalid border could ever have caught it — the error is
+    # in the ENTRY, not the value. Confirmed on a real iPhone, where every browser is WebKit.
+    #
+    # ⚠️ The controls matter more than usual here. A handler that rewrote the whole field, or that
+    # inserted a stray point, would satisfy "7,5 gives 7.5" while breaking ordinary typing — so a
+    # plain `7.5`, a plain integer and a mid-string caret are all asserted next to it.
+    print("== a comma is entered as a decimal point ==")
+    pg = b.new_page(viewport={"width": 1400, "height": 900})
+    cerr = []
+    pg.on("pageerror", lambda e: cerr.append(str(e)))
+    pg.goto(APP)
+    pg.wait_for_timeout(400)
+    pg.evaluate("() => switchTab('form')")
+    pg.wait_for_timeout(200)
+
+    def typed(sel, keys):
+        pg.fill(sel, "")
+        pg.click(sel)
+        pg.keyboard.type(keys)
+        return pg.input_value(sel)
+
+    check("7,5 becomes 7.5", typed("#fDistanse", "7,5"), "7.5")
+    check("1,5 becomes 1.5 (not 15)", typed("#fDistanse", "1,5"), "1.5")
+    check("10,25 keeps both decimals", typed("#fDistanse", "10,25"), "10.25")
+    # Controls: the paths that already worked must be untouched.
+    check("a typed point still works", typed("#fDistanse", "7.5"), "7.5")
+    check("an integer is unchanged", typed("#fDistanse", "42"), "42")
+    # The value is a real number to the browser, so the range guard and the border still see it.
+    check("the rewritten value is valid",
+          pg.eval_on_selector("#fDistanse", "e=>e.checkValidity()"), True)
+    check("...and parses as a number",
+          pg.eval_on_selector("#fDistanse", "e=>e.valueAsNumber"), 42)
+
+    # Caret, not append: execCommand inserts where the cursor is. Appending would give "175." here.
+    pg.fill("#fDistanse", "")
+    pg.click("#fDistanse")
+    pg.keyboard.type("175")
+    pg.keyboard.press("ArrowLeft")
+    pg.keyboard.press("ArrowLeft")
+    pg.keyboard.type(",")
+    check("the point lands at the caret", pg.input_value("#fDistanse"), "1.75")
+
+    # Scoped by input TYPE, so every number field is covered — not just the one that was reported.
+    check("the fix is not distance-only", typed("#fMalDistanse", "7,5"), "7.5")
+    check("...and reaches Stigning too", typed("#fStigning", "1,5"), "1.5")
+
+    # A comma must NOT be rewritten in a text field, where it is a legitimate character.
+    check("text fields keep their commas",
+          typed("#fBeskrivelse", "5 x 1000m, 2 min pause"), "5 x 1000m, 2 min pause")
+
+    # The rewrite must fire an input event, or everything derived from the field goes stale — the
+    # bug that would hide here is a distance that LOOKS right while the pace beside it still
+    # describes the value before the comma. Asserted twice: the event itself, and one consumer of
+    # it. (#fVarighet is readonly and derived from the zone fields, so the duration is set there.)
+    # ⚠️ Counting input events here would be VACUOUS: WebKit fires `input` for the comma it
+    # swallows, leaving the value alone, so the count is 3 with or without the fix. Falsification
+    # caught it — the check passed against a build with the fix removed. The consumer below is the
+    # honest assertion, because a stale pace is the thing that would actually go wrong.
+    pg.fill("#fSone2", "")
+    pg.click("#fSone2")
+    pg.keyboard.type("30:00")
+    pg.keyboard.press("Tab")
+    pg.wait_for_timeout(200)
+    check("the duration was set", pg.input_value("#fVarighet"), "0:30:00")
+    typed("#fDistanse", "7,5")
+    pg.wait_for_timeout(200)
+    check("derived pace recalculates from the rewritten value", pg.input_value("#fTempo"), "4:00")
+
+    # Paste is a SECOND instance of the same bug with a different mechanism, so it needs its own
+    # hook and its own check: keydown never fires, and unlike typing, `beforeinput` still carries
+    # the comma. Pasting "7,5" stored 75 exactly as typing it did.
+    def paste_into(target, text):
+        pg.fill("#fBeskrivelse", text)
+        pg.click("#fBeskrivelse")
+        pg.keyboard.press("Control+a")
+        pg.keyboard.press("Control+c")
+        pg.fill(target, "")
+        pg.click(target)
+        pg.keyboard.press("Control+v")
+        pg.wait_for_timeout(100)
+        return pg.input_value(target)
+
+    check("a pasted 7,5 becomes 7.5", paste_into("#fDistanse", "7,5"), "7.5")
+    check("a pasted point is untouched", paste_into("#fDistanse", "7.5"), "7.5")
+    pg.fill("#fBeskrivelse", "")
+
+    check("no comma page errors", cerr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
