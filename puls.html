@@ -107,12 +107,20 @@
   .form-grid-4 { grid-template-columns: repeat(4, 1fr); }
   .form-group { display: flex; flex-direction: column; gap: 5px; }
   .form-group label { font-size: 12px; color: var(--muted); font-weight: 500; }
-  .form-group input, .form-group select, .form-group textarea {
+  /* One appearance for every field. `.form-group` also lays its children out full-width; `.inp` is
+     for fields positioned by hand, which keep their own width/flex inline but must still LOOK and
+     BEHAVE the same.
+     ⚠️ 19 fields used to repeat these six paint properties inline instead, and had already drifted:
+     they copied the paint but not `:focus` or the transition, so they were the only fields in the
+     app with no accent border when you clicked into them (measured — #2e3248 on focus, against
+     #6c8fff everywhere else). Style a hand-placed field by adding `.inp`, never by copying this. */
+  .form-group input, .form-group select, .form-group textarea, .inp {
     background: var(--surface2); border: 1px solid var(--border); color: var(--text);
-    border-radius: 6px; padding: 8px 10px; font-size: 13px; width: 100%;
+    border-radius: 6px; padding: 8px 10px; font-size: 13px;
     transition: border-color .15s;
   }
-  .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent); }
+  .form-group input, .form-group select, .form-group textarea { width: 100%; }
+  .form-group input:focus, .form-group select:focus, .inp:focus { outline: none; border-color: var(--accent); }
   .form-group input[readonly] { background: var(--surface); border-color: transparent; color: var(--accent); cursor: default; opacity: 1; }
   .form-group input[readonly]:focus { border-color: transparent; outline: none; }
   .form-section { margin-bottom: 20px; }
@@ -1270,16 +1278,16 @@
     <div class="card-title">Hendelser</div>
     <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:12px">Markeres som vertikale linjer i belastnings- og distansegrafene.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-      <input type="date" id="newEvtDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input class="inp" type="date" id="newEvtDate">
       <span id="evtEndDateWrap" style="display:flex;gap:10px;align-items:center">
         <span style="color:var(--muted);font-size:13px">–</span>
-        <input type="date" id="newEvtEndDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;" title="Sluttdato (valgfritt — for perioder som sykdom)">
+        <input class="inp" type="date" id="newEvtEndDate" title="Sluttdato (valgfritt — for perioder som sykdom)">
       </span>
       <!-- Sits in the slot Sluttdato vacates for a race, so the row stays one line -->
       <span id="evtRaceFields" style="display:none;align-items:center">
-        <input type="number" id="newEvtRaceDist" placeholder="Distanse (km)" title="Distanse (km) – valgfritt" min="0" step="0.1" style="width:130px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+        <input class="inp" type="number" id="newEvtRaceDist" placeholder="Distanse (km)" title="Distanse (km) – valgfritt" min="0" step="0.1" style="width:130px;">
       </span>
-      <select id="newEvtType" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <select class="inp" id="newEvtType">
         <option value="plan">Plan</option>
         <option value="race">Løp / Race</option>
         <option value="illness">Sykdom</option>
@@ -1288,14 +1296,14 @@
         <option value="taper">Taper</option>
         <option value="personal">Annet</option>
       </select>
-      <input type="text" id="newEvtTitle" placeholder="Tittel (f.eks. Start Runna 10K)" style="flex:1;min-width:150px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input class="inp" type="text" id="newEvtTitle" placeholder="Tittel (f.eks. Start Runna 10K)" style="flex:1;min-width:150px;">
       <button class="btn-primary btn-sm" id="btnAddEvent">+ Legg til</button>
       <button class="btn-secondary btn-sm" id="btnCancelEvtEdit" style="display:none">Avbryt</button>
     </div>
     <div id="evtPlanTargets" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <input type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <input type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <input type="number" id="newEvtRunTarget" placeholder="Mål økter/uke (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input class="inp" type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" style="width:200px;">
+      <input class="inp" type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;">
+      <input class="inp" type="number" id="newEvtRunTarget" placeholder="Mål økter/uke (valgfritt)" min="1" style="width:200px;">
     </div>
     <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -1325,10 +1333,10 @@
     <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Blokker du vurderer framover. Ingenting her regnes med noe sted — det er en huskelapp fram til du oppretter blokken som Plan under Hendelser. <b>Når blokken starter: opprett den og importer .ics-en samtidig</b> — det er eneste gang Runna har hele planen.</p>
     <div id="upcomingBlockList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <select id="newUbKind" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;"></select>
+      <select class="inp" id="newUbKind"></select>
       <span id="newUbMonthPicker" style="display:flex;gap:6px"></span>
-      <input type="number" id="newUbWeeks" placeholder="uker" min="1" max="99" style="width:90px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <input type="text" id="newUbNote" placeholder="Notat (valgfritt)" style="flex:1;min-width:160px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input class="inp" type="number" id="newUbWeeks" placeholder="uker" min="1" max="99" style="width:90px;">
+      <input class="inp" type="text" id="newUbNote" placeholder="Notat (valgfritt)" style="flex:1;min-width:160px;">
       <button class="btn-primary btn-sm" id="btnAddUb">+ Legg til</button>
       <button class="btn-secondary btn-sm" id="btnCancelUbEdit" style="display:none">Avbryt</button>
     </div>
@@ -1340,8 +1348,8 @@
     <div style="font-size:13px;font-weight:600;margin-bottom:10px">Årsmål (km)</div>
     <div id="goalList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <input type="number" id="newGoalYear" placeholder="År" min="2020" max="2040" style="width:90px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <input type="number" id="newGoalKm" placeholder="Mål (km)" min="1" style="width:140px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input class="inp" type="number" id="newGoalYear" placeholder="År" min="2020" max="2040" style="width:90px;">
+      <input class="inp" type="number" id="newGoalKm" placeholder="Mål (km)" min="1" style="width:140px;">
       <button class="btn-primary btn-sm" id="btnAddGoal">+ Legg til</button>
       <button class="btn-secondary btn-sm" id="btnCancelGoalEdit" style="display:none">Avbryt</button>
     </div>
@@ -1350,8 +1358,8 @@
       <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Tiden du sikter mot på en distanse. Vises på Dashboard ved siden av PR og prognose, så du ser avstanden dit. Skriv den som 25:00 eller 2:00:00.</p>
       <div id="distGoalList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <select id="newDistGoalKey" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;"></select>
-        <input type="text" id="newDistGoalTime" placeholder="25:00" style="width:110px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+        <select class="inp" id="newDistGoalKey"></select>
+        <input class="inp" type="text" id="newDistGoalTime" placeholder="25:00" style="width:110px;">
         <button class="btn-primary btn-sm" id="btnAddDistGoal">+ Legg til</button>
         <button class="btn-secondary btn-sm" id="btnCancelDistGoalEdit" style="display:none">Avbryt</button>
       </div>
@@ -1363,8 +1371,8 @@
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Sko</div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
-      <input type="text" id="newShoeName" placeholder="Navn på sko (f.eks. Nike Pegasus 41)" style="flex:1;min-width:200px;max-width:340px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
-      <input type="number" id="newShoeRetirementKm" placeholder="Utløpsgrense km (valgfritt)" min="1" style="width:200px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input class="inp" type="text" id="newShoeName" placeholder="Navn på sko (f.eks. Nike Pegasus 41)" style="flex:1;min-width:200px;max-width:340px;">
+      <input class="inp" type="number" id="newShoeRetirementKm" placeholder="Utløpsgrense km (valgfritt)" min="1" style="width:200px;">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">Kjøpt
         <span id="newShoeObtainedPicker" style="display:flex;gap:6px"></span>
       </label>
@@ -1633,7 +1641,7 @@
     <p style="font-size:12px;color:var(--muted);margin:0 0 12px">De 7 standard øktypene dekker de fleste løpeøkter og kan ikke fjernes. Legg til egne typer her, f.eks. Bakkeløp, Terrengløp eller Progresjonsløp.</p>
     <div id="customOkttypeList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <input type="text" id="newCustomOkttype" placeholder="Ny økttype (f.eks. Bakkeløp)" style="flex:1;min-width:200px;max-width:340px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input class="inp" type="text" id="newCustomOkttype" placeholder="Ny økttype (f.eks. Bakkeløp)" style="flex:1;min-width:200px;max-width:340px;">
       <button class="btn-primary btn-sm" id="btnAddCustomOkttype">+ Legg til</button>
     </div>
   </div>
@@ -1644,7 +1652,7 @@
     <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Runna og Egentrening er standard og kan ikke fjernes. Legg til egne planer her hvis du følger andre opplegg.</p>
     <div id="customPlanList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <input type="text" id="newCustomPlan" placeholder="Ny treningsplan" style="flex:1;min-width:200px;max-width:340px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;">
+      <input class="inp" type="text" id="newCustomPlan" placeholder="Ny treningsplan" style="flex:1;min-width:200px;max-width:340px;">
       <button class="btn-primary btn-sm" id="btnAddCustomPlan">+ Legg til</button>
     </div>
   </div>

@@ -114,6 +114,59 @@ with sync_playwright() as p:
 
     check("no page errors", errs, [])
     pg.close()
+
+    # ── Every hand-placed field looks and behaves like a .form-group one (2026-09-08) ───────────
+    # Same disease this file already exists for: one rule written in several places. 19 fields
+    # outside .form-group repeated its six paint properties inline — and had ALREADY drifted, having
+    # copied the paint but not :focus or the transition, so they were the only fields in the app with
+    # no accent border when clicked into. They now carry `.inp`, which shares the declaration.
+    #
+    # ⚠️ Read the focus colour AFTER the .15s border-color transition. Reading it immediately returns
+    # the mid-transition value — which is the start colour — and makes a WORKING field look broken.
+    # That is how the first version of this probe "proved" .form-group had no focus style either.
+    print("== every field shares one appearance ==")
+    pg = b.new_page(viewport={"width": 1400, "height": 900})
+    ferr = []
+    pg.on("pageerror", lambda e: ferr.append(str(e)))
+    pg.goto(APP)
+    pg.wait_for_timeout(500)
+
+    def field(sel, tab):
+        pg.evaluate(f"() => switchTab('{tab}')")
+        pg.wait_for_timeout(200)
+        base = pg.evaluate("""sel => { const c = getComputedStyle(document.querySelector(sel));
+            return [c.borderColor, c.padding, c.fontSize]; }""", sel)
+        pg.focus(sel)
+        pg.wait_for_timeout(400)          # let the .15s transition finish — see the warning above
+        return base + [pg.evaluate(
+            "sel => getComputedStyle(document.querySelector(sel)).borderColor", sel)]
+
+    ref = field("#fDistanse", "form")                    # inside .form-group — the reference
+    check("control: the reference field highlights on focus", ref[0] != ref[3], True)
+    check("...to the accent colour", ref[3], "rgb(108, 143, 255)")
+    for sel, tab in (("#newEvtRunTarget", "plan"), ("#newCustomOkttype", "settings"),
+                     ("#newEvtType", "plan"), ("#newGoalYear", "plan")):
+        check(f"{sel} matches the reference (paint + focus)", field(sel, tab), ref)
+    # Sizing must NOT be equalised: these fields are laid out by hand and keep their own widths.
+    # ⚠️ Each is measured while ITS OWN tab is active. A field in a hidden panel measures 0 px wide,
+    # which the first version of this check reported as a width regression — it was reading the
+    # settings field with the plan tab open.
+    def width(field_id, tab):
+        pg.evaluate(f"() => switchTab('{tab}')")
+        pg.wait_for_timeout(200)
+        return pg.evaluate(
+            "id => Math.round(document.getElementById(id).getBoundingClientRect().width)", field_id)
+    check("...while keeping their own widths",
+          [width('newGoalYear', 'plan'), width('newEvtRunTarget', 'plan'),
+           width('newCustomOkttype', 'settings')], [90, 200, 340])
+    # ⚠️ #newEvtDate carries NO inline width, so it is the only one a stray `width:100%` on .inp could
+    # actually stretch — the others' inline widths outrank a class rule and would hide the mistake.
+    # Added after a falsification (adding .inp to the width:100% rule) passed every check above.
+    check("...and a field with no inline width keeps its intrinsic size",
+          width('newEvtDate', 'plan'), 168)
+    check("no field page errors", ferr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
