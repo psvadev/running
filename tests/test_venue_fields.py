@@ -164,6 +164,19 @@ with sync_playwright() as p:
     # Added after a falsification (adding .inp to the width:100% rule) passed every check above.
     check("...and a field with no inline width keeps its intrinsic size",
           width('newEvtDate', 'plan'), 168)
+    # Small muted text: one class, not 64 inline copies in two property orders.
+    small = pg.evaluate("""() => {
+        const cls = [...document.querySelectorAll('.muted-sm')];
+        const c = cls.length ? getComputedStyle(cls[0]) : null;
+        return { n: cls.length, font: c && c.fontSize, color: c && c.color,
+                 // Anything re-introducing the pair inline, whichever order it is written in.
+                 inline: document.querySelectorAll(
+                     '[style*="font-size:12px"][style*="var(--muted)"]').length }; }""")
+    # Control first: the absence check below is worthless if nothing carries the class at all.
+    check("control: the muted-sm class is actually in use", small["n"] > 20, True)
+    check("...and renders 12px muted", [small["font"], small["color"]],
+          ["12px", "rgb(120, 128, 160)"])
+    check("no element re-introduces the pair inline", small["inline"], 0)
     check("no field page errors", ferr, [])
     pg.close()
 

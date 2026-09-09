@@ -357,6 +357,14 @@
   .atlas-cont-pill.on { color:var(--text); background:rgba(76,175,135,.10); border-color:rgba(76,175,135,.4); }
   .atlas-sub-label { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:2px 0 10px; }
   .ct-sub { color:var(--muted); font-weight:400; font-size:12px; margin-left:8px; }
+  /* Small muted text — the help line under a heading, a field hint, an empty-state note. 64 places
+     wrote these two properties inline, in BOTH property orders, which is three spellings of one
+     decision.
+     ⚠️ Margins deliberately stay inline. The spacing genuinely differs by context — six distinct
+     values across the 64 — so folding it in here would be a visual redesign, not a consolidation.
+     This class carries appearance only. */
+  .muted-sm { font-size: 12px; color: var(--muted); }
+  .chart-no-data { padding: 12px 0; text-align: center; }
   /* Verdenskart (SVG choropleth) */
   .map-wrap { position:relative; max-width:1400px; margin:0 auto; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:radial-gradient(120% 120% at 50% 30%, #121728, #0c0e16); }
   .map-wrap svg { width:100%; height:auto; display:block; }
@@ -632,7 +640,7 @@
   <h1>💓 Puls</h1>
   <div class="spacer"></div>
   <div class="file-status" id="fileStatus">Ingen fil åpen</div>
-  <span id="syncStatus" style="font-size:12px;color:var(--muted);margin-left:16px"><span class="sync-dot" id="syncDot"></span><span id="syncText">Klar</span></span>
+  <span class="muted-sm" id="syncStatus" style="margin-left:16px;"><span class="sync-dot" id="syncDot"></span><span id="syncText">Klar</span></span>
   <span id="driveIndicator" style="font-size:11px;color:var(--muted);margin-left:10px" title="Google Drive ikke koblet til">☁ Drive</span>
   <span id="stravaIndicator" style="font-size:11px;color:var(--muted);margin-left:10px" title="Strava ikke koblet til">🏃 Strava</span>
   <input type="file" id="fileInput" accept=".json" style="display:none">
@@ -681,12 +689,12 @@
       <div class="form-section-title" style="margin-bottom:0">Strava</div>
       <button class="btn-secondary btn-sm" id="btnFetchStrava">📥 Hent fra Strava</button>
     </div>
-    <div id="stravaFetchMsg" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+    <div class="muted-sm" id="stravaFetchMsg" style="margin-top:6px;"></div>
   </div>
 
   <div class="form-section">
     <div class="form-section-title">Øktinfo</div>
-    <div id="planPrefillHint" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+    <div class="muted-sm" id="planPrefillHint" style="margin-bottom:10px;"></div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;max-width:420px">
       <div class="form-group">
         <label>Dato</label>
@@ -756,7 +764,7 @@
   <div class="form-section">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <div class="form-section-title" style="margin-bottom:0">Pulssoner (tt:mm:ss per sone)</div>
-      <label style="font-size:12px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px">
+      <label class="muted-sm" style="cursor:pointer;display:flex;align-items:center;gap:6px;">
         <input type="checkbox" id="fUtenPuls" onchange="Form.togglePulsdata()"> Uten pulsdata
       </label>
     </div>
@@ -899,7 +907,7 @@
     </div>
     <div class="form-group">
       <label>Løpetype</label>
-      <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted);padding-top:6px">
+      <div class="muted-sm" style="display:flex;gap:10px;align-items:center;padding-top:6px;">
         <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="" checked> Alle</label>
         <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="utendors"> 🏃 Ute</label>
         <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="treadmill"> ⚙️ Inne</label>
@@ -907,7 +915,7 @@
     </div>
     <div class="form-group">
       <label>Tempo-enhet</label>
-      <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted);padding-top:6px">
+      <div class="muted-sm" style="display:flex;gap:10px;align-items:center;padding-top:6px;">
         <label style="cursor:pointer"><input type="radio" name="dfPaceUnit" value="pace" checked> min/km</label>
         <label style="cursor:pointer"><input type="radio" name="dfPaceUnit" value="kmh"> km/t</label>
       </div>
@@ -917,7 +925,7 @@
       <div id="dfYearPills" style="display:flex;flex-wrap:wrap;gap:6px;padding-top:2px"></div>
     </div>
     <button class="btn-secondary btn-sm" id="btnDashReset" style="align-self:flex-end;margin-bottom:1px">Nullstill</button>
-    <label style="font-size:12px;color:var(--muted);display:flex;gap:5px;align-items:center;cursor:pointer;align-self:flex-end;margin-bottom:3px">
+    <label class="muted-sm" style="display:flex;gap:5px;align-items:center;cursor:pointer;align-self:flex-end;margin-bottom:3px;">
       <input type="checkbox" id="chkEvents" checked> Hendelser
     </label>
     <div id="eventLegend" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:11px;color:var(--muted);align-self:flex-end;margin-bottom:4px"></div>
@@ -1004,7 +1012,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div class="card-title" id="weeklyDistTitle" style="margin-bottom:0">Ukentlig distanse (km)</div>
         <div style="display:flex;gap:12px;align-items:center">
-          <label id="distTargetWrap" style="cursor:pointer;font-size:12px;color:var(--muted);display:none;align-items:center;gap:5px"><input type="checkbox" id="distShowTarget"> Mål km</label>
+          <label class="muted-sm" id="distTargetWrap" style="cursor:pointer;display:none;align-items:center;gap:5px;"><input type="checkbox" id="distShowTarget"> Mål km</label>
           <div style="display:flex;gap:6px">
             <span class="year-pill active" id="distToggleWeek">Uke</span>
             <span class="year-pill" id="distToggleMaaned">Måned</span>
@@ -1231,8 +1239,7 @@
          the filters decide WHICH sessions go out, this decides what each one carries. Deliberately
          NOT persisted — an export months from now should not silently drop notes because of a box
          ticked today. Only Notater; Øktbeskrivelse is the programme's prescription, not a comment. -->
-    <label style="font-size:12px;color:var(--muted);display:flex;gap:5px;align-items:center;cursor:pointer"
-           title="Utelater dine egne notater fra eksporten. Øktbeskrivelse fra planen tas fortsatt med.">
+    <label class="muted-sm" style="display:flex;gap:5px;align-items:center;cursor:pointer;" title="Utelater dine egne notater fra eksporten. Øktbeskrivelse fra planen tas fortsatt med.">
       <input type="checkbox" id="chkNoNotes"> Uten notater
     </label>
     <span id="logCopyFeedback" style="font-size:11px;color:var(--accent);opacity:0;transition:opacity .4s">Kopiert!</span>
@@ -1267,7 +1274,7 @@
     <div style="font-size:48px">🏃</div>
     <p>Ingen økter funnet. Legg til din første økt under ➕, eller importer fra Innstillinger.</p>
   </div>
-  <div id="logCount" style="font-size:12px;color:var(--muted);margin-top:10px"></div>
+  <div class="muted-sm" id="logCount" style="margin-top:10px;"></div>
 </div>
 
 <!-- ══════════════ TAB 4: PLANLEGGING ══════════════ -->
@@ -1311,9 +1318,9 @@
   <!-- Planlagte økter (Runna .ics-import) -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Planlagte økter <span class="ct-sub">· importert fra Runna</span></div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Importer Runna-planens <strong>.ics</strong>-fil for å se planlagte økter og hvor godt de matcher det du faktisk løper. Én import per treningsblokk holder — hele blokken følger med. Strength og ad-hoc-løp hoppes over.<br>Listen under viser den <strong>aktive</strong> blokken. En ny import erstatter bare den, så tidligere blokker beholder planen sin og vises fortsatt i sin egen blokkvisning.<br><em>Slik:</em> i Runna: <strong>Profile → Connected Apps &amp; Devices → Connected Calendar → Other calendar → Copy URL</strong>. Åpne URL-en i nettleseren → last ned <code>.ics</code>-filen → velg den her.</p>
+    <p class="muted-sm" style="margin:0 0 12px;">Importer Runna-planens <strong>.ics</strong>-fil for å se planlagte økter og hvor godt de matcher det du faktisk løper. Én import per treningsblokk holder — hele blokken følger med. Strength og ad-hoc-løp hoppes over.<br>Listen under viser den <strong>aktive</strong> blokken. En ny import erstatter bare den, så tidligere blokker beholder planen sin og vises fortsatt i sin egen blokkvisning.<br><em>Slik:</em> i Runna: <strong>Profile → Connected Apps &amp; Devices → Connected Calendar → Other calendar → Copy URL</strong>. Åpne URL-en i nettleseren → last ned <code>.ics</code>-filen → velg den her.</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      <input type="file" id="runnaIcsFile" accept=".ics,text/calendar" style="font-size:12px;color:var(--muted);max-width:100%">
+      <input class="muted-sm" type="file" id="runnaIcsFile" accept=".ics,text/calendar" style="max-width:100%;">
       <button class="btn-secondary btn-sm" id="btnClearPlanned" style="display:none">Fjern importerte</button>
     </div>
     <div id="plannedImportMsg" style="font-size:12px;margin-bottom:10px"></div>
@@ -1330,7 +1337,7 @@
   <!-- Kommende blokker -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Kommende blokker</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Blokker du vurderer framover. Ingenting her regnes med noe sted — det er en huskelapp fram til du oppretter blokken som Plan under Hendelser. <b>Når blokken starter: opprett den og importer .ics-en samtidig</b> — det er eneste gang Runna har hele planen.</p>
+    <p class="muted-sm" style="margin:0 0 12px;">Blokker du vurderer framover. Ingenting her regnes med noe sted — det er en huskelapp fram til du oppretter blokken som Plan under Hendelser. <b>Når blokken starter: opprett den og importer .ics-en samtidig</b> — det er eneste gang Runna har hele planen.</p>
     <div id="upcomingBlockList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <select class="inp" id="newUbKind"></select>
@@ -1355,7 +1362,7 @@
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:20px">
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Tidsmål per distanse</div>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Tiden du sikter mot på en distanse. Vises på Dashboard ved siden av PR og prognose, så du ser avstanden dit. Skriv den som 25:00 eller 2:00:00.</p>
+      <p class="muted-sm" style="margin:0 0 12px;">Tiden du sikter mot på en distanse. Vises på Dashboard ved siden av PR og prognose, så du ser avstanden dit. Skriv den som 25:00 eller 2:00:00.</p>
       <div id="distGoalList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <select class="inp" id="newDistGoalKey"></select>
@@ -1379,7 +1386,10 @@
       <button class="btn-primary btn-sm" id="btnAddShoeMain">+ Legg til</button>
     </div>
     <div style="display:flex;gap:10px 18px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding-top:12px;border-top:1px solid var(--border)">
-      <span style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Standard sko</span>
+      <!-- Deliberately lighter than .card-title (600 vs 700, tighter tracking, no bottom margin) —
+           a sub-heading inside the card, not another card title. Only the shared size+colour moves
+           to .muted-sm; the rest is what makes it its own thing. -->
+      <span class="muted-sm" style="font-weight:600;text-transform:uppercase;letter-spacing:.05em">Standard sko</span>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">Utendørs
         <select id="defaultShoeOutdoor" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:13px;min-width:150px"></select>
       </label>
@@ -1405,7 +1415,7 @@
        only tool. Unchanged apart from its address. -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Tempo ↔ km/t</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 14px">Planer og mål er i <b>tempo</b> (min/km), men en tredemølle stilles i <b>fart</b> (km/t). Skriv inn det ene, så følger det andre — og tabellen viser nabotempoene, så du ser hvor du ligger an.</p>
+    <p class="muted-sm" style="margin:0 0 14px;">Planer og mål er i <b>tempo</b> (min/km), men en tredemølle stilles i <b>fart</b> (km/t). Skriv inn det ene, så følger det andre — og tabellen viser nabotempoene, så du ser hvor du ligger an.</p>
     <div class="pc-io">
       <label class="pc-field">⏱️ Tempo
         <!-- inputmode="text", NOT numeric: iOS renders numeric as a digits-only pad with no colon,
@@ -1608,11 +1618,11 @@
   <!-- Distanse-PR -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Distanse-PR</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Begge kolonnene regnes ut automatisk fra løpene dine — ingenting skal fylles inn for hånd.<br><b>🏃 Ute</b> hentes fra Strava, som finner den raskeste strekningen på hver distanse inne i et utendørsløp.<br><b>⚙️ Inne</b> utledes av tredemølle-øktene: den raskeste sammenhengende strekningen i en analysert økt, eller en logget tredemølle-økt på (nær) samme distanse. Har du ingen økt som dekker distansen, står feltet tomt — det er det riktige svaret.</p>
+    <p class="muted-sm" style="margin:0 0 12px;">Begge kolonnene regnes ut automatisk fra løpene dine — ingenting skal fylles inn for hånd.<br><b>🏃 Ute</b> hentes fra Strava, som finner den raskeste strekningen på hver distanse inne i et utendørsløp.<br><b>⚙️ Inne</b> utledes av tredemølle-øktene: den raskeste sammenhengende strekningen i en analysert økt, eller en logget tredemølle-økt på (nær) samme distanse. Har du ingen økt som dekker distansen, står feltet tomt — det er det riktige svaret.</p>
     <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Skanner Strava-historikken og bygger Topp 3 per distanse for 🏃 Ute.</div>
+      <div class="muted-sm" style="margin-bottom:8px;">Skanner Strava-historikken og bygger Topp 3 per distanse for 🏃 Ute.</div>
       <button class="btn-secondary btn-sm" id="btnSyncBestEfforts">🔄 Synkroniser fra Strava</button>
-      <span id="bestEffortsSyncMsg" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+      <span class="muted-sm" id="bestEffortsSyncMsg" style="margin-left:10px;"></span>
       <div style="margin-top:6px"><a href="#" id="btnForceRescanBE" style="font-size:11px;color:var(--muted);text-decoration:underline;cursor:pointer">Skann hele historikken på nytt (bygg opp Topp 3 igjen)</a></div>
     </div>
   </div>
@@ -1620,7 +1630,7 @@
   <!-- Treningsrytme -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Treningsrytme</div>
-    <div style="font-size:12px;color:var(--muted);margin-top:-6px;margin-bottom:14px">Grenseverdier brukt i konsistens-scoren på dashbordet.</div>
+    <div class="muted-sm" style="margin-top:-6px;margin-bottom:14px;">Grenseverdier brukt i konsistens-scoren på dashbordet.</div>
     <div class="form-grid" style="margin-bottom:14px">
       <div class="form-group">
         <label>Km-grense per uke</label>
@@ -1638,7 +1648,7 @@
   <!-- Økttyper -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Økttyper</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">De 7 standard øktypene dekker de fleste løpeøkter og kan ikke fjernes. Legg til egne typer her, f.eks. Bakkeløp, Terrengløp eller Progresjonsløp.</p>
+    <p class="muted-sm" style="margin:0 0 12px;">De 7 standard øktypene dekker de fleste løpeøkter og kan ikke fjernes. Legg til egne typer her, f.eks. Bakkeløp, Terrengløp eller Progresjonsløp.</p>
     <div id="customOkttypeList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <input class="inp" type="text" id="newCustomOkttype" placeholder="Ny økttype (f.eks. Bakkeløp)" style="flex:1;min-width:200px;max-width:340px;">
@@ -1649,7 +1659,7 @@
   <!-- Treningsplan -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Treningsplan</div>
-    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Runna og Egentrening er standard og kan ikke fjernes. Legg til egne planer her hvis du følger andre opplegg.</p>
+    <p class="muted-sm" style="margin:0 0 12px;">Runna og Egentrening er standard og kan ikke fjernes. Legg til egne planer her hvis du følger andre opplegg.</p>
     <div id="customPlanList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <input class="inp" type="text" id="newCustomPlan" placeholder="Ny treningsplan" style="flex:1;min-width:200px;max-width:340px;">
@@ -1668,70 +1678,70 @@
       <button class="btn-secondary btn-sm" id="btnDownload">⬇️ Last ned / eksporter</button>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px">
-      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Slett alle treningsøkter permanent. Kan ikke angres.</p>
+      <p class="muted-sm" style="margin-bottom:10px;">Slett alle treningsøkter permanent. Kan ikke angres.</p>
       <button class="btn-danger btn-sm" id="btnClearAll">🗑️ Tøm alle data</button>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Lokale sikkerhetskopier</div>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Lagres automatisk i nettleseren hver gang du åpner filen. Siste 7 dager beholdes.</p>
+      <p class="muted-sm" style="margin-bottom:10px;">Lagres automatisk i nettleseren hver gang du åpner filen. Siste 7 dager beholdes.</p>
       <div id="backupList"></div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Google Drive</div>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Synkroniser data med Google Drive for tilgang fra alle enheter.</p>
+      <p class="muted-sm" style="margin-bottom:10px;">Synkroniser data med Google Drive for tilgang fra alle enheter.</p>
       <div style="margin-bottom:10px">
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Client ID</label>
+        <label class="muted-sm" style="display:block;margin-bottom:4px;">Client ID</label>
         <input type="text" id="driveClientId" placeholder="Lim inn fra Google Cloud Console" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
       </div>
       <div style="margin-bottom:10px">
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Client Secret</label>
+        <label class="muted-sm" style="display:block;margin-bottom:4px;">Client Secret</label>
         <input type="password" id="driveClientSecret" placeholder="Lim inn fra Google Cloud Console" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
       </div>
-      <div id="driveStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+      <div class="muted-sm" id="driveStatus" style="margin-bottom:10px;"></div>
       <button class="btn-secondary btn-sm" id="driveSignInBtn">Koble til Google Drive</button>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Strava</div>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Hent inn distanse, tid og puls fra Strava når du logger en økt.</p>
+      <p class="muted-sm" style="margin-bottom:10px;">Hent inn distanse, tid og puls fra Strava når du logger en økt.</p>
       <div style="margin-bottom:10px">
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Client ID</label>
+        <label class="muted-sm" style="display:block;margin-bottom:4px;">Client ID</label>
         <input type="text" id="stravaClientId" placeholder="Fra Strava API-innstillinger" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
       </div>
       <div style="margin-bottom:10px">
-        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Worker URL</label>
+        <label class="muted-sm" style="display:block;margin-bottom:4px;">Worker URL</label>
         <input type="text" id="stravaWorkerUrl" placeholder="https://xxx.workers.dev" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
       </div>
-      <div id="stravaStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+      <div class="muted-sm" id="stravaStatus" style="margin-bottom:10px;"></div>
       <button class="btn-secondary btn-sm" id="stravaConnectBtn">Koble til Strava</button>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Run/walk ratio</div>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Fartsgrenser for å anslå løping vs. gange fra Strava-data på utendørsøkter. Under nedre grense = gange, over øvre = løping, imellom = uklart. Juster til din fart om anslaget ikke stemmer (gange og rolig jogg overlapper ofte).</p>
+      <p class="muted-sm" style="margin-bottom:10px;">Fartsgrenser for å anslå løping vs. gange fra Strava-data på utendørsøkter. Under nedre grense = gange, over øvre = løping, imellom = uklart. Juster til din fart om anslaget ikke stemmer (gange og rolig jogg overlapper ofte).</p>
       <div style="display:flex;gap:12px;margin-bottom:10px">
         <div style="flex:1">
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Gange under (km/t)</label>
+          <label class="muted-sm" style="display:block;margin-bottom:4px;">Gange under (km/t)</label>
           <input type="number" step="0.1" min="1" max="15" id="contWalkMax" placeholder="7" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
         </div>
         <div style="flex:1">
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Løping over (km/t)</label>
+          <label class="muted-sm" style="display:block;margin-bottom:4px;">Løping over (km/t)</label>
           <input type="number" step="0.1" min="1" max="20" id="contRunMin" placeholder="7.5" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
         </div>
       </div>
       <button class="btn-secondary btn-sm" id="contSaveBtn">Lagre grenser</button>
       <span id="contMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span>
       <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
-        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Analyser alle Strava-koblede økter på én gang, så run/walk (utendørs) + HR-drift &amp; kadens (alle økter) fylles ut i øktdetaljer og trender. Kjøres i bolker for å holde seg under Strava sin grense — klikk igjen for å fortsette om den pauser.</p>
+        <p class="muted-sm" style="margin-bottom:8px;">Analyser alle Strava-koblede økter på én gang, så run/walk (utendørs) + HR-drift &amp; kadens (alle økter) fylles ut i øktdetaljer og trender. Kjøres i bolker for å holde seg under Strava sin grense — klikk igjen for å fortsette om den pauser.</p>
         <button class="btn-secondary btn-sm" id="contBackfillBtn">Analyser alle Strava-økter</button>
-        <span id="contBackfillMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+        <span class="muted-sm" id="contBackfillMsg" style="margin-left:8px;"></span>
       </div>
       <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px" id="backfillOldSection">
-        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Har du økter fra før Strava-ID-feltet fantes? Finn og koble dem til Strava-aktiviteten — matches på dato + distanse/varighet, og du godkjenner hvert treff før noe kobles. Da får de gamle øktene også run/walk + HR-drift &amp; kadens. Éngangsjobb.</p>
+        <p class="muted-sm" style="margin-bottom:8px;">Har du økter fra før Strava-ID-feltet fantes? Finn og koble dem til Strava-aktiviteten — matches på dato + distanse/varighet, og du godkjenner hvert treff før noe kobles. Da får de gamle øktene også run/walk + HR-drift &amp; kadens. Éngangsjobb.</p>
         <button class="btn-secondary btn-sm" id="backfillOldBtn">🔗 Koble gamle økter til Strava</button>
       </div>
     </div>
   </div>
 
-  <div style="text-align:center;font-size:12px;color:var(--muted);padding:20px 0 4px">
+  <div class="muted-sm" style="text-align:center;padding:20px 0 4px;">
     <a href="https://github.com/psvadev/running" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">ℹ️ Om Puls — dokumentasjon på GitHub ↗</a>
   </div>
 
@@ -1938,8 +1948,10 @@ function showChartEmpty(canvasId, show, msg = 'Ingen data å vise') {
   if (show) {
     if (el) el.style.display = 'none';
     const m = document.createElement('div');
-    m.className = 'chart-no-data';
-    m.style.cssText = 'color:var(--muted);font-size:12px;padding:12px 0;text-align:center';
+    // The 64th copy of the muted-text pair, and the only one written as cssText rather than a style
+    // attribute. `.chart-no-data` was already a class with no rule behind it, so the layout half
+    // moves there and the appearance half joins everything else in `.muted-sm`.
+    m.className = 'chart-no-data muted-sm';
     m.textContent = msg;
     wrap.appendChild(m);
   } else {
@@ -5103,7 +5115,7 @@ const StravaBackfill = {
     const bothN = this.proposed.filter(m => m.confidence === 'both').length;
     const rest = this.proposed.length - bothN;
     body.innerHTML =
-      `<p style="font-size:12px;color:var(--muted);margin-bottom:10px">${this.proposed.length} forslag` +
+      `<p class="muted-sm" style="margin-bottom:10px;">${this.proposed.length} forslag` +
       (rest ? ` · ${bothN} sikre ✓✓ (forhåndsvalgt), ${rest} å se over (huk av det som stemmer)` : ` · alle sikre ✓✓`) +
       (this.unmatchedCount ? ` · ${this.unmatchedCount} uten sikkert treff er utelatt` : '') + `.</p>` + rows;
     applyBtn.style.display = '';
@@ -6906,7 +6918,7 @@ function lowLoadInRange(fromISO, toISO) {
 function renderInsights(sessions) {
   const el = document.getElementById('insightContent');
   if (!el) return;
-  if (!sessions.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">Ingen data</div>'; return; }
+  if (!sessions.length) { el.innerHTML = '<div class="muted-sm">Ingen data</div>'; return; }
 
   try {
   const today = localISODate();
@@ -7291,7 +7303,7 @@ function renderInsights(sessions) {
   candidates.sort((a, b) => b.priority - a.priority);
   el.innerHTML = candidates.slice(0, 6).map(ins =>
     `<div class="insight-item"><span class="i-icon">${ins.icon}</span><div class="i-body"><div class="i-val">${escapeHtml(ins.val)}</div><div class="i-sub">${escapeHtml(ins.sub)}</div></div></div>`
-  ).join('') || '<div style="color:var(--muted);font-size:12px">Ingen innsikter tilgjengelig</div>';
+  ).join('') || '<div class="muted-sm">Ingen innsikter tilgjengelig</div>';
   } catch(e) {
     el.innerHTML = `<div style="color:red;font-size:11px">DEBUG: ${e.message}</div>`;
   }
@@ -7306,7 +7318,7 @@ function renderConsistency(sessions) {
   const runThr = cs.runThreshold || 2;
 
   if (!sessions.length) {
-    el.innerHTML = '<div style="color:var(--muted);font-size:12px">Ingen data</div>';
+    el.innerHTML = '<div class="muted-sm">Ingen data</div>';
     destroyChart('consistency');
     return;
   }
@@ -7545,7 +7557,7 @@ function renderBlocks() {
           <span style="font-size:14px;font-weight:600;flex:1">${escapeHtml(b.title)}</span>
           <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(108,143,255,.2);color:var(--accent)">Kommende</span>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">${fmtDate(b.startDate)} – ${fmtDate(b.endDate)} · ${b.weeks} uker${b.targetTotalKm ? ` · mål ${b.targetTotalKm} km` : ''} · ${startsIn}</div>
+        <div class="muted-sm" style="margin-top:4px;">${fmtDate(b.startDate)} – ${fmtDate(b.endDate)} · ${b.weeks} uker${b.targetTotalKm ? ` · mål ${b.targetTotalKm} km` : ''} · ${startsIn}</div>
       </div>`;
     }).join('');
   }
@@ -7569,7 +7581,7 @@ function renderBlocks() {
           <span style="font-size:16px;font-weight:700;flex:1">${escapeHtml(current.title)}</span>
           <span style="font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:2px 8px;font-weight:600">Pågår</span>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${fmtDate(current.startDate)} – nå · ${current.weeks} uker</div>
+        <div class="muted-sm" style="margin-bottom:16px;">${fmtDate(current.startDate)} – nå · ${current.weeks} uker</div>
         <div class="dp-stat-row" style="margin-bottom:16px">
           ${statsRow.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}
         </div>
@@ -7610,7 +7622,7 @@ function renderBlocks() {
           </div>
           <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
             <div style="width:${adhPct}%;height:100%;background:var(--green);border-radius:4px;transition:width .3s"></div>
-          </div>` : `<div style="font-size:12px;color:var(--muted)">Planlagte økter · ${planned.length} i blokken</div>`;
+          </div>` : `<div class="muted-sm">Planlagte økter · ${planned.length} i blokken</div>`;
           return `<div style="margin-bottom:12px">${bar}${nextHtml}</div>`;
         })()}
         ${(() => {
@@ -8049,10 +8061,10 @@ const DetailPanel = {
     ).join('');
     this.open(`Uke ${wn}, ${yr}`, `
       ${statRow(stats)}
-      ${shoes.length ? `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Sko: ${escapeHtml(shoes.join(', '))}</div>` : ''}
+      ${shoes.length ? `<div class="muted-sm" style="margin-bottom:12px;">Sko: ${escapeHtml(shoes.join(', '))}</div>` : ''}
       ${ctxBlock}
       <div class="dp-section-label">Øktene</div>
-      ${sessionRows || '<div style="color:var(--muted);font-size:12px">Ingen løp</div>'}`
+      ${sessionRows || '<div class="muted-sm">Ingen løp</div>'}`
     );
   },
 
@@ -8097,13 +8109,13 @@ const DetailPanel = {
     const cont = this._continuityBlockHtml(s);   // run/walk block (outdoor + current) or ''
     const aero = this._aerobicBlockHtml(s);       // HR-drift + cadence block (current) or ''
     const spl  = this._splitsBlockHtml(s);        // fastest splits inside the run (treadmill) or ''
-    const msg = `<span id="continuityMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>`;
+    const msg = `<span class="muted-sm" id="continuityMsg" style="margin-left:8px;"></span>`;
     if (!(cont || aero || spl)) {
       // Nothing current yet — first-time prompt (or everything went stale after a version/threshold bump).
       const had = s.stravaAnalysis && (s.stravaAnalysis.continuity || s.stravaAnalysis.aerobic || s.stravaAnalysis.splits);
       const label = '<div class="dp-section-label">Strava-analyse <span style="font-weight:400;color:var(--muted);font-size:11px">· estimert</span></div>';
       const stale = had ? ' <span style="color:var(--muted)">· utdatert, kjør på nytt</span>' : '';
-      return `${label}<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Estimer løping vs. gange (utendørs) + HR-drift &amp; kadens fra Strava-data (eksperimentelt).${stale}</div>`
+      return `${label}<div class="muted-sm" style="margin-bottom:8px;">Estimer løping vs. gange (utendørs) + HR-drift &amp; kadens fra Strava-data (eksperimentelt).${stale}</div>`
         + `<button class="btn-secondary btn-sm" id="continuityBtn" onclick="Continuity.analyzeSession('${s.id}')">🔬 Analyser Strava-data</button>${msg}`;
     }
     const staleNote = Continuity._needsAnalysis(s) ? ` <span style="color:var(--muted);font-size:11px">· noen mål er utdatert</span>` : '';
@@ -8276,17 +8288,17 @@ const DetailPanel = {
       retireHtml = `<div class="dp-section-label">Kilometergrense</div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <div class="shoe-retire-bar-bg" style="flex:1"><div class="shoe-retire-bar-fill" style="width:${pct}%;background:var(--accent)"></div></div>
-          <span style="font-size:12px;color:var(--muted)">${totalKm.toFixed(0)} / ${shoe.retirementKm} km</span>
+          <span class="muted-sm">${totalKm.toFixed(0)} / ${shoe.retirementKm} km</span>
         </div>`;
     }
     this.open(`👟 ${name}`, `
       <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      <div class="muted-sm" style="margin-bottom:12px;">
         ${firstUsed ? `Første bruk: ${fmtDate(firstUsed)}` : ''}${lastUsed ? ` · Sist brukt: ${fmtDate(lastUsed)}` : ''}<br>
         ${longest ? `Lengste løp: ${longest.distanse} km (${fmtDate(longest.dato)})` : ''}
       </div>
       ${retireHtml}
-      <div class="dp-section-label">Siste løp</div>${recentRows || '<div style="color:var(--muted);font-size:12px">Ingen løp logget</div>'}`
+      <div class="dp-section-label">Siste løp</div>${recentRows || '<div class="muted-sm">Ingen løp logget</div>'}`
     );
   },
 
@@ -8355,7 +8367,7 @@ const DetailPanel = {
       <div class="dp-section-label">Notat</div>
       <textarea id="landNoteInput" rows="3" placeholder="Et minne, en rutetips eller en quirk — f.eks. «tredemøllen viste mph, ikke km/t»" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
       <div style="margin:6px 0 2px"><button class="btn-secondary btn-sm" id="landNoteSave">Lagre notat</button><span id="landNoteMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span></div>
-      <div class="dp-section-label">Øktene</div>${rows || '<div style="color:var(--muted);font-size:12px">Ingen løp logget</div>'}`,
+      <div class="dp-section-label">Øktene</div>${rows || '<div class="muted-sm">Ingen løp logget</div>'}`,
       flag
     );
     const noteBtn = document.getElementById('landNoteSave');
@@ -8385,7 +8397,7 @@ const DetailPanel = {
     const { countries, continents } = atlasBadgeContext(a, b);
     const status = b.unlocked
       ? `<div style="color:var(--green);font-size:13px;margin-bottom:8px">✓ Låst opp${b.date ? ` ${fmtDate(b.date)}` : ''}${b.country ? ` i ${escapeHtml(landName(b.country))}` : ''}</div>`
-      : (b.progress ? atlasBar(b.progress.cur, b.progress.target, b.progress.unit) : '<div style="color:var(--muted);font-size:12px;margin-bottom:8px">Ikke låst opp ennå</div>');
+      : (b.progress ? atlasBar(b.progress.cur, b.progress.target, b.progress.unit) : '<div class="muted-sm" style="margin-bottom:8px;">Ikke låst opp ennå</div>');
     const lad = ATLAS_LADDERS[id];
     const tiers = lad ? a.badges.filter(x => ATLAS_LADDERS[x.id] === lad) : [];
     const tiersHtml = tiers.map(t => {
@@ -8562,7 +8574,7 @@ const DetailPanel = {
           Lavintensitet (S1+S2): <strong>${lowPct}%</strong> &nbsp;·&nbsp; Høyintensitet (S4+S5): <strong>${highPct}%</strong>
         </div>`;
     } else {
-      zoneHtml += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Ingen sonedata registrert for denne blokken.</div>`;
+      zoneHtml += `<div class="muted-sm" style="margin-bottom:12px;">Ingen sonedata registrert for denne blokken.</div>`;
     }
 
     const detailParts = [
@@ -8608,7 +8620,7 @@ const DetailPanel = {
     }
 
     this.open(title, `
-      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
+      <div class="muted-sm" style="margin-bottom:16px;">
         ${fmtDate(startDate)} – ${isCurrent?'nå':fmtDate(endDate)} · ${weeks} uker
         ${isCurrent?'<span style="font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:1px 6px;margin-left:6px;font-weight:600">Pågår</span>':''}
       </div>
@@ -8624,11 +8636,11 @@ const DetailPanel = {
         <div style="width:${consPct}%;height:100%;background:${cm.color};border-radius:4px"></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:12px">
-        ${consLines.map(l=>`<div style="font-size:12px;color:var(--muted)">${l}</div>`).join('')}
+        ${consLines.map(l=>`<div class="muted-sm">${l}</div>`).join('')}
       </div>
       ${compHtml}
       ${zoneHtml}
-      ${detailParts.length ? `<div class="dp-section-label">Detaljer</div><div style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px;margin-bottom:12px">${detailParts.map(p=>`<div>${p}</div>`).join('')}</div>` : ''}
+      ${detailParts.length ? `<div class="dp-section-label">Detaljer</div><div class="muted-sm" style="display:flex;flex-direction:column;gap:3px;margin-bottom:12px;">${detailParts.map(p=>`<div>${p}</div>`).join('')}</div>` : ''}
       ${plannedHtml}
       ${runsHtml ? `<div class="dp-section-label">Gjennomførte økter</div>${runsHtml}` : ''}
     `);
@@ -8826,7 +8838,7 @@ function renderPaceWeekChart(sessions) {
 function weekPlanHtml(today, absWk, underStats) {
   // Under the stats a missing plan renders nothing rather than a heading over an empty row; on the
   // empty week the sentence is the card's only content.
-  const none = underStats ? '' : `<div style="font-size:12px;color:var(--muted)">Ingen økter ennå denne uken.</div>`;
+  const none = underStats ? '' : `<div class="muted-sm">Ingen økter ennå denne uken.</div>`;
   const evt = activePlanEvent(today);
   if (!evt) return none;
   // Filtered by absWeekNum, the same week function the rest of this card uses — a second way of
@@ -9141,7 +9153,7 @@ function renderDashboard() {
     : `${fmtDate(e.d)} · ${(+e.dist).toFixed(2)} km`;
 
   document.getElementById('distPRList').innerHTML = !prRows.length
-    ? '<div style="font-size:12px;color:var(--muted)">Ingen distanse-PR ennå — synkroniser fra Strava under Innstillinger. Tredemølle-tider kommer av seg selv fra analyserte økter.</div>'
+    ? '<div class="muted-sm">Ingen distanse-PR ennå — synkroniser fra Strava under Innstillinger. Tredemølle-tider kommer av seg selv fra analyserte økter.</div>'
     : `<div class="top3-list">
         ${prRows.map(r => `
           <div class="top3-row">
@@ -10798,7 +10810,7 @@ const Settings = {
     if (!container) return;
     const backups = await BackupDB.getAll();
     if (!backups.length) {
-      container.innerHTML = '<p style="font-size:12px;color:var(--muted)">Ingen sikkerhetskopier ennå.</p>';
+      container.innerHTML = '<p class="muted-sm">Ingen sikkerhetskopier ennå.</p>';
       return;
     }
     container.innerHTML = backups.map(b => `
@@ -11517,9 +11529,9 @@ const Settings = {
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-weight:600">🏁 ${escapeHtml(evt.title)}</span>
           ${isFuture ? '<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(108,143,255,.2);color:var(--accent)">Kommende</span>' : ''}
-          <span style="font-size:12px;color:var(--muted);margin-left:auto">${fmtDate(evt.date)}</span>
+          <span class="muted-sm" style="margin-left:auto;">${fmtDate(evt.date)}</span>
         </div>
-        ${stats ? `<div style="font-size:12px;color:var(--muted);margin-top:3px">${stats}</div>` : ''}
+        ${stats ? `<div class="muted-sm" style="margin-top:3px;">${stats}</div>` : ''}
       </div>`;
     }).join('');
     if (overflow > 0) {
