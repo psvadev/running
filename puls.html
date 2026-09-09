@@ -121,6 +121,20 @@
   }
   .form-group input, .form-group select, .form-group textarea { width: 100%; }
   .form-group input:focus, .form-group select:focus, .inp:focus { outline: none; border-color: var(--accent); }
+  /* Out of range says so while you type, instead of waiting for a refused save. Pure `:invalid` —
+     no JS, no input listener — because it is the SAME condition save() checks via checkValidity(),
+     so the two can never disagree and a new numeric field is covered the moment it is added.
+     Scoped to `#panel-form input[type=number]`, exactly the set save() validates: the number fields
+     in Hendelser and Innstillinger have their own save paths that do not enforce ranges, and a red
+     border where nothing refuses would be a lie.
+     It has to beat `.form-group input:focus`, or the accent border wins while you are still typing
+     in the offending field — which is exactly when it matters. Here the `#panel-form` scope already
+     does that (1,2,1 against 0,2,1), so no paired `:focus` selector is needed. ⚠️ Verktøy's
+     `.pc-field input.bad-input` DOES need one, because it is class-based and ties at 0,2,1 — do not
+     copy the pairing here on the strength of that comment, and do not drop it there on the strength
+     of this one. (First written with the redundant pair; falsification showed removing it changed
+     nothing.) Empty is never invalid on an optional field, so a blank form is not a wall of red. */
+  #panel-form input[type=number]:invalid { border-color: var(--danger); }
   .form-group input[readonly] { background: var(--surface); border-color: transparent; color: var(--accent); cursor: default; opacity: 1; }
   .form-group input[readonly]:focus { border-color: transparent; outline: none; }
   .form-section { margin-bottom: 20px; }

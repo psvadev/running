@@ -238,6 +238,39 @@ with sync_playwright() as p:
     n, msg, _ = attempt("fKalorier", "0")
     check("the min boundary itself is accepted", (n, msg), (1, ""))
 
+    # ── The field says it is wrong while you type, not only when you press Lagre ────────────────
+    # Pure CSS `:invalid`, the same condition save() checks. Mirrors Verktøy's `.bad-input`, and the
+    # reason is the one written there: "silently cleared" and "not filled in yet" look identical, so
+    # the field that is wrong has to say so itself.
+    print("== out-of-range marks itself while typing ==")
+    DANGER, NORMAL, ACCENT = "rgb(224, 85, 85)", "rgb(46, 50, 72)", "rgb(108, 143, 255)"
+    pg.goto(APP)
+    pg.wait_for_timeout(400)
+    pg.evaluate("() => switchTab('form')")
+    pg.wait_for_timeout(200)
+
+    def border(sel="#fGjpuls"):
+        pg.wait_for_timeout(350)      # the .15s border-color transition must finish first
+        return pg.evaluate("s => getComputedStyle(document.querySelector(s)).borderColor", sel)
+
+    # Control FIRST: an empty optional field must be plain. Without this, a rule that painted every
+    # field red would satisfy every "is danger" assertion below.
+    check("an empty field is not marked", border(), NORMAL)
+    pg.click("#fGjpuls")
+    pg.keyboard.type("145")
+    check("a valid value keeps the focus colour", border(), ACCENT)
+    pg.keyboard.type("00")            # 14500
+    # Marked while the field still has focus — the accent border must not hide it at the moment it
+    # matters most. (This asserts the BEHAVIOUR, not one selector: the rule earns it through the
+    # #panel-form scope, not through a paired :focus selector, which was tried and was redundant.)
+    check("out of range wins over :focus", border(), DANGER)
+    pg.click("#fDistanse")
+    check("...and stays marked after leaving the field", border(), DANGER)
+    pg.click("#fGjpuls")
+    pg.keyboard.press("Control+a")
+    pg.keyboard.type("150")
+    check("correcting it clears the mark", border(), ACCENT)
+
     check("no validation page errors", verr, [])
     pg.close()
 
