@@ -983,7 +983,12 @@ with sync_playwright() as b0:
     pg.evaluate("""(p) => {
       const S = (id, d, typ, km) => ({ id, dato:d, uke:'', oktnavn:p, okttype:typ, treningsplan:'Runna',
         varighet: km*360, distanse: km, tempo:360, soner:[0,600,600,0,0], notater:p,
-        beskrivelse:p, land:'NO', sko:p, lopetype:'utendors' });
+        // `land` carries the payload too (added 2026-09-09). It is free text by design —
+        // resolveLandInput's own comment reads "typed Norwegian name or 2-letter code → ISO code,
+        // else raw text" — so an unrecognised country name is stored verbatim. Every render site
+        // escapes it today (detail panel, atlas chips and lists, panel title, datalist); this is
+        // what makes that a checked fact rather than a lucky one.
+        beskrivelse:p, land:p, sko:p, lopetype:'utendors' });
       localStorage.setItem('lpl_cache', JSON.stringify({
         sessions: [S('x','2026-04-06','Easy',5),  S('y','2026-04-13','Long',9),
                    S('a','2026-06-05','Easy',5),  S('b','2026-06-12','Long',10),
@@ -1029,6 +1034,24 @@ with sync_playwright() as b0:
                 saw_comparison = True
             pg.keyboard.press("Escape")
             pg.wait_for_timeout(150)
+
+    # ⚠️ The SESSION detail panel, added 2026-09-09, and the reason is a falsification result:
+    # breaking `${raw ? v : escapeHtml(v)}` in that panel failed NOTHING. The walk above clicks week
+    # rows, record cards and block cards, and never once opened a session — so the panel that renders
+    # Land, Sko, Øktbeskrivelse and Notater, four user-typed fields, was outside the sweep entirely.
+    # Clicking a log row is the real path (Log.rowClick → DetailPanel.openSession).
+    pg.evaluate("() => switchTab('log')")
+    pg.wait_for_timeout(400)
+    saw_session = False
+    rows = pg.locator('#logBody tr')
+    for i in range(min(rows.count(), 3)):
+        rows.nth(i).click()
+        pg.wait_for_timeout(350)
+        if "dp-" in pg.evaluate("() => document.getElementById('detailBody').innerHTML"):
+            saw_session = True
+        pg.keyboard.press("Escape")
+        pg.wait_for_timeout(150)
+    check("a session detail panel actually opened", saw_session, True)
 
     # ⚠️ The comparison markup MUST have rendered, or everything below is vacuous. Asserted rather
     # than assumed, twice over: the first version of this sweep clicked four lists, reached the panel

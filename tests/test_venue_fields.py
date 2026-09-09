@@ -180,6 +180,67 @@ with sync_playwright() as p:
     check("no field page errors", ferr, [])
     pg.close()
 
+    # ── The ranges the fields declare are now enforced on save (2026-09-09) ─────────────────────
+    # min/max were in the markup from the start and nothing ever read them: 900 bpm, -40 bpm,
+    # -100 kcal and a negative Høydemeter all saved exactly as typed. Distanse was the only guarded
+    # field, via the hand-written `s.distanse <= 0` check.
+    #
+    # ⚠️ Asserting "no session was saved" is only meaningful next to a case that DOES save — an
+    # app that refused everything would pass every rejection check here. The control runs first.
+    print("== declared ranges are enforced on save ==")
+    pg = b.new_page(viewport={"width": 1400, "height": 900})
+    verr, dialogs = [], []
+    pg.on("pageerror", lambda e: verr.append(str(e)))
+    pg.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+
+    def attempt(field=None, value=None):
+        """Fill a minimally valid session, optionally poison one field, click Lagre.
+        Returns (sessions saved, alert text or '', the field's value afterwards)."""
+        pg.goto(APP)
+        pg.evaluate("() => localStorage.removeItem('lpl_cache')")   # or the previous save lingers
+        pg.goto(APP)
+        pg.wait_for_timeout(400)
+        pg.evaluate("() => switchTab('form')")
+        pg.wait_for_timeout(200)
+        pg.evaluate("""() => {
+            document.getElementById('fDistanse').value = '5';
+            document.getElementById('fVarighet').removeAttribute('readonly');
+            document.getElementById('fVarighet').value = '0:30:00';
+        }""")
+        if field:
+            pg.evaluate("([i, v]) => { document.getElementById(i).value = v; }", [field, value])
+        dialogs.clear()
+        pg.click("#btnSaveSession")
+        pg.wait_for_timeout(350)
+        n = pg.evaluate("() => (Store.data.sessions || []).length")
+        left = pg.evaluate("i => i ? document.getElementById(i).value : ''", field)
+        return n, (dialogs[0] if dialogs else ""), left
+
+    n, msg, _ = attempt()
+    check("control: a valid session still saves", (n, msg), (1, ""))
+
+    for field, value, word in (("fGjpuls", "900", "Gj.snittspuls"),
+                               ("fGjpuls", "-40", "Gj.snittspuls"),
+                               ("fToppuls", "900", "Toppuls"),
+                               ("fKalorier", "-100", "Kalorier"),
+                               ("fMalDistanse", "-3", "Mål distanse"),
+                               ("fHoydeMeter", "-50", "Høydemeter")):
+        n, msg, left = attempt(field, value)
+        check(f"{field}={value} is refused", n, 0)
+        check(f"...naming the field ({word})", word in msg, True)
+        # The rule: reject visibly, never silently clear. A cleared field and a never-filled one
+        # look identical, so the correction would have to start from nothing.
+        check("...and the typed value is left in place", left, value)
+
+    # Boundaries are INSIDE the range — an off-by-one here would reject 250 bpm, which is legal.
+    n, msg, _ = attempt("fToppuls", "250")
+    check("the max boundary itself is accepted", (n, msg), (1, ""))
+    n, msg, _ = attempt("fKalorier", "0")
+    check("the min boundary itself is accepted", (n, msg), (1, ""))
+
+    check("no validation page errors", verr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))

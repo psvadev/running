@@ -6026,7 +6026,37 @@ const Form = {
     if (ret) switchTab(ret);
   },
 
+  // Every numeric field already declares its own valid range in the markup (min/max), and the
+  // browser already knows when one is violated — `checkValidity()` was simply never asked. So 900
+  // bpm, -40 bpm, -100 kcal and a negative Høydemeter all saved exactly as typed. Distanse was the
+  // only guarded field, by the hand-written check in save().
+  //
+  // Asking the DOM keeps the markup the single source of each range: a new numeric field is covered
+  // the moment it is added, with no threshold copied into JS to drift out of sync.
+  //
+  // ⚠️ EVERY numeric field is checked, including the hidden one. The first version skipped
+  // invisible fields, on the theory that a venue-hidden Stigning/Høydemeter is not saved — but
+  // read() drops them by VENUE, not by visibility, and the two can disagree: a hidden Høydemeter of
+  // -50 was skipped here and still stored. Visibility is the wrong axis. Nothing is needed in its
+  // place, because syncVenueFields always EMPTIES the hidden field (its rule 1, pinned by
+  // test_venue_fields), and an empty optional field is valid — so it can never block a save.
+  firstInvalidNumber() {
+    return [...document.querySelectorAll('#panel-form input[type=number]')]
+      .find(el => !el.checkValidity()) || null;
+  },
+
   save() {
+    const bad = this.firstInvalidNumber();
+    if (bad) {
+      const label = bad.closest('.form-group')?.querySelector('label')?.textContent.trim() || bad.id;
+      const range = bad.max ? `mellom ${bad.min || 0} og ${bad.max}` : `${bad.min || 0} eller høyere`;
+      // Name the field AND the range, then leave the value where it is and put the cursor in it.
+      // Clearing it would be the worse failure: a cleared field and a never-filled one look
+      // identical, so the correction would start from nothing instead of from the typo.
+      alert(`«${label}» må være ${range}.`);
+      bad.focus();
+      return;
+    }
     const s = this.read();
     if (!s.dato) { alert('Velg en dato.'); return; }
     if (s.distanse <= 0) { alert('Fyll inn distanse.'); return; }
