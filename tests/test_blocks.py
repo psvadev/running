@@ -343,6 +343,60 @@ with sync_playwright() as pw:
     # økter/uke is deliberately NOT given a step — you cannot run half a session.
     check("økter/uke stays whole-numbered", typed("#newEvtRunTarget", "4,5")['valid'], False)
 
+    # ── A block that has not started judges nothing (2026-09-11) ───────────────────────────
+    #
+    # The drill-down's isCurrent tested only the END date, so a block starting next Monday read as
+    # «Pågår», dated «14.09.2026 – nå», and scored Konsistens «Dårlig 0%» — a verdict on nine weeks
+    # that have not happened. The dashboard hero used the correct two-sided test, so the two
+    # surfaces disagreed about the same block.
+    #
+    # ⚠️ Controls included: a CURRENT block must keep every one of these sections, or "the future
+    # block hides them" would pass just as well for a panel that renders nothing at all.
+    print("== a future block makes no claims ==")
+
+    def panel(start, end):
+        pg.goto(APP)
+        pg.evaluate("""cfg => {
+          const run = (dato, distanse) => ({ id:dato, dato, uke:'2026-30', oktnavn:'Tur',
+            okttype:'Easy', treningsplan:'Runna', løpetype:'utendors', distanse,
+            varighet: distanse*360, tempo:360, soner:[0,600,600,0,0] });
+          localStorage.setItem('lpl_cache', JSON.stringify({
+            sessions: [run('2026-08-11',6), run('2026-08-13',8)],
+            shoes: [], goals: {}, plannedSessions: [], settings: { zones: [] },
+            events: [{ id:'pX', type:'plan', title:'Blokk', date:cfg.s, endDate:cfg.e }],
+            lastUpdated: '' }));
+        }""", {"s": start, "e": end})
+        pg.goto(APP)
+        pg.evaluate("() => switchTab('dash')")
+        pg.wait_for_timeout(500)
+        pg.evaluate("""() => {
+          const b = cachedBlocks.find(x => x.title === 'Blokk');
+          DetailPanel.openBlock(JSON.parse(JSON.stringify(b)));
+        }""")
+        pg.wait_for_timeout(300)
+        txt = " ".join(pg.inner_text("#detailBody").split())
+        pg.evaluate("() => DetailPanel.close()")
+        pg.wait_for_timeout(150)
+        return txt
+
+    # Control FIRST: a live block still shows everything.
+    live = panel("2026-08-10", "2026-10-01")
+    check("a live block says Pågår", "Pågår" in live, True)
+    # ⚠️ UPPERCASE: .dp-section-label is text-transform:uppercase and inner_text() returns what is
+    # RENDERED. Matching "Konsistens" never matched anything, so the future-block assertions below
+    # would have passed with the section still present. The controls are what exposed that.
+    check("...and scores consistency", "KONSISTENS" in live, True)
+    check("...and shows its zone split", "SONEFORDELING" in live, True)
+
+    fut = panel("2026-09-14", "2026-11-19")          # starts after the frozen 2026-08-18
+    check("a future block does NOT say Pågår", "Pågår" in fut, False)
+    check("...it says Kommende", "Kommende" in fut, True)
+    check("...names its real end date, not 'nå'", "19.11.2026" in fut, True)
+    check("...passes no consistency verdict", "KONSISTENS" in fut, False)
+    check("...and none of its labels leak", "Dårlig" in fut, False)
+    check("...claims no missing zone data", "SONEFORDELING" in fut, False)
+    check("...and no 'ingen sonedata' orphan", "Ingen sonedata" in fut, False)
+
     check("no page errors", errs, [])
     b.close()
 

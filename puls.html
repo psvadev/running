@@ -3305,7 +3305,13 @@ const Store = {
   // untouched — this used to assign the parse result BEFORE validating, so a file that was
   // valid JSON but not a Puls dataset was adopted wholesale: an array serialises back as "[]"
   // and a bare "null" as "null", quietly wiping the real data on the next save.
-  load(json) {
+  // `snapshot` writes today's automatic backup. TRUE for the paths that load the data you already
+  // have (startup cache, file handle, Drive pull) — that is what makes the backup a daily record.
+  // FALSE for the paths that REPLACE your data, because backups are keyed by DATE: opening a file
+  // overwrote today's snapshot with whatever you just opened, so an attempted restore destroyed the
+  // safety net at the exact moment you needed it. A backup has to be an undo, not a diary of every
+  // file you looked at.
+  load(json, { snapshot = true } = {}) {
     let parsed;
     try {
       parsed = JSON.parse(json);
@@ -3322,7 +3328,7 @@ const Store = {
     if (!this.data.shoes) this.data.shoes = [];
     this._migrate();
     this.loadedFromPersisted = true;
-    BackupDB.save(json, this.data.sessions.length);
+    if (snapshot) BackupDB.save(json, this.data.sessions.length);
     return true;
   },
 
@@ -3638,13 +3644,23 @@ const FileIO = {
     if (this.supportsApi) {
       try {
         const [h] = await window.showOpenFilePicker({ types:[{ description:'JSON', accept:{'application/json':['.json']} }] });
-        this.handle = h;
         const file = await h.getFile();
         const text = await file.text();
-        Store.load(text);
+        // ⚠️ Honour the return value. A file that fails to parse used to alert and then be adopted
+        // anyway — handle stored, name shown as loaded — so the status said one thing and the data
+        // said another, and the next save would write over whatever you had actually picked.
+        if (!Store.load(text, { snapshot: false })) return false;
+        this.handle = h;
         await HandleDB.set(h);
         localStorage.setItem('lpl_handle_name', file.name);
         this.updateStatus(file.name);
+        // ⚠️ Opening a file used to load it into MEMORY ONLY — no cache write, no save — so the
+        // next reload silently restored the old data and the open looked like it had never
+        // happened. And without refreshAll() every card kept rendering the previous data, so a
+        // SUCCESSFUL open was indistinguishable from a failed one. Both halves of that were how a
+        // restore-from-export quietly did nothing on 2026-09-11.
+        refreshAll();
+        await this.save();
         return true;
       } catch(e) { if (e.name !== 'AbortError') console.error(e); return false; }
     } else {
@@ -8538,7 +8554,12 @@ const DetailPanel = {
             avgKmWeek, avgPace, avgHR,
             consistencyScore, spanWeeks, indoorKm, outdoorKm, shoes,
             targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget } = block;
-    const isCurrent = endDate >= localISODate();
+    // ⚠️ Two-sided, matching renderBlocks. Testing only the END date made a block that has not
+    // STARTED read as «Pågår», dated «14.09.2026 – nå», while the dashboard hero for the same block
+    // correctly called it Kommende — two surfaces disagreeing about one fact.
+    const _today    = localISODate();
+    const isFuture  = startDate > _today;
+    const isCurrent = startDate <= _today && endDate >= _today;
 
     const blockSessions = Store.data.sessions
       .filter(s => s.dato >= startDate && s.dato <= endDate)
@@ -8639,7 +8660,9 @@ const DetailPanel = {
     // Only compare completed blocks: a still-running block has partial volume/consistency and would
     // read as a huge deficit vs a finished one (and blocks can differ in goal/length — 5K vs 10K).
     let compHtml = '';
-    if (prevBlock && !isCurrent) {
+    // !isFuture too: comparing a block that has not started against the previous one compares
+    // its zeros, and reports every metric as a collapse.
+    if (prevBlock && !isCurrent && !isFuture) {
       const kmDiff   = totalKm - prevBlock.totalKm;
       const kmPct    = prevBlock.totalKm > 0 ? kmDiff/prevBlock.totalKm*100 : 0;
       const kmColor  = kmDiff >= 0 ? '#22c55e' : '#ef4444';
@@ -8669,7 +8692,9 @@ const DetailPanel = {
     }
 
     const zoneDist = calcZoneDistribution(blockSessions);
-    let zoneHtml = '<div class="dp-section-label">Sonefordeling</div>';
+    // A block with no runs yet has no zones to show, and «Ingen sonedata registrert» reads as a
+    // recording fault rather than as "it starts on Monday".
+    let zoneHtml = isFuture ? '' : '<div class="dp-section-label">Sonefordeling</div>';
     if (zoneDist.total > 0) {
       const lowPct  = zoneDist.pcts[0] + zoneDist.pcts[1];
       const highPct = zoneDist.pcts[3] + zoneDist.pcts[4];
@@ -8683,7 +8708,7 @@ const DetailPanel = {
         <div style="font-size:12px;color:var(--text);margin-bottom:12px">
           Lavintensitet (S1+S2): <strong>${lowPct}%</strong> &nbsp;·&nbsp; Høyintensitet (S4+S5): <strong>${highPct}%</strong>
         </div>`;
-    } else {
+    } else if (!isFuture) {
       zoneHtml += `<div class="muted-sm" style="margin-bottom:12px;">Ingen sonedata registrert for denne blokken.</div>`;
     }
 
@@ -8733,10 +8758,12 @@ const DetailPanel = {
       <div class="muted-sm" style="margin-bottom:16px;">
         ${fmtDate(startDate)} – ${isCurrent?'nå':fmtDate(endDate)} · ${weeks} uker
         ${isCurrent?'<span style="font-size:10px;background:var(--accent);color:#fff;border-radius:4px;padding:1px 6px;margin-left:6px;font-weight:600">Pågår</span>':''}
+        ${isFuture?'<span style="font-size:10px;background:rgba(108,143,255,.2);color:var(--accent);border-radius:4px;padding:1px 6px;margin-left:6px;font-weight:600">Kommende</span>':''}
       </div>
-      <div class="dp-stat-row">${overviewStats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
+      ${isFuture ? '' : `<div class="dp-stat-row">${overviewStats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>`}
       ${weekKeys.length ? `<div class="dp-section-label">Ukentlig progresjon</div><div style="margin-bottom:12px">${weeklyRows}</div>` : ''}
       ${hl.length ? `<div class="dp-section-label">Høydepunkter</div><div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px">${hl.map(h=>`<div style="font-size:12px;display:flex;gap:8px"><span style="color:var(--accent)">▸</span><span>${h}</span></div>`).join('')}</div>` : ''}
+      ${isFuture ? '' : `
       <div class="dp-section-label">Konsistens</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px">
         <span style="color:var(--muted)">${cm.label}</span>
@@ -8747,7 +8774,7 @@ const DetailPanel = {
       </div>
       <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:12px">
         ${consLines.map(l=>`<div class="muted-sm">${l}</div>`).join('')}
-      </div>
+      </div>`}
       ${compHtml}
       ${zoneHtml}
       ${detailParts.length ? `<div class="dp-section-label">Detaljer</div><div class="muted-sm" style="display:flex;flex-direction:column;gap:3px;margin-bottom:12px;">${detailParts.map(p=>`<div>${p}</div>`).join('')}</div>` : ''}
@@ -10988,7 +11015,9 @@ const Settings = {
     if (!confirm(`Gjenopprett sikkerhetskopi fra ${date}?\nNåværende data overskrives.`)) return;
     const json = await BackupDB.restore(date);
     if (!json) { alert('Kunne ikke laste sikkerhetskopi.'); return; }
-    Store.load(json);
+    // snapshot:false — restoring the 09.09 backup must not rewrite TODAY's with 09.09's contents.
+    // Backups are keyed by date, so that would spend the newest snapshot to recover an older one.
+    if (!Store.load(json, { snapshot: false })) return;
     await FileIO.save();
     refreshAll();
     this.renderBackupList();
@@ -12265,8 +12294,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const file = e.target.files[0];
     if (!file) return;
     const text = await file.text();
-    Store.load(text);
+    if (!Store.load(text, { snapshot: false })) return;
     FileIO.updateStatus(file.name + ' (Firefox-modus – bruk Last ned for å lagre)');
+    // Persist before rendering, for the same reason as the picker path above: without this the
+    // opened file lived in memory only and the next reload brought the old data back. Firefox has
+    // no file handle, so this writes the cache and Drive — which is precisely what a reload reads.
+    await FileIO.save();
     refreshAll();
     Settings.render();
   });

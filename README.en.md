@@ -236,7 +236,7 @@ The tab strip is **responsive but singular** — not two navigations: below 600 
 
 - [Chart.js 4.4.0](https://www.chartjs.org/) — charts, loaded from jsDelivr with a pinned version and a **Subresource Integrity** hash, so the browser refuses the file if the CDN ever serves anything else (the hash targets `chart.umd.js`, the real packaged file served byte-identical to the immutable npm tarball — *not* jsDelivr's generated `.min.js`, which they explicitly warn against hashing)
 - File System Access API — local file read/write (Edge/Chrome)
-- IndexedDB — persists the file handle across page reloads so the file re-attaches automatically; also stores automatic daily local backups (last 7 days, one-click restore)
+- IndexedDB — persists the file handle across page reloads so the file re-attaches automatically; also stores automatic daily local backups (last 7 days, one-click restore). **Opening a file does not spend that day's backup** — they are keyed by date, so it used to overwrite today's snapshot with whatever you opened, spending the safety net at the exact moment you needed it. **And opening a file is a real restore:** it is saved immediately so it survives a reload, and the screen re-renders so you can see it happened. It used to live in memory only, and the next reload quietly brought the old data back
 - Google Drive API (via fetch) + OAuth 2.0 PKCE — optional cross-device sync; refresh token stored in localStorage for silent reconnect
 - Strava API (via fetch) + OAuth 2.0 — optional form-fill helper, zone import, and best-efforts sync; token exchange handled by a small Cloudflare Worker (see `worker/`)
 

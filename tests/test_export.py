@@ -269,6 +269,69 @@ with sync_playwright() as pw:
         check(f"{btn} passes omitNotes:true when ticked", opts_after(btn, True), [True])
         check(f"{btn} passes omitNotes:false when clear", opts_after(btn, False), [False])
 
+    # ── Opening a data file is a RESTORE, not a preview (2026-09-11) ────────────────────────
+    #
+    # Three faults, all found after a restore-from-export silently did nothing:
+    #   1. Store.load() snapshotted into BackupDB on EVERY path. Backups are keyed by DATE, so
+    #      opening a file overwrote today's snapshot with whatever was opened — the safety net was
+    #      spent at the exact moment it was needed.
+    #   2. FileIO.open() loaded into MEMORY ONLY. No cache write, no save. The next reload restored
+    #      the old data and the open looked like it had never happened.
+    #   3. The picker path never called refreshAll(), so a SUCCESSFUL open rendered the old data and
+    #      was indistinguishable from a failed one.
+    #
+    # Driven through the hidden <input type=file> — the Firefox fallback — because Playwright can
+    # drive a real file input, and it shares Store.load with the picker path.
+    print("== opening a file persists, renders, and spares the backup ==")
+    pg2 = b.new_page(viewport={"width": 1280, "height": 900})
+    ferrs = []
+    pg2.on("pageerror", lambda e: ferrs.append(str(e)))
+    pg2.on("dialog", lambda d: d.accept())
+
+    import json as _json, tempfile, os as _os
+    def datafile(n_sessions, tag):
+        d = {"sessions": [{"id": f"{tag}{i}", "dato": "2026-08-%02d" % (i + 1), "uke": "2026-32",
+                           "oktnavn": tag, "okttype": "Easy", "treningsplan": "Egentrening",
+                           "løpetype": "utendors", "distanse": 5.0, "varighet": 1800,
+                           "tempo": 360, "soner": [0, 0, 0, 0, 0]} for i in range(n_sessions)],
+             "shoes": [], "goals": {}, "events": [], "plannedSessions": [],
+             "settings": {"zones": []}, "lastUpdated": ""}
+        p = _os.path.join(tempfile.gettempdir(), f"puls_{tag}.json")
+        open(p, "w", encoding="utf-8").write(_json.dumps(d))
+        return p
+
+    ORIGINAL, OPENED = datafile(3, "orig"), datafile(7, "opened")
+    pg2.goto(APP)
+    pg2.evaluate("j => localStorage.setItem('lpl_cache', j)", open(ORIGINAL, encoding="utf-8").read())
+    pg2.goto(APP)
+    pg2.wait_for_timeout(500)
+    check("booted from the cached file", pg2.evaluate("() => Store.data.sessions.length"), 3)
+    before = pg2.evaluate("async () => (await BackupDB.getAll()).map(b => b.sessionCount)")
+
+    pg2.set_input_files("#fileInput", OPENED)
+    pg2.wait_for_timeout(700)
+    check("the opened file is in memory", pg2.evaluate("() => Store.data.sessions.length"), 7)
+    # THE ONE THAT MATTERED: it must survive a reload, or the restore silently reverts.
+    check("...and was persisted to the cache",
+          pg2.evaluate("() => JSON.parse(localStorage.getItem('lpl_cache')).sessions.length"), 7)
+    after = pg2.evaluate("async () => (await BackupDB.getAll()).map(b => b.sessionCount)")
+    check("...without spending today's backup", after, before)
+    pg2.goto(APP)
+    pg2.wait_for_timeout(500)
+    check("...so a reload keeps it", pg2.evaluate("() => Store.data.sessions.length"), 7)
+
+    # A file that is not a data file must change nothing at all.
+    BAD = _os.path.join(tempfile.gettempdir(), "puls_bad.json")
+    open(BAD, "w", encoding="utf-8").write("{ this is not json")
+    pg2.set_input_files("#fileInput", BAD)
+    pg2.wait_for_timeout(600)
+    check("a corrupt file leaves the data alone", pg2.evaluate("() => Store.data.sessions.length"), 7)
+    check("...and does not overwrite the cache",
+          pg2.evaluate("() => JSON.parse(localStorage.getItem('lpl_cache')).sessions.length"), 7)
+
+    check("no file-open page errors", ferrs, [])
+    pg2.close()
+
     check("no page errors", errs, [])
     b.close()
 
