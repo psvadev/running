@@ -427,6 +427,50 @@ with sync_playwright() as p:
     check('control: the started block still drives plan progress',
           'Runna 10K #2' in started, True)
 
+    # ── ...and it has to survive a card that is already FULL ───────────────────────────────────
+    #
+    # ⚠️ THIS IS THE CHECK THE SECTION ABOVE COULD NOT MAKE, and the bug is the proof. Every fixture
+    # above is deliberately thin, so the countdown had no competition and "it appears" passed at a
+    # flat priority 4. On his real dashboard the same code rendered NOTHING: four cards at priority
+    # 5 (a km milestone + three fresh PRs) took the top, and two OTHER priority-4 cards — maks puls
+    # and the volume trend — were pushed to `candidates` earlier, so a stable sort left the
+    # countdown seventh of six. A presence test on an empty card proves a generator RUNS; only a
+    # contested card proves it EARNS a slot.
+    #
+    # The fixture reproduces that pile-up: a km milestone + 3 PRs at priority 5, maks puls and a
+    # >25 % volume jump at priority 4, and a block 3 days out. Sessions are Steady with no zone data
+    # on purpose, so the Easy-trend, Zone-2, ACWR and fastest-Easy generators stay silent and the
+    # competition is only the cards this check is about.
+    print("== the countdown survives a full card ==")
+
+    crowd = ([session(days_ago(n), 150, okttype='Steady', distanse=6.0, tempo=0,
+                      soner=[0, 0, 0, 0, 0]) for n in range(29, 56, 3)]             # prior 4wk: 54 km
+             + [session(days_ago(n), 201 if n in (3, 6) else 150, okttype='Steady', distanse=7.0,
+                        tempo=0, soner=[0, 0, 0, 0, 0]) for n in range(0, 28, 3)])  # recent: 70 km
+    data = {'sessions': crowd, 'shoes': [], 'shoeDefaults': {}, 'goals': {},
+            'events': [plan('Runna 10K #2', 3, targetTotalKm=300)],
+            'plannedSessions': [], 'customSessionTypes': [], 'customPlans': [],
+            'bestEffortsTop3': {'5k': [{'t': 1623, 'd': FRESH}], '10k': [{'t': 3705, 'd': FRESH}],
+                                'half': [{'t': 8100, 'd': FRESH}]},
+            'consistencySettings': {'kmThreshold': 15, 'runThreshold': 2},
+            'settings': {'maxHR': 195, 'zones': []}, 'lastUpdated': ''}
+    pg.goto(APP)
+    pg.evaluate("d => localStorage.setItem('lpl_cache', JSON.stringify(d))", data)
+    pg.goto(APP)
+    pg.wait_for_timeout(500)
+    pg.evaluate("() => switchTab('dash')")
+    pg.wait_for_timeout(400)
+    full = " ".join(pg.inner_text('#insightCard').split())
+    nfull = len(pg.query_selector_all('#insightCard .insight-item'))
+
+    # Controls FIRST: without them "the countdown is present" could be passing on a card with
+    # nothing else on it, which is the very hole this section exists to close.
+    check('control: the card is genuinely full', nfull, 6)
+    check('control: a km milestone holds a slot', 'totalt passert' in full, True)
+    check('control: the PRs hold slots', full.count('-PR') >= 3, True)
+    check('control: another priority-4 card is competing', 'over maks puls' in full, True)
+    check('the block countdown still earns a slot', 'starter' in full, True)
+
     if errs:
         print('  PAGE ERRORS:', errs)
         failed += 1

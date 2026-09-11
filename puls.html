@@ -7291,8 +7291,15 @@ function renderInsights(sessions) {
   // card today, and the way not to write it again is to have no such branch to get wrong.
   //
   // 14 days, not the race's 30: a block three weeks out is trivia, and the Treningsblokker card
-  // already carries it from any distance. Priority 4, not 5 — a block starting is a heads-up, not
-  // a deadline, and it must not outrank a race or a fresh PR competing for the same six slots.
+  // already carries it from any distance.
+  //
+  // Two priority tiers, exactly like the race countdown above — and the reason is a real miss, not
+  // symmetry for its own sake. It shipped at a flat priority 4 and did not appear at all on the
+  // day his 10K block was three days out: four PR/milestone cards held priority 5, and two OTHER
+  // priority-4 cards (maks puls, volume trend) were pushed earlier, so a stable sort left the
+  // countdown seventh of six. Inside a week the block start IS a deadline — which is the entire
+  // premise of this card — while a PR set a fortnight ago is news about the past. Beyond a week it
+  // is a heads-up and correctly yields to anything sharper.
   const nextBlock = cachedBlocks.filter(b => b.startDate > today)
     .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
   if (nextBlock) {
@@ -7301,7 +7308,7 @@ function renderInsights(sessions) {
       const blockTarget = nextBlock.targetTotalKm ? ` · mål ${nextBlock.targetTotalKm} km` : '';
       candidates.push({ icon: '🗓️', val: `${daysToBlock} ${daysToBlock === 1 ? 'dag' : 'dager'}`,
         sub: `til ${nextBlock.title} starter (${fmtDate(nextBlock.startDate)}) · ${nextBlock.weeks} uker${blockTarget}`,
-        priority: 4 });
+        priority: daysToBlock <= 7 ? 5 : 4 });
     }
   }
 
