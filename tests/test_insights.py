@@ -317,6 +317,116 @@ with sync_playwright() as p:
     check('a finished race hands over to the next', 'Oslo 10K' in handover, True)
     check('...and stops wishing luck for the finished one', 'lykke til' in handover, False)
 
+    # ── The PR floor: only a distance you could race earns a headline (2026-09-11) ─────────────
+    #
+    # His 27:03 5K set THREE PRs at once — 400 m, 1 km and 5 km inne — because the analyser extracts
+    # best efforts from inside a longer run. Each took its own priority-5 slot, so one session held
+    # half the card and displaced everything at priority 4 and below. The floor is `r.km >= 5`.
+    #
+    # ⚠️ THE VACUITY TRAP, and it is the whole reason for the card-count control below. The card is
+    # capped at six. A fixture with enough candidates makes "400 m is absent" pass because 400 m was
+    # CROWDED OUT, not because the floor excluded it — and the check would then survive the floor
+    # being deleted. The fixture is kept deliberately thin (three recent runs, low total km, nothing
+    # in the 8-35 day baseline) so no other generator fires, and the control asserts the card is not
+    # full. Absence in a card with free slots can only be the floor.
+    print("== PR insight: floored at 5 km ==")
+
+    def prs(top3, sessions=None):
+        """Boot with a bestEffortsTop3 map and return (panel text, number of cards)."""
+        runs = sessions if sessions is not None else [
+            session(days_ago(n), 150, distanse=6.0) for n in (0, 2, 4)]
+        data = {'sessions': runs, 'shoes': [], 'shoeDefaults': {}, 'goals': {}, 'events': [],
+                'plannedSessions': [], 'customSessionTypes': [], 'customPlans': [],
+                'bestEffortsTop3': top3,
+                'consistencySettings': {'kmThreshold': 15, 'runThreshold': 2},
+                'settings': {'maxHR': 195, 'zones': []}, 'lastUpdated': ''}
+        pg.goto(APP)
+        pg.evaluate("d => localStorage.setItem('lpl_cache', JSON.stringify(d))", data)
+        pg.goto(APP)
+        pg.wait_for_timeout(500)
+        pg.evaluate("() => switchTab('dash')")
+        pg.wait_for_timeout(400)
+        # ⚠️ SCOPED to #insightCard. A bare '.insight-item' also matches the four stats in the
+        # "Denne uken" strip, which reuses the class — counting those made the card look full
+        # (8 items) when Innsikter held four, and the control below would have failed forever
+        # for a reason that had nothing to do with the floor.
+        n = len(pg.query_selector_all('#insightCard .insight-item'))
+        return " ".join(pg.inner_text('#insightCard').split()), n
+
+    FRESH = days_ago(2)
+    # Every distance fresh on the same day, exactly like a test race that sets a cascade of them.
+    # `half` is in here for a reason — see the floor-not-whitelist check below.
+    txt, ncards = prs({'400m': [{'t': 100, 'd': FRESH}], '1k': [{'t': 282, 'd': FRESH}],
+                       '5k': [{'t': 1623, 'd': FRESH}], '10k': [{'t': 3705, 'd': FRESH}],
+                       'half': [{'t': 8100, 'd': FRESH}]})
+    # POSITIVE CONTROL FIRST: without this, every "absent" check below could be reading an empty card.
+    check('control: the 5 km PR fires', 'Ny 5 km-PR' in txt, True)
+    check('control: the 10 km PR fires', 'Ny 10 km-PR' in txt, True)
+    # THE control that makes the two absences mean something.
+    check('control: card is NOT full, so absence cannot be crowding', ncards < 6, True)
+    check('400 m does not take a slot', '400 m-PR' in txt, False)
+    check('1 km does not take a slot', '1 km-PR' in txt, False)
+    # A floor, not a hand-written whitelist of {5k, 10k}: mutating the guard to an equality test
+    # against those two keys must fail here.
+    check('everything above the floor still fires', 'Halvmaraton-PR' in txt, True)
+    # The floor must not have quietly replaced the 14-day recency gate.
+    stale, _ = prs({'5k': [{'t': 1623, 'd': days_ago(15)}]})
+    check('a 15-day-old 5 km PR still ages out', 'Ny 5 km-PR' in stale, False)
+
+    # ── A training block about to start (2026-09-11) ───────────────────────────────────────────
+    #
+    # ⚠️ This section also pins a LINE ORDER, and that is not obvious from reading it. The generator
+    # reads `cachedBlocks`, which renderDashboard used to fill AFTER renderInsights ran — so on a
+    # fresh page (which is exactly what every fixture here boots) it was `[]` and the card could
+    # never appear at all. Move the assignment back below renderInsights and the first check fails.
+    print("== a training block about to start ==")
+
+    def blocks(plan_evts):
+        data = {'sessions': [session(days_ago(n), 150, distanse=6.0) for n in (0, 2, 4)],
+                'shoes': [], 'shoeDefaults': {}, 'goals': {}, 'events': plan_evts,
+                'plannedSessions': [], 'customSessionTypes': [], 'customPlans': [],
+                'consistencySettings': {'kmThreshold': 15, 'runThreshold': 2},
+                'settings': {'maxHR': 195, 'zones': []}, 'lastUpdated': ''}
+        pg.goto(APP)
+        pg.evaluate("d => localStorage.setItem('lpl_cache', JSON.stringify(d))", data)
+        pg.goto(APP)
+        pg.wait_for_timeout(500)
+        pg.evaluate("() => switchTab('dash')")
+        pg.wait_for_timeout(400)
+        return " ".join(pg.inner_text('#insightCard').split())
+
+    def plan(title, starts_in, weeks=12, **extra):
+        e = {'id': 'pl' + title, 'type': 'plan', 'title': title,
+             'date': days_ago(-starts_in), 'endDate': days_ago(-starts_in - weeks * 7)}
+        e.update(extra)
+        return e
+
+    soon = blocks([plan('Runna 10K #2', 3, targetTotalKm=300)])
+    check('a block 3 days out counts down', '3 dager' in soon, True)
+    check('...and names the block', 'til Runna 10K #2 starter' in soon, True)
+    check('...and carries its span', '12 uker' in soon, True)
+    check('...and its target when set', 'mål 300 km' in soon, True)
+    check('singular on the last day', '1 dag ' in blocks([plan('Runna 10K #2', 1)]), True)
+
+    # Gating: 14 days, the same shape as the race countdown's 30. A block further out is trivia,
+    # and the Treningsblokker card carries it from any distance anyway.
+    check('day 14 is inside the window',
+          'starter' in blocks([plan('Runna 10K #2', 14)]), True)
+    check('day 15 is outside it',
+          'starter' in blocks([plan('Runna 10K #2', 15)]), False)
+
+    # It retires BY CONSTRUCTION: once started, the block is `current` and no longer matches the
+    # filter. This is the check that would catch someone "fixing" it with a daysUntil === 0 branch —
+    # the exact bug shape the race card had until today.
+    # Carries a target so the plan-progress card can fire — that card is the control below, and
+    # `activePlan` ignores a plan with neither targetTotalKm nor targetKmPerWeek set.
+    started = blocks([plan('Runna 10K #2', -2, targetTotalKm=300)])
+    check('a block already underway does not count down', 'starter' in started, False)
+    # ...and the control proving that fixture reaches the generator at all, so the line above is not
+    # passing because nothing rendered.
+    check('control: the started block still drives plan progress',
+          'Runna 10K #2' in started, True)
+
     if errs:
         print('  PAGE ERRORS:', errs)
         failed += 1

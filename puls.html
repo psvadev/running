@@ -7283,6 +7283,28 @@ function renderInsights(sessions) {
     }
   }
 
+  // A training block about to start. Kept next to the race countdown because it is the same shape,
+  // and it retires the same way BY CONSTRUCTION rather than by a special case: the moment
+  // `startDate <= today` the block stops matching this filter and becomes `current`, so the
+  // plan-progress card below takes over. That is deliberately not a `daysUntil === 0` branch —
+  // a "today" surface that never notices the day has arrived is the exact bug we fixed in the race
+  // card today, and the way not to write it again is to have no such branch to get wrong.
+  //
+  // 14 days, not the race's 30: a block three weeks out is trivia, and the Treningsblokker card
+  // already carries it from any distance. Priority 4, not 5 — a block starting is a heads-up, not
+  // a deadline, and it must not outrank a race or a fresh PR competing for the same six slots.
+  const nextBlock = cachedBlocks.filter(b => b.startDate > today)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+  if (nextBlock) {
+    const daysToBlock = Math.round((new Date(nextBlock.startDate) - new Date(today)) / 86400000);
+    if (daysToBlock <= 14) {
+      const blockTarget = nextBlock.targetTotalKm ? ` · mål ${nextBlock.targetTotalKm} km` : '';
+      candidates.push({ icon: '🗓️', val: `${daysToBlock} ${daysToBlock === 1 ? 'dag' : 'dager'}`,
+        sub: `til ${nextBlock.title} starter (${fmtDate(nextBlock.startDate)}) · ${nextBlock.weeks} uker${blockTarget}`,
+        priority: 4 });
+    }
+  }
+
   // Streak at risk: streak ≥3 weeks alive, but no run yet this week and the week is almost over.
   // currentStreak in computeRecords reads 0 for a runless current week, so count from LAST week here.
   // Suppressed during a registered Syk/Ferie week: Treningsrytme bridges that week (the streak isn't
@@ -7335,8 +7357,26 @@ function renderInsights(sessions) {
   // the venue — Ute (GPS) and Inne (belt) are separate populations (DATA.md "Belt vs GPS").
   // Every source is dated now, so the `!e.d` guard below is belt-and-braces rather than the
   // load-bearing filter it was when hand-typed (dateless) entries could reach here.
+  //
+  // ⚠️ Floored at 5 km, and the floor is the point. 400 m and 1 km are SEGMENTS the analyser
+  // extracts from inside a longer run, not efforts you set out to make: his 27:03 5K on 11.09 set
+  // three PRs at once (400 m, 1 km, 5 km inne), each taking its own priority-5 slot. One piece of
+  // news held half the card and displaced everything at priority 4 and below — and the card gives
+  // no sign that happened, so a crowded week is indistinguishable from a quiet one.
+  //
+  // Both distances keep their place in Rekorder's Distanse-PR table, which is where a permanent
+  // record belongs; Innsikter is for what is news. Same distinction the app already draws twice at
+  // `km >= 1` (Settings.goalDists, computePerfCurve) — *"400 m is a segment inside a longer run,
+  // not something you train six months toward"* — raised to where a PR means a race you could
+  // actually enter. The cost, accepted: a deliberate 1 km time trial passes unannounced here.
+  //
+  // ⚠️ This floor is NOT the same constant as those two and must not be collapsed into them: they
+  // gate what you can set a GOAL for, this gates what is worth a headline. They happen to be
+  // mirrored by hand today, and the register already warns nothing enforces that.
+  const INSIGHT_PR_MIN_KM = 5;
   const fortnightAgo = localISODaysAgo(14);
   computeDistancePRs(qualitySessions).forEach(r => {
+    if (r.km < INSIGHT_PR_MIN_KM) return;
     [['🏃 ute', r.ute], ['⚙️ inne', r.inne]].forEach(([venue, e]) => {
       if (!e || !e.d || e.d < fortnightAgo) return;
       candidates.push({ icon: '🏆', val: `Ny ${r.label}-PR ${venue}!`,
@@ -7678,7 +7718,15 @@ function renderBlocks() {
     upcomingHtml = upcoming.map(b => {
       const daysUntil = Math.round((new Date(b.startDate) - new Date(today)) / 86400000);
       const startsIn = daysUntil === 1 ? 'starter i morgen' : `starter om ${daysUntil} dager`;
-      return `<div style="background:var(--surface2);border:1px dashed var(--border);border-radius:10px;padding:14px 20px;margin-bottom:16px">
+      // Clickable like the hero and past cards. It was the one row of the three that wasn't, under a
+      // subtitle that says "Klikk for detaljer" — so the card promised something it only kept twice
+      // out of three times, and the only way to a not-yet-started block's plan was Planlegging →
+      // Planlagte økter → Andre blokker. `DetailPanel.openBlock` already handles a future block
+      // correctly (6d186d3 taught it to suppress the stats row, Konsistens and Sonefordeling); the
+      // panel was ready and nothing had been wired to it from here.
+      const safeBlock = toSafeAttr(b);
+      return `<div style="background:var(--surface2);border:1px dashed var(--border);border-radius:10px;padding:14px 20px;margin-bottom:16px;cursor:pointer"
+           onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))" data-block="${safeBlock}">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:14px;font-weight:600;flex:1">${escapeHtml(b.title)}</span>
           <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(108,143,255,.2);color:var(--accent)">Kommende</span>
@@ -9581,10 +9629,15 @@ function renderDashboard() {
       }).join('')}</tbody>
     </table>`;
 
+  // Blocks are computed BEFORE renderInsights, not after: the block-countdown insight reads
+  // `cachedBlocks`, and with the old order it would have read the PREVIOUS render's value —
+  // empty on first paint, one render stale forever after. A cache filled after its first
+  // consumer runs is the kind of bug that looks like a caching subtlety and is really just
+  // line order. `computeBlocks` is pure, so moving it up changes nothing else.
+  cachedBlocks = computeBlocks(Store.data.sessions);
   renderInsights(sessions);
   renderConsistency(sessions);
   renderEventLegend();
-  cachedBlocks = computeBlocks(Store.data.sessions);
   renderBlocks();
 
   // Shoe bar chart

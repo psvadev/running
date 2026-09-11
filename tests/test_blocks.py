@@ -397,6 +397,68 @@ with sync_playwright() as pw:
     check("...claims no missing zone data", "SONEFORDELING" in fut, False)
     check("...and no 'ingen sonedata' orphan", "Ingen sonedata" in fut, False)
 
+    # ── The Kommende card is clickable from the dashboard (2026-09-11) ─────────────────────
+    #
+    # Treningsblokker says «Generert fra Plan-hendelser. Klikk for detaljer.» — and of its three
+    # row types the hero and the past cards honoured that while the Kommende card had neither an
+    # onclick nor a cursor. The only route to a not-yet-started block's plan was Planlegging →
+    # Planlagte økter → Andre blokker. `openBlock` had already been taught to handle a future block
+    # (the section above); nothing on the dashboard was wired to it.
+    #
+    # ⚠️ The fixture carries a CURRENT block as well as a future one, and that is load-bearing: with
+    # only one card on the dashboard, "clicking opened a panel about the future block" would pass
+    # even if the click had landed on the wrong element, because there is no other element to hit.
+    print("== the Kommende card opens its drill-down ==")
+
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      const run = (dato, distanse) => ({ id:dato, dato, uke:'2026-30', oktnavn:'Tur',
+        okttype:'Easy', treningsplan:'Runna', løpetype:'utendors', distanse,
+        varighet: distanse*360, tempo:360, soner:[0,600,600,0,0] });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [run('2026-07-20',6), run('2026-08-11',6), run('2026-08-13',8)],
+        shoes: [], goals: {}, plannedSessions: [], settings: { zones: [] },
+        events: [
+          { id:'pNow',  type:'plan', title:'Runna 5K',      date:'2026-07-06', endDate:'2026-09-13' },
+          { id:'pNext', type:'plan', title:'Runna 10K nr2', date:'2026-09-14', endDate:'2026-11-19' },
+        ],
+        lastUpdated: '' }));
+    }""")
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('dash')")
+    pg.wait_for_timeout(500)
+
+    kommende = pg.locator("#blocksCard div[data-block]").filter(has_text="Kommende")
+    paagaar  = pg.locator("#blocksCard div[data-block]").filter(has_text="Pågår")
+    # Controls first: both rows exist and nothing is open yet, so the assertions after the click
+    # cannot be reading a panel that was already there.
+    check("control: both a Kommende and a Pågår card are on the dashboard",
+          (kommende.count(), paagaar.count()), (1, 1))
+    check("control: the drill-down starts closed",
+          pg.eval_on_selector("#detailModal", "e => e.classList.contains('open')"), False)
+    # ⚠️ Guarded rather than clicked blind. Reverting the fix removes `data-block` along with the
+    # onclick, so the locator matches nothing and `.first.click()` throws — which ABORTS the suite
+    # after the first failure instead of reporting the three that follow. Falsification showed that
+    # directly: predicted 4 failures, got 1 and a crash. A check that can only fail by exploding
+    # tells you less than one that fails.
+    have = kommende.count() > 0
+    check("the Kommende card advertises itself as clickable",
+          have and "pointer" in (kommende.first.get_attribute("style") or ""), True)
+
+    if have:
+        kommende.first.click()
+        pg.wait_for_timeout(300)
+    check("clicking it opens the drill-down",
+          pg.eval_on_selector("#detailModal", "e => e.classList.contains('open')"), True)
+    body = " ".join(pg.inner_text("#detailBody").split())
+    title = pg.inner_text("#detailTitle") if have else ""
+    # The discriminator: it opened the FUTURE block, not the live one sitting right below it.
+    check("...for the future block", "Runna 10K nr2" in title, True)
+    check("...not the current one", "Runna 5K" in title, False)
+    check("...and the panel still makes no claims about it", "KONSISTENS" in body, False)
+    pg.evaluate("() => DetailPanel.close()")
+    pg.wait_for_timeout(150)
+
     check("no page errors", errs, [])
     b.close()
 
