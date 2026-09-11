@@ -191,8 +191,8 @@ with sync_playwright() as p:
                         'treningsplan': 'Runna'})
         return out
 
-    def with_events(evts):
-        data = {'sessions': ramp_sessions(), 'shoes': [], 'shoeDefaults': {}, 'goals': {},
+    def with_events(evts, extra=()):
+        data = {'sessions': ramp_sessions() + list(extra), 'shoes': [], 'shoeDefaults': {}, 'goals': {},
                 'events': evts, 'plannedSessions': [], 'customSessionTypes': [], 'customPlans': [],
                 'consistencySettings': {'kmThreshold': 15, 'runThreshold': 2},
                 'settings': {'maxHR': 195, 'zones': []}, 'lastUpdated': ''}
@@ -273,6 +273,49 @@ with sync_playwright() as p:
     # Start-date-only matching was the actual bug in the console probe this feature came from.
     overlap = with_events([ev('vacation', 40, 30)])
     check('an event overlapping the baseline counts', 'løfter tallet' in overlap, True)
+
+    # ── Race day: the card retires when the effort is logged (2026-09-11) ──────────────────────
+    #
+    # It used to wish you luck for a race already in the log, and at priority 5 — the highest — so
+    # it held one of six slots until midnight on the day most candidates compete for them.
+    #
+    # ⚠️ Every pair below changes exactly ONE field. The card list is capped at six, so a fixture
+    # with one more session could drop "lykke til" for crowding rather than for the guard, and the
+    # check would pass for the wrong reason. Same session count, same distances, one okttype apart.
+    print("== race day: the card retires once the effort is logged ==")
+    TODAY = days_ago(0)
+
+    def race(title, date):
+        return {'id': 'rc' + title, 'type': 'race', 'title': title, 'date': date, 'distanceKm': 5}
+
+    def effort(okttype):
+        """Today's run. Deliberately unremarkable — slow enough to set no PR and a peak well under
+        the 195 maxHR — so it cannot push cards off the row and fake a pass."""
+        return {'id': 'eff', 'dato': TODAY, 'okttype': okttype, 'distanse': 5.0, 'varighet': 2400,
+                'tempo': 480, 'snittkmh': 7.5, 'gjsnittspuls': 150, 'toppuls': 170,
+                'soner': [0, 1800, 600, 0, 0], 'løpetype': 'tredemolle'}
+
+    TEST_5K = [race('Runna 5K test', TODAY)]
+    # The control, and the reason the guard is EFFORT_TYPES rather than "any session today":
+    # an easy run in the morning must not retire the card for a race in the evening.
+    before = with_events(TEST_5K, extra=[effort('Easy')])
+    check('race day, only an easy run logged → still wished luck', 'lykke til' in before, True)
+    check('...and it names the race', 'Runna 5K test' in before, True)
+
+    for done_as in ('Test', 'Race'):
+        after = with_events(TEST_5K, extra=[effort(done_as)])
+        check(f'logged as {done_as} → the card is gone', 'lykke til' in after, False)
+
+    # A future race must not be retired by today's run — only today's race can have been run.
+    SOON = [race('Oslo 10K', days_ago(-10))]
+    ahead = with_events(SOON, extra=[effort('Test')])
+    check('a future race still counts down', 'Oslo 10K' in ahead, True)
+
+    # The payoff for filtering the list instead of special-casing the daysUntil === 0 branch: a
+    # finished race hands the slot to the NEXT race rather than taking it down with it.
+    handover = with_events(TEST_5K + SOON, extra=[effort('Test')])
+    check('a finished race hands over to the next', 'Oslo 10K' in handover, True)
+    check('...and stops wishing luck for the finished one', 'lykke til' in handover, False)
 
     if errs:
         print('  PAGE ERRORS:', errs)

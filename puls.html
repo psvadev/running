@@ -1322,8 +1322,11 @@
       <button class="btn-secondary btn-sm" id="btnCancelEvtEdit" style="display:none">Avbryt</button>
     </div>
     <div id="evtPlanTargets" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <input class="inp" type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" style="width:200px;">
-      <input class="inp" type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" style="width:200px;">
+      <!-- step="0.1" like the race Distanse beside them: a Runna plan total is 346.6 km, not 347.
+           Without it the step defaults to 1, so a correct decimal is :invalid by the field's own
+           declaration — harmless only because nothing in Planlegging calls checkValidity() yet. -->
+      <input class="inp" type="number" id="newEvtTotalKmTarget" placeholder="Mål totalt km (valgfritt)" min="1" step="0.1" style="width:200px;">
+      <input class="inp" type="number" id="newEvtKmTarget" placeholder="Mål km/uke (valgfritt)" min="1" step="0.1" style="width:200px;">
       <input class="inp" type="number" id="newEvtRunTarget" placeholder="Mål økter/uke (valgfritt)" min="1" style="width:200px;">
     </div>
     <div id="eventList" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -1946,6 +1949,18 @@ function mmSsToSecs(str) {
   return parts[0]*60 || 0;
 }
 
+// A progress BAR cannot overflow its track, but a percentage can — and when it does, that overshoot
+// is the news, not an error to hide. So clamp the GEOMETRY and never the number: this returns a
+// width, and the label beside it must print the raw value.
+//
+// Three surfaces used one clamped figure for both and so denied what they were displaying in the
+// same breath — «169 av 159.4 km · 100%» states the overshoot and then contradicts it. The correct
+// pattern was already two lines away in one of them: the Konsistens bar clamps `consPct` while its
+// label prints the raw score.
+function barWidthPct(pct) {
+  return Math.max(0, Math.min(100, pct)).toFixed(1);
+}
+
 function fmtDate(str) {
   if (!str) return '';
   const d = new Date(str);
@@ -2503,6 +2518,15 @@ function activePlanEvent(today) {
 // with a run whose recorded date may have slipped across midnight.
 function raceEventOn(date) {
   return (Store.data.events || []).find(e => e.type === 'race' && e.date === date) || null;
+}
+
+// A race is RUN once a maximal effort sits on its date. Deliberately EFFORT_TYPES rather than "any
+// session that day": an easy morning run must not retire the card for a race that evening. The
+// opposite failure — a race logged as Easy, leaving the card up — is the milder one, and is exactly
+// what every race did before this existed. Separate from the `logged` check in applyPlannedDefault,
+// which asks a different question ("has this day been logged at all") and must stay lenient.
+function raceRunOn(date) {
+  return (Store.data.sessions || []).some(s => s.dato === date && EFFORT_TYPES.includes(s.okttype));
 }
 
 // Today's planned session and its status, resolved through exactly the same chain the block hero and
@@ -7187,9 +7211,19 @@ function renderInsights(sessions) {
       priority: thisMonthElev >= 2000 ? 4 : 3 });
   }
 
-  // Race countdown — includes race day itself ("I dag"), which would otherwise vanish
+  // Race countdown — includes race day itself ("I dag"), which would otherwise vanish.
+  //
+  // A race you have already run is no longer UPCOMING, so it leaves this list the moment the effort
+  // is logged rather than at midnight. Until 2026-09-11 the card sat there wishing you luck for a
+  // run already in the log — and at priority 5, the highest, so it held one of the six slots all
+  // evening on the exact day the most candidates are competing for them. Same shape as `0951077`:
+  // a "today" surface that never noticed the day's run was done.
+  //
+  // Filtered rather than special-cased in the daysUntil === 0 branch, so a finished race correctly
+  // hands the card to the NEXT race instead of taking the slot down with it. Scoped to `=== today`
+  // because only today's race can have been run; a future-dated session must not retire one early.
   const upcomingRaces = (Store.data.events || [])
-    .filter(e => e.type === 'race' && e.date >= today)
+    .filter(e => e.type === 'race' && e.date >= today && !(e.date === today && raceRunOn(today)))
     .sort((a, b) => a.date.localeCompare(b.date));
   if (upcomingRaces.length) {
     const next = upcomingRaces[0];
@@ -7635,14 +7669,14 @@ function renderBlocks() {
           ${statsRow.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}
         </div>
         ${current.targetTotalKm ? (() => {
-          const donePct = Math.min(100, current.totalKm / current.targetTotalKm * 100);
+          const donePct = current.totalKm / current.targetTotalKm * 100;
           return `<div style="margin-bottom:12px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:12px">
             <span style="color:var(--muted)">Distanse mot mål</span>
             <span style="font-weight:600;color:var(--accent)">${current.totalKm.toFixed(0)} av ${current.targetTotalKm} km · ${donePct.toFixed(0)}%</span>
           </div>
           <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
-            <div style="width:${donePct.toFixed(1)}%;height:100%;background:var(--accent);border-radius:4px;transition:width .3s"></div>
+            <div style="width:${barWidthPct(donePct)}%;height:100%;background:var(--accent);border-radius:4px;transition:width .3s"></div>
           </div>
         </div>`; })() : ''}
         <div style="margin-bottom:12px">
@@ -9102,7 +9136,7 @@ function renderDashboard() {
     document.getElementById('goalCardTitle').textContent = `Årsmål ${targetYear}`;
     const yearSessions = allSessions.filter(s => s.dato && s.dato.startsWith(targetYear));
     const doneKm = yearSessions.reduce((sum, s) => sum + (s.distanse || 0), 0);
-    const pct = Math.min(100, doneKm / goalKm * 100);
+    const pct = doneKm / goalKm * 100;
     const now = new Date();
     const yearStart = new Date(targetYear + '-01-01');
     const yearEnd = new Date(targetYear + '-12-31');
@@ -9114,16 +9148,19 @@ function renderDashboard() {
     const weeksLeft = Math.ceil(remaining / 7);
     const neededPerWeek = weeksLeft > 0 ? ((goalKm - doneKm) / weeksLeft).toFixed(1) : '–';
     const onTrack = projected >= goalKm * 0.97;
-    const projPct = Math.max(0, Math.min(100, projected / goalKm * 100));
+    const projPct = Math.max(0, projected / goalKm * 100);
     const projColor = onTrack ? 'var(--green)' : '#f87171';
+    // The marker's position is geometry and must stay inside the track; its tooltip is a number and
+    // must not. A projection of 609 km against a 500 km goal is 122 %, and that is the whole point
+    // of the marker — pinning it at 100 % told him he was exactly on target when he was well past it.
     const projMarker = projected > 0
-      ? `<div title="Prognose: ${projected} km (${projPct.toFixed(1)}% av målet)" style="position:absolute;top:-4px;bottom:-4px;left:${projPct.toFixed(1)}%;width:0;border-left:2px dashed ${projColor};transform:translateX(-1px)"></div>`
+      ? `<div title="Prognose: ${projected} km (${projPct.toFixed(1)}% av målet)" style="position:absolute;top:-4px;bottom:-4px;left:${barWidthPct(projPct)}%;width:0;border-left:2px dashed ${projColor};transform:translateX(-1px)"></div>`
       : '';
     document.getElementById('goalProgress').innerHTML = `
       <div style="font-size:13px;color:var(--muted);margin-bottom:8px">${doneKm.toFixed(1)} km av ${goalKm} km — ${pct.toFixed(1)}%</div>
       <div style="position:relative;margin-bottom:18px">
         <div style="background:var(--surface2);border-radius:8px;height:14px;overflow:hidden">
-          <div style="height:100%;width:${pct.toFixed(1)}%;background:${onTrack?'var(--green)':'var(--accent)'};border-radius:8px;transition:width .4s"></div>
+          <div style="height:100%;width:${barWidthPct(pct)}%;background:${onTrack?'var(--green)':'var(--accent)'};border-radius:8px;transition:width .4s"></div>
         </div>
         ${projMarker}
       </div>

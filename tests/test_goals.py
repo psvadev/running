@@ -324,6 +324,55 @@ with sync_playwright() as pw:
     check("nothing overflows the viewport", over['wide'], False)
     check("rows stack like their neighbours", over['stacked'], 'column')
 
+    # ── 8. Årsmål past the goal: clamp the bar, never the number (2026-09-11) ──────────────
+    #
+    # One clamped figure drove both the bar and the label, so an exceeded goal reported itself as
+    # exactly 100 % — the card stated the overshoot in km and denied it in per cent, in one line.
+    # The projection marker had the same fault in its tooltip, where it mattered more: a 609 km
+    # projection against a 500 km goal read "100.0 % av målet", i.e. exactly on target.
+    #
+    # ⚠️ Both directions are asserted. A fix that simply removed the clamp would pass every
+    # "over 100 %" check while pushing the bar past its track, so the WIDTH is pinned too.
+    print("== årsmål past the goal ==")
+
+    def year_goal(goal_km, run_km):
+        pg.add_init_script(FREEZE)
+        pg.goto(APP)
+        pg.evaluate("""cfg => localStorage.setItem('lpl_cache', JSON.stringify({
+            sessions: [{ id:'a', dato:'2026-07-04', uke:'2026-27', oktnavn:'Tur', okttype:'Easy',
+                         treningsplan:'Egentrening', løpetype:'utendors', distanse:cfg.km,
+                         varighet:1500, tempo:375, soner:[0,0,0,0,0] }],
+            shoes: [], goals: { '2026': cfg.goal }, events: [], plannedSessions: [],
+            settings: { zones: [] }, lastUpdated: '' }))""", {"goal": goal_km, "km": run_km})
+        pg.goto(APP)
+        pg.evaluate("() => switchTab('dash')")
+        pg.wait_for_timeout(400)
+        return pg.evaluate("""() => {
+          const el = document.getElementById('goalProgress');
+          const bar = el.querySelector('div[style*="width"]');
+          const mark = el.querySelector('div[title^="Prognose"]');
+          return { label: el.firstElementChild.textContent.trim().replace(/\\s+/g, ' '),
+                   width: bar ? bar.style.width : null,
+                   tip: mark ? mark.getAttribute('title') : null,
+                   left: mark ? mark.style.left : null };
+        }""")
+
+    # Control FIRST: under the goal, nothing is clamped and label and bar agree.
+    under = year_goal(1000, 250)
+    check("under the goal, the label is the real figure", '25.0%' in under['label'], True)
+    check("...and the bar matches it", under['width'], '25%')
+
+    over = year_goal(200, 250)          # 125 % of the goal
+    check("over the goal, the label passes 100", '125.0%' in over['label'], True)
+    check("...and still names both numbers", '250.0 km av 200 km' in over['label'], True)
+    check("...but the bar stops at its track", over['width'], '100%')
+    # The projection is built from pace-so-far, so it is far past the goal here. The tooltip must
+    # say so; the marker must stay on the bar.
+    import re
+    tip_pct = float(re.search(r'\(([\d.]+)% av målet\)', over['tip']).group(1))
+    check("the projection tooltip passes 100", tip_pct > 100, True)
+    check("...and the marker stays inside", over['left'], '100%')
+
     check("no page errors", errs, [])
     b.close()
 

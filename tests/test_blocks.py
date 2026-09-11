@@ -266,6 +266,83 @@ with sync_playwright() as pw:
       return el.scrollWidth > document.documentElement.clientWidth;
     }"""), False)
 
+    # ── Distanse mot mål past 100 %: clamp the bar, never the number (2026-09-11) ───────────
+    #
+    # Reported live: «169 av 159.4 km · 100%». One clamped figure drove both the bar and the label,
+    # so the row stated the overshoot in km and denied it in per cent, in the same line. Exceeding a
+    # block's distance target is a good outcome and worth seeing. The Konsistens bar two lines below
+    # already had it right — clamped width, raw score in the label.
+    print("== distanse mot mål past the target ==")
+
+    def block_hero(target_km):
+        pg.goto(APP)
+        pg.evaluate("""t => {
+          const run = (dato, distanse) => ({ id:dato, dato, uke:'2026-30', oktnavn:'Tur',
+            okttype:'Easy', treningsplan:'Runna', løpetype:'utendors', distanse,
+            varighet: distanse*360, tempo:360, soner:[0,0,0,0,0] });
+          localStorage.setItem('lpl_cache', JSON.stringify({
+            sessions: [run('2026-07-20',6), run('2026-07-27',8), run('2026-08-03',7)],
+            shoes: [], goals: {}, plannedSessions: [], settings: { zones: [] },
+            events: [{ id:'p1', type:'plan', title:'Runna 5K', date:'2026-07-06',
+                       endDate:'2026-09-13', targetTotalKm: t }],
+            lastUpdated: '' }));
+        }""", target_km)
+        pg.goto(APP)
+        pg.evaluate("() => switchTab('dash')")
+        pg.wait_for_timeout(500)
+        return pg.evaluate("""() => {
+          const label = [...document.querySelectorAll('#blocksCard span')]
+            .find(s => / km · \\d+%$/.test(s.textContent.trim()));
+          if (!label) return { label: null, width: null };
+          const wrap = label.closest('div').parentElement;      // row → the block that owns the bar
+          const fill = wrap.children[1].firstElementChild;
+          return { label: label.textContent.trim(), width: fill.style.width };
+        }""")
+
+    # Control FIRST: 21 km against a 30 km target — nothing clamped, label and bar agree.
+    under = block_hero(30)
+    check("under target, the label is the real figure", under['label'], '21 av 30 km · 70%')
+    check("...and the bar matches it", under['width'], '70%')
+
+    over = block_hero(15)                                       # 21 of 15 km = 140 %
+    check("over target, the label passes 100", over['label'], '21 av 15 km · 140%')
+    check("...but the bar stops at its track", over['width'], '100%')
+
+    # ── The km targets are decimals, and must declare it (2026-09-11) ──────────────────────
+    #
+    # A Runna plan total is 346.6 km, not 347. Both km fields carried min="1" and no step, so step
+    # defaulted to 1 and a correct decimal was :invalid by the field's own declaration — harmless
+    # only because nothing in Planlegging calls checkValidity() yet, which is exactly the kind of
+    # latent mismatch that surfaces the day validation is extended. `Distanse (km)` beside them
+    # already declared step="0.1".
+    #
+    # Typed with a COMMA on purpose: this is the second panel for the WebKit comma fix (`df83cde`),
+    # and this suite runs on WebKit. Before it, 346,6 here became 3466 — a 10× block target.
+    print("== the km targets accept the decimals they are given ==")
+    pg.evaluate("() => switchTab('plan')")
+    pg.wait_for_timeout(300)
+    pg.select_option("#newEvtType", "plan")
+    pg.wait_for_timeout(200)
+
+    def typed(sel, keys):
+        pg.fill(sel, "")
+        pg.click(sel)
+        pg.keyboard.type(keys)
+        return pg.evaluate("""s => { const e = document.querySelector(s);
+          return { value: e.value, valid: e.checkValidity(), num: e.valueAsNumber }; }""", sel)
+
+    tot = typed("#newEvtTotalKmTarget", "346,6")
+    check("a comma becomes a point here too", tot['value'], '346.6')
+    check("...and 346.6 is a valid total", tot['valid'], True)
+    check("...worth 346.6 to the save path", tot['num'], 346.6)
+    wk = typed("#newEvtKmTarget", "36,5")
+    check("km/uke takes a decimal as well", (wk['value'], wk['valid']), ('36.5', True))
+    # Controls: a whole number is still fine, and the floor still bites.
+    check("a whole number is still valid", typed("#newEvtTotalKmTarget", "347")['valid'], True)
+    check("below min is still refused", typed("#newEvtTotalKmTarget", "0")['valid'], False)
+    # økter/uke is deliberately NOT given a step — you cannot run half a session.
+    check("økter/uke stays whole-numbered", typed("#newEvtRunTarget", "4,5")['valid'], False)
+
     check("no page errors", errs, [])
     b.close()
 
