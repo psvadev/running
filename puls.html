@@ -3395,6 +3395,11 @@ const Store = {
 // CUSTOM ØKTTYPE / TRENINGSPLAN LISTS
 // ═══════════════════════════════════════════════════════
 const CORE_OKTTYPER = ['Easy','Steady','Long','Tempo','Intervaller','Test','Race'];
+// The two types that are a MAXIMAL EFFORT rather than training — the runs that re-anchor the
+// projections. Which of the two you get is decided by the words Runna happened to use in the .ics
+// ("race" → Race, "time trial" → Test, see deriveOkttype), so the same effort can arrive under
+// either name and nothing downstream should care which.
+const EFFORT_TYPES = ['Test', 'Race'];
 const CORE_PLANER   = ['Egentrening','Runna'];
 const DEFAULT_PLAN  = 'Runna';   // what a fresh log form starts on, and what Form.syncPlanForType falls back to
 
@@ -8898,9 +8903,16 @@ function weekPlanHtml(today, absWk, underStats) {
     const day = new Date(p.date).toLocaleDateString('nb-NO', { weekday: 'short' }).replace('.', '');
     const what = [p.okttype, p.distance ? `${p.distance} km` : null].filter(Boolean).join(' · ');
     const flavour = plannedTitle(p);            // '' for generic names like "Easy Run"
+    // 🏁 on a maximal effort, and ONLY there. This is the one planned-session surface where colour
+    // carries STATUS, so unlike «Planlagte økter» and the block drill-down — which tint the type
+    // itself via TYPE_COLORS — it had no way at all to say "this one is the race". Same 🏁 the event
+    // map, the Innsikter countdown and the event list already use, so it is one symbol with one
+    // meaning rather than a new one. Deliberately not extended to the other five types: an icon on
+    // everything marks nothing.
+    const flag = EFFORT_TYPES.includes(p.okttype) ? '🏁 ' : '';
     return `<span class="wk-plan-item wk-plan-${st}${p.date === today ? ' wk-plan-today' : ''}">`
       + `${MARK[st]} <span class="wk-plan-day">${escapeHtml(day.charAt(0).toUpperCase() + day.slice(1))}</span> `
-      + `${escapeHtml(what)}${flavour ? ` — ${escapeHtml(flavour)}` : ''}</span>`;
+      + `${flag}${escapeHtml(what)}${flavour ? ` — ${escapeHtml(flavour)}` : ''}</span>`;
   }).join('');
   const done = rows.filter(r => r.st === 'done').length;
   return `<div class="wk-plan${underStats ? ' wk-plan-rest' : ''}">`
@@ -9680,7 +9692,7 @@ function renderFormkurve() {
   if (!section) return;
   destroyChart('formkurve');
   const tests = Store.data.sessions
-    .filter(s => !s.utenforAnalyse && (s.okttype === 'Test' || s.okttype === 'Race') && s.distanse >= 1 && s.varighet > 0 && s.tempo)
+    .filter(s => !s.utenforAnalyse && EFFORT_TYPES.includes(s.okttype) && s.distanse >= 1 && s.varighet > 0 && s.tempo)
     .sort((a, b) => a.dato.localeCompare(b.dato));
   if (tests.length < 2) { section.style.display = 'none'; return; }
   section.style.display = '';
@@ -9749,7 +9761,7 @@ function computePerfCurve(sessions, distPRs) {
   const anchorsFor = venue => {
     const kmLabel = km => `${+(+km).toFixed(1)} km`;   // 10.0 -> "10 km", 10.5 -> "10.5 km"
     const tests = sessions
-      .filter(s => !s.utenforAnalyse && (s.okttype === 'Test' || s.okttype === 'Race') &&
+      .filter(s => !s.utenforAnalyse && EFFORT_TYPES.includes(s.okttype) &&
                    (s.løpetype || 'utendors') === venue && s.distanse >= 3 && s.varighet > 0)
       .map(s => ({ km: s.distanse, t: s.varighet, label: kmLabel(s.distanse), d: s.dato, maximal: true }));
     if (tests.length) return tests;

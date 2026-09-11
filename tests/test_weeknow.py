@@ -461,6 +461,48 @@ with sync_playwright() as p:
     check("plan list unclipped at 402px", clipped, [])
     check("...and still listed", "Søn Long · 14 km" in txt, True)
 
+    # ── 🏁 on a maximal effort, and only there (2026-09-11) ─────────────────────────────────
+    #
+    # This is the one planned-session surface where colour carries STATUS, so unlike «Planlagte
+    # økter» and the block drill-down — which tint the type itself via TYPE_COLORS — it had no way
+    # at all to say "this one is the race". Same 🏁 the event icon map, the Innsikter countdown and
+    # the event list already use.
+    #
+    # ⚠️ The controls are the point. "🏁 appears" would pass just as well if the flag were on every
+    # row, which is the exact change that would destroy its meaning — so the count across all seven
+    # types is asserted, not the presence.
+    print("== 🏁 marks a maximal effort, and only that ==")
+    ALL_TYPES = ["Easy", "Steady", "Long", "Tempo", "Intervaller", "Test", "Race"]
+    EVERY = [{"id": "t%d" % i, "date": "2026-08-%02d" % (10 + i), "okttype": t,
+              "distance": 5, "title": ""} for i, t in enumerate(ALL_TYPES)]
+    txt, errs, clipped = week_card(BLOCK, EVERY)
+    check("all seven types listed", [t for t in ALL_TYPES if t not in txt], [])
+    check("exactly two rows flagged", txt.count("🏁"), 2)
+    check("Race is flagged", "🏁 Race" in txt, True)
+    # Test earns it too: which of the two you get is decided by the words Runna used in the .ics,
+    # so the same effort can arrive under either name.
+    check("Test is flagged", "🏁 Test" in txt, True)
+    for t in ("Easy", "Steady", "Long", "Tempo", "Intervaller"):
+        check("%s is not flagged" % t, "🏁 %s" % t in txt, False)
+    check("no page errors", errs, [])
+    check("unflagged at 1280px is unclipped", clipped, [])
+
+    # Placement: after the day, before the type — never competing with the ✓/✗/○ status column.
+    FRI_RACE = [{"id": "r", "date": "2026-08-14", "okttype": "Race", "distance": 5, "title": ""}]
+    txt, _, _ = week_card(BLOCK, FRI_RACE)
+    check("flag sits between day and type", "Fre 🏁 Race · 5 km" in txt, True)
+
+    # The flag describes the TYPE, so it must survive every status. A race you have already run is
+    # still the race — the ✓ changes, the 🏁 does not.
+    txt, _, _ = week_card(BLOCK, FRI_RACE, extra=[logged(9, "2026-08-14", 5, 1500, "Race")])
+    check("still flagged once done", "🏁 Race" in txt, True)
+    check("...and it is marked done", "✓ Fre 🏁 Race" in txt, True)
+    txt, _, _ = week_card(BLOCK, FRI_RACE, day=16)          # Sunday: Friday's race is now overdue
+    check("still flagged once overdue", "✗ Fre 🏁 Race" in txt, True)
+
+    txt, _, clipped = week_card(BLOCK, EVERY, width=402)
+    check("flagged rows unclipped at 402px", clipped, [])
+
     # ── The WHOLE week, all week long, under the stats ──────────────────────────────────────
     #
     # The heading says "Planlagt denne uken", so the list is the week — not what is left of it. It
