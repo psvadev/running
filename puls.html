@@ -2160,6 +2160,23 @@ const RUNNA_TOKEN_MAP = {
   INTERVALS: 'Intervaller', SPEED: 'Intervaller', TEMPO: 'Tempo', THRESHOLD: 'Tempo',
   TEST: 'Test', TIME_TRIAL: 'Test', RACE: 'Race',
 };
+// ⚠️ An exact lookup on a hand-written list is enumeration rot, and this one rotted: Runna's
+// TAPER_INTERVALS matched nothing, fell through to the fuzzy pass, and «Race Pace Practice K's»
+// was read as a RACE — which would have pre-filled the log form with Økt-type Race and let a
+// 7.5 km practice session anchor Formkurve and Prognose. Nothing threw; a missing key and an
+// unknown workout are indistinguishable to an exact match.
+//
+// Runna's qualifiers are PREFIXES (TAPER_INTERVALS, PROGRESSIVE_LONG_RUN), so the family is the
+// tail. Longest key first, or a short suffix would win over TIME_TRIAL. Matching on '_' + key
+// keeps it to whole segments.
+function runnaTokenType(token) {
+  if (!token) return '';
+  if (RUNNA_TOKEN_MAP[token]) return RUNNA_TOKEN_MAP[token];
+  const key = Object.keys(RUNNA_TOKEN_MAP)
+    .sort((a, b) => b.length - a.length)
+    .find(k => token.endsWith('_' + k));
+  return key ? RUNNA_TOKEN_MAP[key] : '';
+}
 function parseRunnaIcs(text) {
   const unfolded = String(text).replace(/\r\n/g, '\n').replace(/\n[ \t]/g, ''); // RFC5545 line unfolding
   const byId = {};
@@ -2187,7 +2204,14 @@ function parseRunnaIcs(text) {
     // The description distance is what was actually RUN, not what was prescribed, so a completed
     // named session imports its actual distance as its planned one. Slightly wrong, and much better
     // than losing the session.
-    const distM = summary.match(/([\d]+(?:\.\d+)?)\s*km/i)
+    // ⚠️ The session total is what follows the BULLET: "1km Repeats • 9km" is a 9 km session made of
+    // 1 km reps. Reading the first km in the summary took the REP distance and stored a 9 km interval
+    // session as 1 km. It hid for months because Runna normally repeats the total in the name
+    // ("8km Easy Run • 8km"), where first and last agree and nothing looks wrong. Only a workout
+    // NAMED after its rep distance exposes it.
+    const summaryTotal = summary.includes('•') ? summary.split('•').pop() : summary;
+    const distM = summaryTotal.match(/([\d]+(?:\.\d+)?)\s*km/i)
+               || summary.match(/([\d]+(?:\.\d+)?)\s*km/i)
                || desc.match(/Distance:\s*([\d.]+)\s*km/i);
     if (!distM) return;
     const dtM = field('DTSTART').match(/(\d{4})(\d{2})(\d{2})/);
@@ -2197,10 +2221,13 @@ function parseRunnaIcs(text) {
     const token = (uid.match(/_plan_week_\d+_([A-Z_]+?)_\d+/) || [])[1] || '';
     // Type: exact upcoming label → UID token → fuzzy phrase. Completed events carry no label/token, so the fuzzy pass
     // reads the SUMMARY + "📋 Description" prose (e.g. "5km easy run at a conversational pace").
-    let okttype = RUNNA_TYPE_MAP[label.toLowerCase()] || RUNNA_TOKEN_MAP[token];
+    let okttype = RUNNA_TYPE_MAP[label.toLowerCase()] || runnaTokenType(token);
     if (!okttype) {
       const hay = (summary + ' ' + desc).toLowerCase();
-      okttype = /\brace\b/.test(hay) ? 'Race'
+      // "race PACE" is a pace description, not a race — it is how half of Runna's quality sessions
+      // describe their target, so the bare \brace\b turned every one that reached this fallback into
+      // a Race. A real race says «10km Race».
+      okttype = /\brace\b(?!\s*-?\s*pace)/.test(hay) ? 'Race'
         : /time trial|\btest run\b/.test(hay) ? 'Test'
         : /\binterval|\brepeat|\bfartlek|\bstrides?\b/.test(hay) ? 'Intervaller'
         : /\btempo\b|\bthreshold\b/.test(hay) ? 'Tempo'

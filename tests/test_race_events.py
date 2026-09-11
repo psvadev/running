@@ -347,6 +347,77 @@ with sync_playwright() as b0:
     check("...and the ad-hoc non-plan run too, despite having one",
           any(d == '2026-08-14' for d, _, _ in got), False)
 
+    # ── Two faults found in a REAL import, 2026-09-11 ────────────────────────────────────────
+    #
+    # 1. THE SESSION TOTAL IS AFTER THE BULLET. "1km Repeats • 9km" is a 9 km session of 1 km reps;
+    #    reading the first km in the summary stored it as 1 km. It hid for months because Runna
+    #    normally repeats the total in the name ("8km Easy Run • 8km"), where both numbers agree —
+    #    only a workout NAMED after its rep distance can expose it.
+    # 2. TAPER_INTERVALS MATCHED NOTHING, so it fell through to the fuzzy pass, where a bare
+    #    \brace\b read «Race Pace Practice K's» as a RACE. That would pre-fill the log form with
+    #    Økt-type Race and let a 7.5 km practice session anchor Formkurve and Prognose.
+    #
+    # ⚠️ The controls are the point: the ordinary shapes must be untouched, and a REAL race must
+    # still be a Race. A fix that simply stopped trusting \brace\b would pass every check above.
+    print("== parseRunnaIcs: rep distance in the name, and race-PACE is not a race ==")
+    TRAPS = "\r\n".join([
+        "BEGIN:VCALENDAR", "VERSION:2.0",
+        # the rep distance differs from the total — the case that broke
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d1_plan_week_1_INTERVALS_0",
+        "DTSTART;VALUE=DATE:20261027", "SUMMARY:\U0001F3C3 1km Repeats • 9km",
+        "DESCRIPTION:Intervals • 9km • 55m - 1h10m\\n\\n2km warm up", "END:VEVENT",
+        # an unknown FAMILY (TAPER_INTERVALS) whose summary also says "Race Pace"
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d2_plan_week_9_TAPER_INTERVALS_0",
+        "DTSTART;VALUE=DATE:20261116", "SUMMARY:\U0001F3C3 Race Pace Practice K's • 7.5km",
+        "DESCRIPTION:Taper Intervals • 7.5km • 45m - 55m\\n\\n2km warm up", "END:VEVENT",
+        # an unknown family whose words give the fuzzy pass NOTHING to match — only the tail answers
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d6_plan_week_9_TAPER_TEMPO_0",
+        "DTSTART;VALUE=DATE:20261117", "SUMMARY:\U0001F3C3 Practice K's • 6km",
+        "DESCRIPTION:Taper Session • 6km\\n\\n2km warm up", "END:VEVENT",
+        # CONTROL: a real race must survive as one
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d3_plan_week_9_RACE_0",
+        "DTSTART;VALUE=DATE:20261119", "SUMMARY:\U0001F3C3 10km Race • 10km",
+        "DESCRIPTION:Race • 10km\\n\\ngive it everything", "END:VEVENT",
+        # CONTROL: the ordinary shape, where name and total agree
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d4_plan_week_1_EASY_RUN_0",
+        "DTSTART;VALUE=DATE:20261028", "SUMMARY:\U0001F3C3 8km Easy Run • 8km",
+        "DESCRIPTION:Easy Run • 8km", "END:VEVENT",
+        # CONTROL: no bullet at all — the whole summary is still read
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d5_plan_week_1_LONG_RUN_0",
+        "DTSTART;VALUE=DATE:20261029", "SUMMARY:\U0001F3C3 12km Long Run",
+        "DESCRIPTION:Long Run • 12km", "END:VEVENT",
+        "END:VCALENDAR"])
+    trap = pg.evaluate("(t) => Object.fromEntries(parseRunnaIcs(t).map(p => [p.date, [p.okttype, p.distance]]))", TRAPS)
+    check("the total after the bullet wins over the rep distance", trap['2026-10-27'], ['Intervaller', 9])
+    check("an unknown *_INTERVALS family resolves by its tail", trap['2026-11-16'][0], 'Intervaller')
+    check("...and takes its own distance", trap['2026-11-16'][1], 7.5)
+    # ⚠️ VACUOUS-CHECK #18, caught by falsification: the line above passes with OR without the family
+    # lookup, because its description says "Taper Intervals" and the fuzzy pass matches \binterval
+    # on that. It pins the OUTCOME for the real event and nothing about the MECHANISM. This one
+    # discriminates — a family tail the fuzzy pass has no word to find, so only the tail lookup
+    # can answer it. Without the fix it comes out Easy.
+    check("...and a family the fuzzy pass cannot guess", trap['2026-11-17'], ['Tempo', 6])
+    check("a REAL race is still a Race", trap['2026-11-19'], ['Race', 10])
+    check("the ordinary shape is untouched", trap['2026-10-28'], ['Easy', 8])
+    check("a summary with no bullet still parses", trap['2026-10-29'], ['Long', 12])
+
+    # ⚠️ The token fix above means TAPER_INTERVALS never REACHES the fuzzy pass, so it does not pin
+    # the \brace\b rule at all. These two do: a token no family can claim, so the fuzzy pass runs.
+    # "race pace" is how half of Runna's quality sessions describe their target, so a bare \brace\b
+    # turns every one of them into a Race — while a genuine race must still come out as one.
+    FUZZ = "\r\n".join([
+        "BEGIN:VCALENDAR", "VERSION:2.0",
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d1_plan_week_1_MYSTERY_THING_0",
+        "DTSTART;VALUE=DATE:20261201", "SUMMARY:\U0001F3C3 Race Pace Practice • 6km",
+        "DESCRIPTION:Mystery Session • 6km\\n\\n4 x 1km at race pace", "END:VEVENT",
+        "BEGIN:VEVENT", "UID:UPCOMING_PLAN_WORKOUT-d2_plan_week_1_MYSTERY_THING_1",
+        "DTSTART;VALUE=DATE:20261202", "SUMMARY:\U0001F3C3 10km Race • 10km",
+        "DESCRIPTION:Mystery Session • 10km\\n\\nrace day", "END:VEVENT",
+        "END:VCALENDAR"])
+    fz = pg.evaluate("(t) => Object.fromEntries(parseRunnaIcs(t).map(p => [p.date, p.okttype]))", FUZZ)
+    check("fuzzy pass: 'race pace' is not a race", fz['2026-12-01'] == 'Race', False)
+    check("fuzzy pass: a real race still is one", fz['2026-12-02'], 'Race')
+
     # ── THE PRESCRIPTION, kept for the log form's prefill ────────────────────────────────────
     # An UPCOMING event's description IS the prescription. A COMPLETED one leads with the actuals
     # (Distance / Time / Avg Pace) and the prescription follows "Description:". Storing the actuals
