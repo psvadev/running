@@ -373,6 +373,74 @@ with sync_playwright() as pw:
     check("the projection tooltip passes 100", tip_pct > 100, True)
     check("...and the marker stays inside", over['left'], '100%')
 
+    # ── 🏆 on the log row that currently holds a record (2026-09-11) ────────────────────────
+    #
+    # Same domain as everything above — computeDistancePRs — and the same risk #1: the venue split.
+    # 🏃 Ute comes from Strava's best-efforts, ⚙️ Inne from the belt, and the marker joins them to a
+    # row by DATE, so a day holding one of each is the shape that catches a join on date alone.
+    #
+    # The two things that would be invisible by eye:
+    #   - marking a superseded run, i.e. "was a PR that day" leaking in where "is the record now" was
+    #     intended. It looks completely normal until you notice two rows claiming one record.
+    #   - computing the map from the FILTERED list. Filter the log and whatever is fastest *inside the
+    #     filter* silently inherits the trophy — every row still looks plausible on its own.
+    print("== 🏆 marks the row that holds the record right now ==")
+
+    LOGPR = """() => {
+      const run = (id, dato, okttype, venue, distanse, varighet) => ({
+        id, dato, uke: '2026-28', oktnavn: id, okttype, treningsplan: 'Egentrening',
+        løpetype: venue, distanse, varighet, tempo: varighet / distanse, soner: [0,0,0,0,0],
+      });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [
+          run('ute10', '2026-07-10', 'Race',  'utendors',  10, 3705),
+          run('inne5', '2026-07-10', 'Tempo', 'treadmill',  5, 1623),
+          run('plain', '2026-07-11', 'Easy',  'utendors',   8, 3000),
+          run('slow5', '2026-06-01', 'Easy',  'treadmill',  5, 2100),
+        ],
+        shoes: [], goals: {}, events: [], plannedSessions: [], settings: { zones: [] },
+        bestEffortsTop3: {
+          '5k':  [{ t: 1561, d: '2026-07-10' }],
+          '10k': [{ t: 3705, d: '2026-07-10' }],
+        },
+        lastUpdated: '' }));
+    }"""
+
+    # The name cell is children[4] (checkbox, dato, uke, type, navn). Read the tooltip rather than
+    # the emoji: the tooltip is what says WHICH records, and an emoji alone cannot be wrong.
+    LOGROWS = """() => Object.fromEntries(
+      [...document.querySelectorAll('#logBody tr')].map(r => {
+        const cell = r.children[4];
+        const tip  = cell.querySelector('[title^="Gjeldende rekord"]');
+        return [cell.textContent.replace(/[^a-z0-9]/gi, ''), tip ? tip.title : ''];
+      }))"""
+
+    # Appends to the EXISTING errs list rather than rebinding it — the final "no page errors" check
+    # below is shared, and a fresh list here would quietly discard whatever the earlier pages logged.
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    boot(pg, LOGPR, 'log')
+    rows = pg.evaluate(LOGROWS)
+
+    check("control: every seeded run is in the log", sorted(rows), ['inne5', 'plain', 'slow5', 'ute10'])
+    # One run, two records — the outdoor 10 km holds the 5 km and 10 km Ute bests.
+    check("a row names every record it holds", rows['ute10'], 'Gjeldende rekord: 5 km · 10 km')
+    # THE VENUE CHECK: same date, other venue, and it must claim only its own record. Joining on
+    # date alone would give this row the Ute pair as well.
+    check("the same day's treadmill run keeps its own record", rows['inne5'], 'Gjeldende rekord: 5 km')
+    check("an ordinary run gets nothing", rows['plain'], '')
+    # "Is the record now", not "was a PR that day": slow5 was the 5 km belt best until inne5 beat it.
+    check("a superseded run carries no trophy", rows['slow5'], '')
+
+    # THE FILTER CHECK. Narrowing the log to Easy hides both record-holders, leaving slow5 as the
+    # fastest belt 5 km *in view*. Computed from the filtered list it would inherit the trophy.
+    pg.select_option('#fFilterType', 'Easy')
+    pg.wait_for_timeout(300)
+    filtered = pg.evaluate(LOGROWS)
+    check("control: the filter really did narrow the log", sorted(filtered), ['plain', 'slow5'])
+    check("...and a record-holder being filtered out hands its trophy to nobody",
+          filtered['slow5'], '')
+
     check("no page errors", errs, [])
     b.close()
 

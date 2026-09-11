@@ -6271,7 +6271,18 @@ const Log = {
     document.getElementById('logEmpty').style.display = 'none';
     document.getElementById('logCount').textContent = `Viser ${sessions.length} økt${sessions.length !== 1 ? 'er' : ''}`;
 
+    // ⚠️ The FULL session list, never the filtered one the table is rendering. A record is a fact
+    // about everything you have run: filter the log to 2026 and a 2025 PR must not silently hand its
+    // 🏆 to whatever is fastest inside the filter. Rekorder and the split marker both pass
+    // Store.data.sessions for the same reason, and all three have to agree.
+    const prMap = prsByRow(Store.data.sessions);
+
     tbody.innerHTML = sessions.map(s => {
+      const prKey  = s.dato + '|' + ((s.løpetype || 'utendors') === 'treadmill' ? 'treadmill' : 'utendors');
+      const prHeld = prMap[prKey];
+      const trophy = prHeld
+        ? ` <span title="Gjeldende rekord: ${escapeHtml(prHeld.join(' · '))}" style="cursor:default">🏆</span>`
+        : '';
       const badge = typeBadge(s.okttype);
       const venueBadge = (s.løpetype || 'utendors') === 'treadmill'
         ? `<span class="badge badge-indoor" title="Tredemølle">⚙️</span>`
@@ -6281,7 +6292,7 @@ const Log = {
         <td>${fmtDate(s.dato)}</td>
         <td style="color:var(--muted)">${s.uke||''}</td>
         <td>${badge}${venueBadge}</td>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.oktnavn||'')}${s.beskrivelse ? ` <span title="${escapeHtml(s.beskrivelse)}" style="cursor:default">📋</span>` : ''}${s.notater ? ` <span title="${escapeHtml(s.notater)}" style="cursor:default">📝</span>` : ''}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.oktnavn||'')}${trophy}${s.beskrivelse ? ` <span title="${escapeHtml(s.beskrivelse)}" style="cursor:default">📋</span>` : ''}${s.notater ? ` <span title="${escapeHtml(s.notater)}" style="cursor:default">📝</span>` : ''}</td>
         <td style="color:var(--muted);font-size:11px">${escapeHtml(s.treningsplan||'')}</td>
         <td>${fmtDist(s.distanse)}</td>
         <td>${malCell(s)}</td>
@@ -10236,6 +10247,35 @@ function computeDistancePRs(sessions) {
 
     return { label, key, km, ute, inne };
   });
+}
+
+// Which log rows currently hold a distance record → `{ 'YYYY-MM-DD|venue': ['5 km', '10 km'] }`.
+//
+// Derived from the same computeDistancePRs the Rekorder table and the fresh-PR insight read, so the
+// three surfaces can never disagree about what the record is. It means «this is the record NOW», the
+// same thing the 🏆 inside a treadmill run's Beste splitter means — a row loses its trophy the moment
+// a later run beats it, so an old session never keeps claiming a record it no longer holds.
+//
+// There is deliberately NO "was a PR on the day it was run" variant. It cannot be derived without
+// storing a flag (and stored flags go stale — most of the engineering audit is that story), it would
+// mark every stepwise improvement at every distance rather than the handful that still stand, and the
+// same 🏆 would then mean two different things on two surfaces.
+//
+// ⚠️ Keyed by date AND venue, not date alone. 🏃 Ute comes from Strava's best-efforts and ⚙️ Inne from
+// the belt — two populations DATA.md says never to merge — so on a day holding both an outdoor and a
+// treadmill run each marker lands on its own row. Two runs at the SAME venue on one day would both be
+// marked: the sources carry a date but no session id, so that is the limit of what can be resolved
+// here, and marking one row too many is cheaper than dropping a marker that is true.
+function prsByRow(sessions) {
+  const map = {};
+  computeDistancePRs(sessions).forEach(r => {
+    [['utendors', r.ute], ['treadmill', r.inne]].forEach(([venue, e]) => {
+      if (!e || !e.d) return;
+      const key = e.d + '|' + venue;
+      (map[key] = map[key] || []).push(r.label);
+    });
+  });
+  return map;
 }
 
 const StravaBestEfforts = {
