@@ -49,7 +49,10 @@ A trailing **`?`** on a type marks an **optional** field — the key may be abse
 
 ## Distance PRs (`computeDistancePRs`)
 
-Single source of truth for the Rekorder card **and** the "Ny …-PR!" insight, so the two can't drift.
+Single source of truth for **three** surfaces, so none of them can drift from the others: the Rekorder card, the "Ny …-PR!" insight, and the 🏆 on a log row.
+
+- The **insight** is floored at **5 km** (2026-09-11). 400 m and 1 km are stretches extracted from inside a longer run, not efforts you set out to make — one 5K test set three PRs at once and took half of Innsikter's six slots. They keep their rows in the Rekorder table, which is where a permanent record belongs; the insight is for what is *news*. Note this is a **presentation** floor, not a data one: all seven distances are still computed and still hold records.
+- The **log 🏆** marks a row that holds a record **right now**, keyed by `date + venue` and read from the full session list rather than whatever the log is filtered to. Never "was a PR on the day it was run": that cannot be derived without a stored flag, and it would mark every stepwise improvement rather than the handful still standing. Same meaning as the 🏆 on a split inside a treadmill run's detail. ⚠️ Two runs at the **same venue on one day** would both be marked — the sources carry a date but no session id, and that is the resolution limit.
 
 - **Ute** = `bestEffortsTop3[key][0]` — Strava's best effort, i.e. the fastest stretch at that distance **inside any outdoor run**. Segments count: a 5 km PB run inside a 10 km run is a 5 km PB. Only `[0]` is shown — the runners-up are stored but **not rendered anywhere** (see `bestEffortsTop3`).
 - **Inne** = the **fastest** of two sources, each carrying a `source` so the cell can say how exact it is. Both are automatic and dated — **there is no hand-entry path into this table**:
