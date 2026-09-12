@@ -7658,12 +7658,18 @@ function computeBlocks(allSessions) {
     const { avgPace, avgHR } = avgPaceHR(blockSessions);
     // Easy-only pace, used by ONE thing: the block-vs-block comparison in the drill-down.
     //
-    // Average pace across a whole block describes the PLAN at least as much as it describes you — an
-    // interval-heavy 5K block averages faster than a base block at identical fitness — so comparing
-    // two blocks on it reads plan shape as progress. An Easy run is an Easy run whatever the block is
-    // training for. Same reasoning, and the same 3-run floor, as Innsikter's «Easy-tempo siste 8 uker
-    // vs. forrige 8»; `avgPace` above is untouched because it is a DESCRIPTION of the block and
-    // belongs in the overview row.
+    // Average pace across a whole block describes the PLAN at least as much as it describes you, so
+    // comparing two blocks on it reads plan shape as progress.
+    //
+    // ⚠️ And the confound has NO RELIABLE SIGN, which is why filtering beats correcting for it. An
+    // interval session logs SLOWER than an easy run despite containing the fastest running you do,
+    // because the recovery jogs, warm-up and cool-down all sit inside the same activity — his own
+    // log, 2026-09-12: Runna Intervaller 7:18 /km against Runna Easy 6:59 /km. Tempo and Race
+    // sessions pull the other way. So a block's mean moves with its mix in a direction you cannot
+    // predict, let alone mentally adjust for. An Easy run is an Easy run whatever the block trains
+    // for. Same reasoning, and the same 3-run floor, as Innsikter's «Easy-tempo siste 8 uker vs.
+    // forrige 8»; `avgPace` above is untouched because it is a DESCRIPTION of the block and belongs
+    // in the overview row.
     //
     // Excludes Avvik-flagged runs, unlike avgPace: this number makes a claim about fitness, and a run
     // flagged for a faulty strap or a bad GPS trace is precisely what that flag exists to keep out of
@@ -8772,10 +8778,11 @@ const DetailPanel = {
       // overall but MORE per week showed its +7.7 in the failure colour. Deleting the valence deletes
       // the chance of borrowing it from the wrong variable.
       //
-      // tempo and konsistens keep theirs: showing up is comparable across any block type, and pace is
-      // the closest thing here to a performance signal. (Pace carries a milder version of the same
-      // confound — an interval-heavy 5K block averages faster by design — which is why Formkurve, not
-      // this row, is the rigorous answer to "am I getting faster".)
+      // Easy-tempo and konsistens keep theirs: showing up is comparable across any block type, and
+      // Easy pace is the closest thing here to a performance signal now that the session mix is
+      // filtered out rather than averaged over (see computeBlocks). Formkurve stays the rigorous
+      // answer to "am I getting faster" — Riegel-normalised Test/Race times, immune to mix by
+      // construction — so this row is the cheap read, not the authority.
       const pairs = [
         { l:'distanse', v:(kmDiff>=0?'+':'')+kmDiff.toFixed(0)+' km', sub:(kmPct>=0?'+':'')+kmPct.toFixed(0)+'%' },
         { l:'km/uke',   v:(wkDiff>=0?'+':'')+wkDiff.toFixed(1)+' km' },
