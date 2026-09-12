@@ -459,6 +459,131 @@ with sync_playwright() as pw:
     pg.evaluate("() => DetailPanel.close()")
     pg.wait_for_timeout(150)
 
+    # ── «Sammenlignet med» — volume rows carry no verdict (2026-09-12) ──────────────────────
+    #
+    # His observation, on a real 5K-vs-10K comparison: «its just nature of the plan whether you do a
+    # 5K, 10K, HM or even a recovery block, the distance is variable». Volume across blocks is not an
+    # achievement axis, so distanse and km/uke render with no green/red; tempo and konsistens keep
+    # theirs (showing up is comparable across any block type).
+    #
+    # ⚠️ The fixture reproduces the exact shape that exposed it, and it has to: the previous block is
+    # LONGER but THINNER, so total km falls while km/uke rises. The two volume numbers point opposite
+    # ways, which is the whole argument — and it was also a live bug, since km/uke took its colour
+    # from the TOTAL-distance diff and showed a +2.0 in the failure colour. A fixture where both move
+    # the same way could not tell the fix from the bug.
+    print("== the block comparison passes no verdict on volume ==")
+
+    # `prevEasy` is how many of the FIRST block's 13 runs are logged as Easy — the only variable
+    # between the two scenarios below, so the Easy-tempo row appearing or vanishing can have no
+    # other cause.
+    SEED_CMP = """(cfg) => {
+      const run = (dato, distanse, tempo, okttype) => ({ id:dato, dato, oktnavn:'Tur', okttype,
+        treningsplan:'Runna', løpetype:'utendors', distanse, varighet: distanse*tempo, tempo,
+        soner:[0,600,600,0,0] });
+      const every7 = (start, n, km, tempo, easyCount, flagFirst) => {
+        const out = [], d = new Date(start);
+        for (let i = 0; i < n; i++) {
+          const s = run(d.toISOString().slice(0,10), km, tempo,
+                        i < easyCount ? 'Easy' : 'Tempo');
+          if (flagFirst && i === 0) s.utenforAnalyse = true;
+          out.push(s);
+          d.setDate(d.getDate() + 7);
+        }
+        return out;
+      };
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        // 13 weeks x 10 km = 130 km at 10.0 km/uke, slow.  Then 8 weeks x 12 km = 96 km at
+        // 12.0 km/uke, fast: -34 km total (-26%) but +2.0 km/uke.
+        sessions: [...every7('2026-01-05', 13, 10, 400, cfg.prevEasy, cfg.flagFirst),
+                   ...every7('2026-04-06',  8, 12, 360, 8, false)],
+        shoes: [], goals: {}, plannedSessions: [], settings: { zones: [] },
+        events: [
+          { id:'pA', type:'plan', title:'Runna 10K nr1', date:'2026-01-05', endDate:'2026-04-05' },
+          { id:'pB', type:'plan', title:'Runna 5K',      date:'2026-04-06', endDate:'2026-06-01' },
+        ],
+        lastUpdated: '' }));
+    }"""
+
+    def comparison(prev_easy, flag_first=False):
+        pg.goto(APP)
+        pg.evaluate(SEED_CMP, {"prevEasy": prev_easy, "flagFirst": flag_first})
+        pg.goto(APP)
+        pg.evaluate("() => switchTab('dash')")
+        pg.wait_for_timeout(500)
+        pg.evaluate("""() => {
+          const b = cachedBlocks.find(x => x.title === 'Runna 5K');
+          DetailPanel.openBlock(JSON.parse(JSON.stringify(b)));
+        }""")
+        pg.wait_for_timeout(300)
+        out = pg.evaluate(COMP)
+        body = pg.inner_text('#detailBody')
+        pg.evaluate("() => DetailPanel.close()")
+        pg.wait_for_timeout(150)
+        return out, body
+
+    COMP = """() => {
+      const lbl = [...document.querySelectorAll('#detailBody .dp-section-label')]
+        .find(e => e.textContent.startsWith('Sammenlignet med'));
+      if (!lbl) return null;
+      return [...lbl.nextElementSibling.querySelectorAll('.dp-stat')].map(s => ({
+        label: s.querySelector('.dpl').textContent.trim(),
+        value: s.querySelector('.dpv').textContent.trim(),
+        colored: /color/.test(s.querySelector('.dpv').getAttribute('style') || ''),
+      }));
+    }"""
+    comp, body = comparison(13)          # all 13 of the previous block's runs are Easy
+
+    # Controls first: the section exists, names the right block, and the numbers are the ones the
+    # argument is about. Without these, "distanse is not coloured" passes on a section that is absent.
+    check("control: the comparison section renders", comp is not None, True)
+    by = {c['label']: c for c in (comp or [])}
+    # ⚠️ UPPERCASE, for the same reason as the KONSISTENS check above: .dp-section-label is
+    # text-transform:uppercase and inner_text() returns what is RENDERED, not what is in the DOM.
+    # Matching 'Runna 10K nr1' here matched nothing and the check failed rather than passing — which
+    # is the lucky direction. The section-label family has now caught this twice in one file.
+    check("control: it compares against the previous block", 'RUNNA 10K NR1' in body, True)
+    check("control: all four stats are present",
+          sorted(by), ['Easy-tempo', 'distanse', 'km/uke', 'konsistens'])
+    # THE SHAPE: total down, per-week up. This is what makes the two checks below meaningful.
+    check("control: total distance fell", by['distanse']['value'], '-34 km')
+    check("control: ...while km/uke rose", by['km/uke']['value'], '+2.0 km')
+
+    check("distanse passes no verdict", by['distanse']['colored'], False)
+    check("km/uke passes no verdict", by['km/uke']['colored'], False)
+    # The other two keep their colour — his call, and the control that stops this test from passing
+    # for a panel that simply lost all its colours.
+    check("Easy-tempo still reads as better or worse", by['Easy-tempo']['colored'], True)
+    check("konsistens still reads as better or worse", by['konsistens']['colored'], True)
+
+    # ── The pace row is Easy-ONLY, and it is gated on both blocks having enough Easy runs ────
+    #
+    # Average pace over a whole block describes the plan as much as the runner — an interval-heavy
+    # block averages faster at identical fitness — so the comparison uses Easy runs only. Below the
+    # 3-run floor the ROW goes, not the section: the volume and consistency numbers are unaffected
+    # and hiding them too would be an unrelated loss.
+    #
+    # ⚠️ Every run in the fixture keeps its distance and pace; only the okttype LABEL changes. A
+    # fixture that also removed runs would move the volume numbers, and "the row vanished" could then
+    # be blamed on anything.
+    thin, _ = comparison(2)              # only 2 Easy runs in the previous block
+    thin_by = {c['label']: c for c in (thin or [])}
+    check("with too few Easy runs, the pace row goes", 'Easy-tempo' in thin_by, False)
+    check("...and the rest of the comparison stays",
+          sorted(thin_by), ['distanse', 'km/uke', 'konsistens'])
+    check("...with the volume numbers untouched",
+          (thin_by['distanse']['value'], thin_by['km/uke']['value']), ('-34 km', '+2.0 km'))
+
+    # An Avvik-flagged run must not count toward the floor OR toward the mean. Three Easy runs with
+    # one flagged leaves two that qualify, so the row goes for the same reason as above — which is
+    # what makes this readable as a test of the FLAG and not of the count: the only difference from
+    # the passing 13-run case is one boolean on one session.
+    flagged, _ = comparison(3, flag_first=True)
+    flagged_by = {c['label']: c for c in (flagged or [])}
+    check("an Avvik-flagged Easy run does not count toward the floor",
+          'Easy-tempo' in flagged_by, False)
+    check("...and the comparison is otherwise unaffected",
+          sorted(flagged_by), ['distanse', 'km/uke', 'konsistens'])
+
     check("no page errors", errs, [])
     b.close()
 

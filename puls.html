@@ -7656,6 +7656,22 @@ function computeBlocks(allSessions) {
     const totalSecs = blockSessions.reduce((s,x) => s+(x.varighet||0), 0);
     const runs      = blockSessions.length;
     const { avgPace, avgHR } = avgPaceHR(blockSessions);
+    // Easy-only pace, used by ONE thing: the block-vs-block comparison in the drill-down.
+    //
+    // Average pace across a whole block describes the PLAN at least as much as it describes you — an
+    // interval-heavy 5K block averages faster than a base block at identical fitness — so comparing
+    // two blocks on it reads plan shape as progress. An Easy run is an Easy run whatever the block is
+    // training for. Same reasoning, and the same 3-run floor, as Innsikter's «Easy-tempo siste 8 uker
+    // vs. forrige 8»; `avgPace` above is untouched because it is a DESCRIPTION of the block and
+    // belongs in the overview row.
+    //
+    // Excludes Avvik-flagged runs, unlike avgPace: this number makes a claim about fitness, and a run
+    // flagged for a faulty strap or a bad GPS trace is precisely what that flag exists to keep out of
+    // such claims. `easyRuns` counts only runs with a pace, so it gates on what actually fed the mean
+    // rather than on how many Easy sessions happen to exist.
+    const easySessions = blockSessions.filter(s => s.okttype === 'Easy' && !s.utenforAnalyse);
+    const easyPace = avgPaceHR(easySessions).avgPace;
+    const easyRuns = easySessions.filter(s => s.tempo > 0).length;
 
     const weekKm  = {}, weekRuns = {};
     blockSessions.forEach(s => {
@@ -7686,6 +7702,7 @@ function computeBlocks(allSessions) {
 
     return { id:evt.id, title:evt.title, startDate, endDate, endIsOpen, weeks, totalKm, totalSecs, runs,
              avgKmWeek: totalKm/elapsedWeeks, avgRunsWeek: runs/elapsedWeeks, avgPace, avgHR,
+             easyPace, easyRuns,
              bestWeekKm, longestRun, consistencyScore, spanWeeks: blockSpanWeeks, indoorKm, outdoorKm,
              shoes, targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget,
              targetTotalKm: evt.targetTotalKm || null,
@@ -8617,7 +8634,7 @@ const DetailPanel = {
 
   openBlock(block) {
     const { id, title, startDate, endDate, endIsOpen, weeks, totalKm, totalSecs, runs,
-            avgKmWeek, avgPace, avgHR,
+            avgKmWeek, avgPace, avgHR, easyPace, easyRuns,
             consistencyScore, spanWeeks, indoorKm, outdoorKm, shoes,
             targetKmWeek, targetRunsWeek, kmAboveTarget, runsAboveTarget } = block;
     // ⚠️ Two-sided, matching renderBlocks. Testing only the END date made a block that has not
@@ -8731,15 +8748,39 @@ const DetailPanel = {
     if (prevBlock && !isCurrent && !isFuture) {
       const kmDiff   = totalKm - prevBlock.totalKm;
       const kmPct    = prevBlock.totalKm > 0 ? kmDiff/prevBlock.totalKm*100 : 0;
-      const kmColor  = kmDiff >= 0 ? '#22c55e' : '#ef4444';
       const wkDiff   = avgKmWeek - prevBlock.avgKmWeek;
-      const paceDiff = (avgPace && prevBlock.avgPace) ? prevBlock.avgPace - avgPace : null;
+      // ⚠️ Easy-only, and gated on BOTH blocks clearing the floor — a mean over one or two runs is
+      // noise wearing a trend's clothes, and comparing a 12-run mean against a 2-run one is worse
+      // than showing nothing. Three matches Innsikter's Easy-trend minimum. When either side is
+      // short the ROW disappears and the rest of the comparison stays: the volume and consistency
+      // numbers are still true, and dropping the whole section would hide them for an unrelated
+      // reason. See computeBlocks for why this is not the block's own avgPace.
+      const EASY_CMP_MIN  = 3;
+      const easyComparable = easyRuns >= EASY_CMP_MIN && prevBlock.easyRuns >= EASY_CMP_MIN;
+      const paceDiff = (easyComparable && easyPace && prevBlock.easyPace)
+        ? prevBlock.easyPace - easyPace : null;
       const consDiff = consistencyScore - prevBlock.consistencyScore;
+      // ⚠️ The two VOLUME rows carry no green/red, and that is the point of them (his call,
+      // 2026-09-12). Volume across blocks is not an achievement axis — it is what the plan was. A 5K
+      // block is short and dense, a half-marathon block long and easy, a recovery block deliberately
+      // small, so "fewer km than last block" is a description, not a failure. His own screenshot is
+      // the clean proof: −60 km total next to +7.7 km/uke, pointing opposite ways, neither a verdict.
+      // Same rule the load tooltip already follows with Lav/Middels/Høy — magnitude, not good/bad.
+      //
+      // It also removes a real bug rather than correcting it: km/uke used to be coloured by
+      // `kmColor`, which was derived from the TOTAL-distance diff, so a block that ran fewer km
+      // overall but MORE per week showed its +7.7 in the failure colour. Deleting the valence deletes
+      // the chance of borrowing it from the wrong variable.
+      //
+      // tempo and konsistens keep theirs: showing up is comparable across any block type, and pace is
+      // the closest thing here to a performance signal. (Pace carries a milder version of the same
+      // confound — an interval-heavy 5K block averages faster by design — which is why Formkurve, not
+      // this row, is the rigorous answer to "am I getting faster".)
       const pairs = [
-        { l:'distanse', v:(kmDiff>=0?'+':'')+kmDiff.toFixed(0)+' km', sub:(kmPct>=0?'+':'')+kmPct.toFixed(0)+'%', c:kmColor },
-        { l:'km/uke',   v:(wkDiff>=0?'+':'')+wkDiff.toFixed(1)+' km', c:kmColor },
+        { l:'distanse', v:(kmDiff>=0?'+':'')+kmDiff.toFixed(0)+' km', sub:(kmPct>=0?'+':'')+kmPct.toFixed(0)+'%' },
+        { l:'km/uke',   v:(wkDiff>=0?'+':'')+wkDiff.toFixed(1)+' km' },
         ...(paceDiff !== null && Math.abs(paceDiff) >= 5
-          ? [{ l:'tempo', v:secsToMmSs(Math.abs(paceDiff))+' /km', sub:paceDiff>0?'raskere':'langsommere', c:paceDiff>0?'#22c55e':'#ef4444' }]
+          ? [{ l:'Easy-tempo', v:secsToMmSs(Math.abs(paceDiff))+' /km', sub:paceDiff>0?'raskere':'langsommere', c:paceDiff>0?'#22c55e':'#ef4444' }]
           : []),
         { l:'konsistens', v:(consDiff>=0?'+':'')+consDiff+'%', c:consDiff>=0?'#22c55e':'#ef4444' },
       ];
@@ -8747,11 +8788,16 @@ const DetailPanel = {
       // from the Hendelser form, so this was self-XSS rather than a remote hole — but the origin it
       // would run on is psvadev.github.io, which holds the Drive and Strava tokens in localStorage,
       // and every sibling line here already escaped. Consistency is the defence that survives edits.
+      // A pair without `c` is a neutral one: the value inherits .dpv's own colour and the sub-line
+      // falls back to --muted. Built as a lookup rather than a ternary inside the template so the
+      // nesting stays readable at three levels deep.
+      const valStyle = p => p.c ? `;color:${p.c}` : '';
+      const subStyle = p => `color:${p.c || 'var(--muted)'}`;
       compHtml = `<div class="dp-section-label">Sammenlignet med "${escapeHtml(prevBlock.title)}"</div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
           ${pairs.map(p=>`<div class="dp-stat">
-            <div class="dpv" style="font-size:16px;color:${p.c}">${p.v}</div>
-            ${p.sub?`<div style="font-size:10px;color:${p.c};margin-bottom:2px">${p.sub}</div>`:''}
+            <div class="dpv" style="font-size:16px${valStyle(p)}">${p.v}</div>
+            ${p.sub?`<div style="font-size:10px;${subStyle(p)};margin-bottom:2px">${p.sub}</div>`:''}
             <div class="dpl">${p.l}</div>
           </div>`).join('')}
         </div>`;
