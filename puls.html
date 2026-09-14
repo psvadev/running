@@ -417,6 +417,23 @@
     #logTable th:nth-child(12), #logTable td:nth-child(12) { display: none; }
   }
 
+  /* ── Scroll-to-top button ──
+     ⚠️ Kept ABOVE the phone block below, on purpose. It used to sit near the end of the sheet, after
+     that block, and since both address the same id the later rule wins on source order: any phone
+     override of its position would silently lose. That mattered once the bottom bar arrived
+     (2026-09-01) — the button stayed 24px from the bottom and sat on top of «Mer». */
+  #scrollTopBtn {
+    position:fixed; bottom:24px; right:20px; z-index:900;
+    width:40px; height:40px; border-radius:50%;
+    background:var(--surface2); border:1px solid var(--accent);
+    color:var(--accent); font-size:18px; line-height:1;
+    box-shadow:0 2px 10px rgba(0,0,0,.45);
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    opacity:0; pointer-events:none; transition:opacity .2s;
+  }
+  #scrollTopBtn.visible { opacity:1; pointer-events:auto; }
+  #scrollTopBtn:hover { background:var(--accent); color:#fff; }
+
   @media (max-width: 600px) {
     html { overflow-x: hidden; }
     header { padding: 0 12px; gap: 8px; }
@@ -473,6 +490,14 @@
     body.more-open .more-backdrop { display: block; position: fixed; inset: 0; z-index: 199; background: rgba(0,0,0,0.35); }
     /* Content must clear the fixed bar, or the last card sits under it and reads as cut off. */
     .panel { padding: 16px 12px calc(72px + env(safe-area-inset-bottom, 0px)); }
+    /* The ↑ button has to clear the bar too. At its old 24px it sat INSIDE the bar, over «Mer» —
+       measured covering the top half of that slot, where the icon is, at every width from 320 to
+       600px. Same offset as the Mer sheet above, so both sit the same distance over the bar and follow
+       the home-indicator inset together. Its base rule sits above this block so this one wins. */
+    #scrollTopBtn { bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
+    /* ...which is exactly where the sheet opens, so it steps aside while the sheet is up. The extra
+       `body.more-open` outranks `#scrollTopBtn.visible` regardless of order. */
+    body.more-open #scrollTopBtn { opacity: 0; pointer-events: none; }
     /* Not sticky on mobile: the bar wraps to ~5 rows here, so pinning it would
        eat a quarter of the viewport for the whole scroll. Scroll-to-top covers it. */
     .dash-filter-bar { position: static; padding: 10px 12px; gap: 8px; }
@@ -634,18 +659,6 @@
   .shoe-retire-bar-bg { background:var(--surface2); border-radius:4px; height:6px; overflow:hidden; flex:1; }
   .shoe-retire-bar-fill { height:100%; border-radius:4px; transition:width .4s; }
 
-  /* ── Scroll-to-top button ── */
-  #scrollTopBtn {
-    position:fixed; bottom:24px; right:20px; z-index:900;
-    width:40px; height:40px; border-radius:50%;
-    background:var(--surface2); border:1px solid var(--accent);
-    color:var(--accent); font-size:18px; line-height:1;
-    box-shadow:0 2px 10px rgba(0,0,0,.45);
-    cursor:pointer; display:flex; align-items:center; justify-content:center;
-    opacity:0; pointer-events:none; transition:opacity .2s;
-  }
-  #scrollTopBtn.visible { opacity:1; pointer-events:auto; }
-  #scrollTopBtn:hover { background:var(--accent); color:#fff; }
 </style>
 </head>
 <body>

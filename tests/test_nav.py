@@ -76,6 +76,9 @@ with sync_playwright() as p:
     # phone rules have not leaked upward.
     check("strip still sticky at the top, not fixed to the bottom",
           pg.evaluate("() => getComputedStyle(document.querySelector('.tabs')).position"), "sticky")
+    # The ↑ button's phone offset must not leak up: on desktop there is no bottom bar to clear.
+    check("scroll-to-top keeps its desktop offset",
+          pg.evaluate("() => getComputedStyle(document.getElementById('scrollTopBtn')).bottom"), "24px")
     check("no desktop page errors", derr, [])
     pg.close()
 
@@ -152,6 +155,37 @@ with sync_playwright() as p:
     check("content clears the fixed bar",
           pg.evaluate("""() => parseInt(getComputedStyle(
               document.querySelector('.panel.active')).paddingBottom, 10) >= 60"""), True)
+
+    # ── The ↑ button clears the bar (2026-09-14) ─────────────────────────────────────────────────
+    # It predates the bottom bar and kept its 24px offset, so on every phone width it sat on top of
+    # «Mer» and ate taps aimed at the icon. Found by him, in use.
+    #
+    # ⚠️ Visible FIRST. The button is pointer-events:none until the page scrolls past 300px, so an
+    # elementFromPoint check on an unscrolled page reaches Mer straight through it and passes with the
+    # bug fully present. The control proves the button is live before anything asks what it covers.
+    # And a real tap point — the centre of Mer's ICON — not the slot's centre, which lands exactly on
+    # the old button's bottom edge and would have missed it by a pixel.
+    pg.evaluate("() => switchTab('tools')")
+    pg.wait_for_timeout(300)
+    pg.evaluate("() => window.scrollTo(0, 2000)")
+    pg.wait_for_timeout(500)          # the .2s opacity transition
+    up = lambda: pg.evaluate("""() => { const cs = getComputedStyle(document.getElementById('scrollTopBtn'));
+        return { opacity: +cs.opacity, pe: cs.pointerEvents }; }""")
+    check("control: the button is showing after a scroll", up(), {"opacity": 1, "pe": "auto"})
+    btn = pg.evaluate("""() => {
+      const b   = document.getElementById('scrollTopBtn').getBoundingClientRect();
+      const bar = document.querySelector('.tabs').getBoundingClientRect();
+      const ico = document.querySelector('.tab-more-btn .t-ico').getBoundingClientRect();
+      const hit = document.elementFromPoint(ico.left + ico.width / 2, ico.top + ico.height / 2);
+      return { clear: b.bottom <= bar.top, merIconReachesMer: !!(hit && hit.closest('.tab-more-btn')) }; }""")
+    check("the button sits above the bar, not on it", btn["clear"], True)
+    check("a tap on the Mer icon reaches Mer", btn["merIconReachesMer"], True)
+    # The sheet opens at the same height the button now occupies.
+    pg.click("#tabMoreBtn"); pg.wait_for_timeout(400)
+    check("it steps aside while the sheet is open", up(), {"opacity": 0, "pe": "none"})
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+    check("...and comes back when the sheet closes", up(), {"opacity": 1, "pe": "auto"})
+
     check("no mobile page errors", merr, [])
     pg.close()
 
