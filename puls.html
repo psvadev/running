@@ -12762,6 +12762,15 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadAppVersion() {
   const el = document.getElementById('appVersionFooter');
   if (!el) return;
+  // ⚠️ Not from a local file. The footer reports the commit DEPLOYED to Pages, and a copy opened from
+  // disk has no deployment to report — so it was asking GitHub about a different copy than the one on
+  // screen. It also made every test suite depend on api.github.com: on 2026-09-14 CI went red with five
+  // "no page errors" failures, every one this request "blocked due to access control checks" — even
+  // though the catch below swallows it. NOT reproducible locally, on Playwright 1.61 or on 1.62 (what CI
+  // installed): from here GitHub's refusal is a clean response; from the CI runner it evidently was not.
+  // Rather than depend on how a third-party API answers a particular network, don't ask from disk.
+  // No call, no dependency. The hosted app is unaffected.
+  if (location.protocol === 'file:') return;
   const render = (sha, date) => {
     el.innerHTML = `<a href="https://github.com/psvadev/running/commit/${sha}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">v${sha.slice(0, 7)}</a> · ${fmtDate(date)}`;
   };

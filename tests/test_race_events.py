@@ -975,7 +975,15 @@ with sync_playwright() as b0:
         shoes:[], goals:{}, settings:{zones:[]}, events:[], plannedSessions:[], lastUpdated:'' }));
     }""")
     pg.goto(APP); pg.wait_for_timeout(600)
-    freq.clear()                              # ignore page-load chatter (Chart.js CDN, version ping)
+    # The version footer asks api.github.com for the deployed commit — but a copy opened from DISK has no
+    # deployment to report, so from file:// it must not ask at all. On 2026-09-14 that ping turned CI red:
+    # five "no page errors" checks in this file failed, each one this request blocked by access control —
+    # over a network call nothing here is about. It never reproduced locally (Playwright 1.61 and 1.62
+    # both pass), so the failure depends on how GitHub answers the CI runner's network. That is exactly
+    # why this asserts on the REQUEST, not on an error: it holds on any network and any Playwright.
+    check("a local copy never pings the GitHub API on load",
+          [u for u in freq if "api.github.com" in u], [])
+    freq.clear()                              # ignore the rest of page-load chatter (Chart.js CDN)
     pg.evaluate("() => switchTab('atlas')")
     pg.wait_for_timeout(900)
     check("⚠️ rendering the atlas makes NO outbound request", freq, [])
