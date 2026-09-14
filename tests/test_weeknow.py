@@ -235,6 +235,7 @@ with sync_playwright() as p:
     check("names the reason", "Deload" in t2, True)
     check("says lower is planned", "lavere er planlagt" in t2, True)
     check("the number itself still shows", "km" in t2, True)
+    check("...with no arrow left to misread", ("▲" in t2) or ("▼" in t2), False)
     pg.close()
 
     # ---------------------------------------------------------------- 7. empty week
@@ -499,6 +500,7 @@ with sync_playwright() as p:
     plain, errs = ctx_card([])
     check("control: an ordinary baseline shows green verdicts", plain["up"] >= 1, True)
     check("control: ...and a bare basis line", "mot samme tid forrige uke (" in plain["txt"], False)
+    check("control: an ordinary week keeps its arrows", "▲" in plain["txt"], True)
     check("no page errors", errs, [])
 
     last = ctx_card([ev("t", "taper", "2026-08-03", "2026-08-05")])[0]
@@ -507,6 +509,9 @@ with sync_playwright() as p:
     check("...and the green verdict is withheld", last["up"], 0)
     check("...without inventing a red one", last["down"], 0)
     check("...nor claiming THIS week is the reduced one", "lavere er planlagt" in last["txt"], False)
+    # No arrow once the verdict is withheld (2026-09-14): grey «▼ 27 s raskere» read as a decline.
+    check("...and the arrows go too", ("▲" in last["txt"]) or ("▼" in last["txt"]), False)
+    check("...while direction still reads in words", "raskere" in last["txt"], True)
 
     late = ctx_card([ev("t", "taper", "2026-08-07", "2026-08-09")])[0]
     check("a period only on last week's LATER days is not named", "(taper)" in late["txt"], False)

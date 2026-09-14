@@ -9247,7 +9247,14 @@ function renderWeekNow(allSessions) {
     // in green, which is how a runner reads it. Never dress a smaller number up as an increase.
     // Two nowrap spans in a wrapping row: the change and the baseline each stay intact, and on a
     // narrow tile the baseline drops to its own line instead of either being clipped.
-    return `<div class="wk-tile-delta ${cls}"><span>${d > 0 ? '▲' : '▼'} ${fmt(d, better)}</span>`
+    // ⚠️ No arrow when the verdict is withheld (his call, 2026-09-14). The arrow follows the VALUE and
+    // only the colour said whether that was good, so once the colour goes the arrow is the only signal
+    // left — and on pace it points the wrong way: a faster run is a smaller number, so grey
+    // «▼ 27 s raskere» reads as a decline. A faint red/green was considered and rejected: fainter is
+    // still a verdict, and in a planned-low week it points the wrong way. The sign (−0.7 km) and the
+    // word (raskere/tregere) still carry the direction, so no data is lost.
+    const arrow = neutral ? '' : `${d > 0 ? '▲' : '▼'} `;
+    return `<div class="wk-tile-delta ${cls}"><span>${arrow}${fmt(d, better)}</span>`
       + `<span class="wk-was">fra ${was(then)}</span></div>`;
   };
 
