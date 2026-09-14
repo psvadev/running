@@ -9206,6 +9206,17 @@ function renderWeekNow(allSessions) {
   const OFF_TYPES = ['illness', 'vacation', 'deload', 'taper'];
   const ctxEvt = (Store.data.events || []).find(e => OFF_TYPES.includes(e.type) &&
     absWeekNum(e.date) <= nowAbsWk && nowAbsWk <= absWeekNum(e.endDate || e.date));
+  // ...and the week every number is compared AGAINST (his idea, 2026-09-14). `ctxEvt` only ever looked
+  // at THIS week, so the first normal week after a ferie or deload painted big green ▲s that read as
+  // progress, when the baseline was simply low on purpose. Same move as the Belastning/volum
+  // qualifier: name the context rather than correct the number, and withhold the verdict.
+  //
+  // ⚠️ Scoped to the SAME DAYS of last week the deltas use (Monday … this weekday), not the whole week.
+  // The comparison is like-for-like, so a taper that began last Friday has no bearing on a Wednesday's
+  // numbers, and naming it would explain a difference it did not cause. lowLoadInRange is the helper
+  // the insight qualifier uses: all four types, and overlap rather than start date.
+  const lastLow = lowLoadInRange(localISODaysAgo(idxNow + 7), localISODaysAgo(7));
+  const neutral = !!ctxEvt || lastLow.length > 0;
 
   const lastSecs = lastWkSoFar.reduce((sum, s) => sum + (s.varighet || 0), 0);
   const lastPace = avgPaceHR(lastWkSoFar).avgPace;
@@ -9231,7 +9242,7 @@ function renderWeekNow(allSessions) {
     // which would say "nothing here" where we mean "same as last week". Meaning is in the tooltip.
     if (Math.abs(d) < eps) return `<div class="wk-tile-delta wk-flat" title="Uendret mot samme tid forrige uke"><i class="wk-eq" aria-label="uendret"></i></div>`;
     const better = higherIsBetter ? d > 0 : d < 0;
-    const cls = ctxEvt ? 'wk-flat' : better ? 'wk-up' : 'wk-down';
+    const cls = neutral ? 'wk-flat' : better ? 'wk-up' : 'wk-down';
     // Arrow follows the VALUE, colour follows the verdict — so a faster pace reads "▼ … raskere"
     // in green, which is how a runner reads it. Never dress a smaller number up as an increase.
     // Two nowrap spans in a wrapping row: the change and the baseline each stay intact, and on a
@@ -9270,7 +9281,11 @@ function renderWeekNow(allSessions) {
       : '';
     // Just the basis now — each tile carries its own "fra …", so repeating last week's distance and
     // session count here would state the same two figures twice.
-    footHtml = `<div class="wk-now-delta">mot samme tid forrige uke${why}</div>`;
+    // Last week's reduced period sits in brackets directly after «forrige uke», so it attaches to the
+    // week it describes; this week's own note keeps its place after the «·». Only the kinds that
+    // actually apply, never the full list. Labels are LOW_LOAD_LABEL's fixed strings, not user text.
+    const lastWhy = lastLow.length ? ` (${lastLow.join('/')})` : '';
+    footHtml = `<div class="wk-now-delta">mot samme tid forrige uke${lastWhy}${why}</div>`;
   }
 
   // The week's plan and how far through it you are, under the stats.

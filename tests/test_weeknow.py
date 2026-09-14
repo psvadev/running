@@ -461,6 +461,66 @@ with sync_playwright() as p:
     check("plan list unclipped at 402px", clipped, [])
     check("...and still listed", "Søn Long · 14 km" in txt, True)
 
+    # ── The BASELINE week's reduced period is named too (2026-09-14) ─────────────────────────
+    #
+    # His idea. The context note only ever looked at THIS week, so the first ordinary week after a
+    # ferie or deload painted green ▲s that read as progress when the baseline was low on purpose.
+    # Named in brackets on the basis line — «mot samme tid forrige uke (taper)» — and the verdict is
+    # withheld, exactly as for a reduced week now.
+    #
+    # ⚠️ Every case starts from a card whose verdicts would otherwise be GREEN (this week above last
+    # week's same days on every tile), so "no green" can only come from the context rule, never from
+    # a fixture that happened to be flat. And the late-week case is what pins the like-for-like window:
+    # a whole-week test would name a Friday taper against a Wednesday, and still pass every other check.
+    print("== the baseline week's context is named ==")
+
+    def ctx_card(events):
+        p = b.new_page(viewport={"width": 1280, "height": 900})
+        errs = []
+        p.on("pageerror", lambda e: errs.append(str(e)))
+        p.add_init_script(freeze_on(12))       # Wednesday: the compared days are Mon-Wed of both weeks
+        p.goto(APP)
+        # EMPTY_WEEK always seeds 6 km on Wed 2026-08-05 — last week, inside the compared days. One
+        # 10 km Monday this week beats it on distance, time and pace, so every verdict would be green.
+        p.evaluate(EMPTY_WEEK, {"events": events, "planned": [],
+                                "extra": [logged(90, "2026-08-10", 10, 3300)]})
+        p.goto(APP)
+        p.evaluate("() => switchTab('dash')")
+        p.wait_for_timeout(500)
+        out = p.evaluate("""() => ({
+          txt:  document.getElementById('weekNowCard').innerText.replace(/\\s+/g, ' '),
+          up:   document.querySelectorAll('#weekNowCard .wk-up').length,
+          down: document.querySelectorAll('#weekNowCard .wk-down').length })""")
+        p.close()
+        return out, errs
+
+    ev = lambda i, kind, frm, to: {"id": i, "type": kind, "title": kind, "date": frm, "endDate": to}
+
+    plain, errs = ctx_card([])
+    check("control: an ordinary baseline shows green verdicts", plain["up"] >= 1, True)
+    check("control: ...and a bare basis line", "mot samme tid forrige uke (" in plain["txt"], False)
+    check("no page errors", errs, [])
+
+    last = ctx_card([ev("t", "taper", "2026-08-03", "2026-08-05")])[0]
+    check("a taper last week is named on the basis line",
+          "mot samme tid forrige uke (taper)" in last["txt"], True)
+    check("...and the green verdict is withheld", last["up"], 0)
+    check("...without inventing a red one", last["down"], 0)
+    check("...nor claiming THIS week is the reduced one", "lavere er planlagt" in last["txt"], False)
+
+    late = ctx_card([ev("t", "taper", "2026-08-07", "2026-08-09")])[0]
+    check("a period only on last week's LATER days is not named", "(taper)" in late["txt"], False)
+    check("...and the verdict stays", late["up"] >= 1, True)
+
+    both = ctx_card([ev("t", "taper", "2026-08-03", "2026-08-05"),
+                     ev("f", "vacation", "2026-08-10", "2026-08-12")])[0]
+    check("both weeks reduced: last week's in the brackets", "(taper)" in both["txt"], True)
+    check("...and this week's own note still there", "lavere er planlagt" in both["txt"], True)
+
+    two = ctx_card([ev("d", "deload", "2026-08-03", "2026-08-03"),
+                    ev("s", "illness", "2026-08-04", "2026-08-04")])[0]
+    check("two kinds last week are both named", "(deload/sykdom)" in two["txt"], True)
+
     # ── 🏁 on a maximal effort, and only there (2026-09-11) ─────────────────────────────────
     #
     # This is the one planned-session surface where colour carries STATUS, so unlike «Planlagte
