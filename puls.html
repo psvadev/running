@@ -2053,6 +2053,8 @@ const TSV_COLS = [
 // "1 økt", not "1 økter" — the import panel counts sessions in four places and a hardcoded plural
 // reads wrong in every one of them the moment a block contributes a single session.
 const okter = n => `${n} økt${n === 1 ? '' : 'er'}`;
+// The bare noun, for a tile whose number sits in its own element.
+const oktNoun = n => n === 1 ? 'økt' : 'økter';
 
 // Stored Strava analysis as export lines: run/walk and HR-drift & kadens, the two things the detail
 // panel shows that no column could carry. Returns '' when there is nothing current to say.
@@ -2830,8 +2832,8 @@ function _atlasYearRuns(a, target) {
   const n = a.bestForeignYearRuns;
   return { unlocked: n >= target, progress: n >= target ? null : { cur:n, target },
     date: a.runTierDate[target] || null,
-    desc: n >= target ? `Beste reiseår: ${n} løp (${a.bestForeignYearRunsYear})`
-                      : `${target} løp i utlandet i ett kalenderår` };
+    desc: n >= target ? `Beste reiseår: ${okter(n)} (${a.bestForeignYearRunsYear})`
+                      : `${target} økter i utlandet i ett kalenderår` };
 }
 // Distinct foreign countries run OUTDOORS — a breadth ladder (3→5→10), carries the Nth country.
 function _atlasOutdoorLand(a, target) { const cur = a.outdoorForeignCount; const c = a.outdoorForeignAt(target); return { unlocked: cur >= target, progress: cur >= target ? null : { cur, target }, date: c ? c.date : null, country: c ? c.code : null }; }
@@ -2898,9 +2900,9 @@ const ATLAS_BADGES = [
   { id:'multi-year-2',     group:'Sesong',       icon:'🗓️', name:'Multi-Year Traveler',  desc:'Løp i utlandet 2 år på rad',               test:a => _atlasMultiYear(a, 2) },
   { id:'multi-year-3',     group:'Sesong',       icon:'📅', name:'Seasoned Traveler',    desc:'Løp i utlandet 3 år på rad',               test:a => _atlasMultiYear(a, 3) },
   { id:'multi-year-5',     group:'Sesong',       icon:'🎖️', name:'Veteran Traveler',     desc:'Løp i utlandet 5 år på rad',               test:a => _atlasMultiYear(a, 5) },
-  { id:'year-runs-3',      group:'Sesong',       icon:'🛄', name:'Travel Season',        desc:'3 løp i utlandet i ett kalenderår',        test:a => _atlasYearRuns(a, 3) },
-  { id:'year-runs-6',      group:'Sesong',       icon:'🗺️', name:'Globetrotting Year',   desc:'6 løp i utlandet i ett kalenderår',        test:a => _atlasYearRuns(a, 6) },
-  { id:'year-runs-10',     group:'Sesong',       icon:'🎒', name:'Nomad Year',           desc:'10 løp i utlandet i ett kalenderår',       test:a => _atlasYearRuns(a, 10) },
+  { id:'year-runs-3',      group:'Sesong',       icon:'🛄', name:'Travel Season',        desc:'3 økter i utlandet i ett kalenderår',        test:a => _atlasYearRuns(a, 3) },
+  { id:'year-runs-6',      group:'Sesong',       icon:'🗺️', name:'Globetrotting Year',   desc:'6 økter i utlandet i ett kalenderår',        test:a => _atlasYearRuns(a, 6) },
+  { id:'year-runs-10',     group:'Sesong',       icon:'🎒', name:'Nomad Year',           desc:'10 økter i utlandet i ett kalenderår',       test:a => _atlasYearRuns(a, 10) },
 ];
 // Tiered ladders (escalating thresholds on the same metric). In the expanded list we show
 // unlocked tiers + only the NEXT locked one, so you never see 3/5, 3/10, 3/15 stacked at once.
@@ -6980,7 +6982,7 @@ function renderEfficiencyChart(sessions) {
       return totalSone > 0 && (s.soner[1] || 0) / totalSone >= 0.70;
     });
     if (z2CountEl) {
-      z2CountEl.textContent = `Sone 2: ${easySessions.length} av ${beforeCount} ${typeNoun} løp inkludert`;
+      z2CountEl.textContent = `Sone 2: ${easySessions.length} av ${beforeCount} ${typeNoun} økter inkludert`;
       z2CountEl.style.display = '';
     }
   }
@@ -7154,7 +7156,7 @@ function renderInsights(sessions) {
     // action here ("go look at your log") is cheap enough that firing slightly early beats staying
     // silent through a real 12 bpm error.
     if (over.length >= 2 && peak >= maxHrSet + 3 && over[0].dato >= localISODaysAgo(84)) {
-      candidates.push({ icon:'⚠️', val:`${over.length} løp over maks puls`,
+      candidates.push({ icon:'⚠️', val:`${over.length} økter over maks puls`,
         sub:`høyeste ${peak} bpm mot ${maxHrSet} satt · siste ${fmtDate(over[0].dato)} — sonene kan ligge for lavt`,
         priority: 4 });
     }
@@ -7350,7 +7352,7 @@ function renderInsights(sessions) {
     let streakWks = 0;
     for (let w = nowAbsWk - 1; w >= nowAbsWk - 52; w--) { if (wkSet.has(w)) streakWks++; else break; }
     if (streakWks >= 3) candidates.push({ icon: '🔥', val: `${streakWks}-ukers streak i fare`,
-      sub: 'Ingen løp denne uken — løp innen søndag for å beholde den', priority: 4 });
+      sub: 'Ingen økter denne uken — løp innen søndag for å beholde den', priority: 4 });
   }
 
   // Progress toward the active Plan event's target — total km when set (self-normalizes
@@ -7797,7 +7799,7 @@ function renderBlocks() {
     const safeBlock = toSafeAttr(current);
     const statsRow = [
       { v: current.totalKm.toFixed(1)+' km', l: 'totalt' },
-      { v: current.runs,                      l: 'løp' },
+      { v: current.runs,                      l: oktNoun(current.runs) },
       { v: current.avgKmWeek.toFixed(1)+' km/uke', l: 'snitt per uke' },
       ...(current.avgPace ? [{ v: secsToMmSs(current.avgPace)+' /km', l: 'snitt tempo' }] : []),
       ...(current.avgHR   ? [{ v: current.avgHR,                      l: 'snitt HR'   }] : []),
@@ -7872,7 +7874,7 @@ function renderBlocks() {
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${fmtDate(b.startDate)} – ${fmtDate(b.endDate)} · ${b.weeks} uker</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
           <div class="dp-stat"><div class="dpv" style="font-size:15px">${b.totalKm.toFixed(0)} km</div><div class="dpl">totalt</div></div>
-          <div class="dp-stat"><div class="dpv" style="font-size:15px">${b.runs}</div><div class="dpl">løp</div></div>
+          <div class="dp-stat"><div class="dpv" style="font-size:15px">${b.runs}</div><div class="dpl">${oktNoun(b.runs)}</div></div>
           <div class="dp-stat"><div class="dpv" style="font-size:15px">${b.avgKmWeek.toFixed(1)}</div><div class="dpl">km/uke</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -8172,7 +8174,7 @@ const WEEK_CONTEXTS = {
         { v: Math.round((a.runSec / a.moveSec) * 100) + '%', l: 'løping' },
         { v: (a.longestM / 1000).toFixed(2) + ' km',         l: 'lengste løp' },
         { v: a.transitions,                                  l: 'overganger' },
-        { v: a.n,                                            l: 'løp analysert' },
+        { v: a.n,                                            l: 'økter analysert' },
       ];
     },
     perRun(s) {
@@ -8188,8 +8190,8 @@ const WEEK_CONTEXTS = {
       const isDrift = aeroTrendMetric === 'drift';
       const fmt = b => { const m = b.sum / b.n; return isDrift ? (m > 0 ? '+' : '') + m.toFixed(1) + '%' : Math.round(m) + ' spm'; };
       const out = [];
-      if (a.ute.n)  out.push({ v: fmt(a.ute),  l: `🏃 ute · ${a.ute.n} løp` });
-      if (a.inne.n) out.push({ v: fmt(a.inne), l: `⚙️ inne · ${a.inne.n} løp` });
+      if (a.ute.n)  out.push({ v: fmt(a.ute),  l: `🏃 ute · ${okter(a.ute.n)}` });
+      if (a.inne.n) out.push({ v: fmt(a.inne), l: `⚙️ inne · ${okter(a.inne.n)}` });
       return out.length ? out : null;
     },
     perRun(s) {
@@ -8256,7 +8258,7 @@ const DetailPanel = {
     const shoes     = [...new Set(weekSessions.map(s=>s.sko).filter(Boolean))];
     const stats = [
       { v: totalKm.toFixed(1)+' km', l: 'distanse' },
-      { v: weekSessions.length,       l: 'løp' },
+      { v: weekSessions.length,       l: oktNoun(weekSessions.length) },
       { v: secsToHms(totalSecs),      l: 'tid' },
       ...(avgPace ? [{ v: secsToMmSs(avgPace)+' /km', l: 'snitt tempo' }] : []),
       ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
@@ -8292,7 +8294,7 @@ const DetailPanel = {
       ${shoes.length ? `<div class="muted-sm" style="margin-bottom:12px;">Sko: ${escapeHtml(shoes.join(', '))}</div>` : ''}
       ${ctxBlock}
       <div class="dp-section-label">Øktene</div>
-      ${sessionRows || '<div class="muted-sm">Ingen løp</div>'}`
+      ${sessionRows || '<div class="muted-sm">Ingen økter</div>'}`
     );
   },
 
@@ -8498,7 +8500,7 @@ const DetailPanel = {
     const lastUsed  = sorted[sorted.length-1]?.dato;
     const stats = [
       { v: totalKm.toFixed(0)+' km', l: 'totalt' },
-      { v: sessions.length,           l: 'løp' },
+      { v: sessions.length,           l: oktNoun(sessions.length) },
       ...(avgPace ? [{ v: secsToMmSs(avgPace)+' /km', l: 'snitt tempo' }] : []),
       ...(avgHR   ? [{ v: avgHR,                      l: 'snitt HR'   }] : []),
     ];
@@ -8523,10 +8525,10 @@ const DetailPanel = {
       <div class="dp-stat-row">${stats.map(s=>`<div class="dp-stat"><div class="dpv">${s.v}</div><div class="dpl">${s.l}</div></div>`).join('')}</div>
       <div class="muted-sm" style="margin-bottom:12px;">
         ${firstUsed ? `Første bruk: ${fmtDate(firstUsed)}` : ''}${lastUsed ? ` · Sist brukt: ${fmtDate(lastUsed)}` : ''}<br>
-        ${longest ? `Lengste løp: ${longest.distanse} km (${fmtDate(longest.dato)})` : ''}
+        ${longest ? `Lengste økt: ${longest.distanse} km (${fmtDate(longest.dato)})` : ''}
       </div>
       ${retireHtml}
-      <div class="dp-section-label">Siste løp</div>${recentRows || '<div class="muted-sm">Ingen løp logget</div>'}`
+      <div class="dp-section-label">Siste økter</div>${recentRows || '<div class="muted-sm">Ingen økter logget</div>'}`
     );
   },
 
@@ -8544,7 +8546,7 @@ const DetailPanel = {
     const elevCands = sessions.filter(s => (s.hoydeMeter||0) > 0);
     const hilliest  = elevCands.length ? elevCands.reduce((m,s)=> (s.hoydeMeter||0) > (m.hoydeMeter||0) ? s : m) : null;
     const tiles = [
-      { v: sessions.length,          l: 'løp' },
+      { v: sessions.length,          l: oktNoun(sessions.length) },
       { v: totalKm.toFixed(1)+' km', l: 'distanse' },
       ...(longest && longest.distanse ? [{ v: longest.distanse.toFixed(1)+' km', l: 'lengste' }] : []),
       ...(fastest  ? [{ v: secsToMmSs(fastest.tempo)+' /km', l: 'raskeste' }] : []),
@@ -8595,7 +8597,7 @@ const DetailPanel = {
       <div class="dp-section-label">Notat</div>
       <textarea id="landNoteInput" rows="3" placeholder="Et minne, en rutetips eller en quirk — f.eks. «tredemøllen viste mph, ikke km/t»" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:inherit;font-size:13px;resize:vertical">${escapeHtml(note)}</textarea>
       <div style="margin:6px 0 2px"><button class="btn-secondary btn-sm" id="landNoteSave">Lagre notat</button><span id="landNoteMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span></div>
-      <div class="dp-section-label">Øktene</div>${rows || '<div class="muted-sm">Ingen løp logget</div>'}`,
+      <div class="dp-section-label">Øktene</div>${rows || '<div class="muted-sm">Ingen økter logget</div>'}`,
       flag
     );
     const noteBtn = document.getElementById('landNoteSave');
@@ -8691,7 +8693,7 @@ const DetailPanel = {
 
     const overviewStats = [
       { v: totalKm.toFixed(1)+' km',      l: 'total distanse' },
-      { v: runs,                           l: 'løp' },
+      { v: runs,                           l: oktNoun(runs) },
       { v: secsToHms(totalSecs),           l: 'tid' },
       { v: avgKmWeek.toFixed(1)+' km/uke', l: 'km per uke' },
       ...(avgPace ? [{ v: secsToMmSs(avgPace)+' /km', l: 'snitt tempo' }] : []),
@@ -8713,7 +8715,7 @@ const DetailPanel = {
       const pace = d.paceCount ? ` · ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km` : '';
       const wkBadges = [];
       if (wk === bestWkKey)       wkBadges.push('Toppuke');
-      if (wk === longestSessionWk) wkBadges.push('Lengste løp');
+      if (wk === longestSessionWk) wkBadges.push('Lengste økt');
       if (wk === paceWkBest)      wkBadges.push('Raskest');
       const wkPills = wkBadges.map(p =>
         `<span style="font-size:9px;background:rgba(255,255,255,.06);color:var(--muted);border:1px solid var(--border);border-radius:3px;padding:1px 5px;white-space:nowrap">${p}</span>`
@@ -8725,7 +8727,7 @@ const DetailPanel = {
             <div style="width:${pct}%;height:100%;background:${best?'var(--accent)':'color-mix(in srgb,var(--accent) 55%,transparent)'};border-radius:3px"></div>
           </div>
           <span style="min-width:38px;text-align:right;font-weight:${best?'600':'400'};color:${best?'var(--text)':'var(--muted)'}">${d.km.toFixed(1)}</span>
-          <span style="color:var(--muted);font-size:11px">${d.runs} løp${pace}</span>
+          <span style="color:var(--muted);font-size:11px">${okter(d.runs)}${pace}</span>
           <span style="color:var(--muted);font-size:11px">›</span>
         </div>
         ${wkPills ? `<div style="display:flex;gap:5px;margin-top:5px;padding-left:64px">${wkPills}</div>` : ''}
@@ -8734,7 +8736,7 @@ const DetailPanel = {
 
     const hl = [];
     if (bestWkKey) hl.push(`Beste uke: ${maxWkKm.toFixed(1)} km (<span onclick="DetailPanel.openWeek('${bestWkKey}', Store.data.sessions)" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px">${fmtWeekLabel(bestWkKey)} ›</span>)`);
-    if (longestSession?.distanse) hl.push(`Lengste løp: <span onclick="DetailPanel.openSession('${longestSession.id}')" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px">${longestSession.distanse.toFixed(1)} km — ${fmtDate(longestSession.dato)} ›</span>`);
+    if (longestSession?.distanse) hl.push(`Lengste økt: <span onclick="DetailPanel.openSession('${longestSession.id}')" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px">${longestSession.distanse.toFixed(1)} km — ${fmtDate(longestSession.dato)} ›</span>`);
     if (maxStreak >= 3) hl.push(`${maxStreak} uker på rad med løping`);
     const paceWeeks = weekKeys.filter(w => weekMap[w].paceCount > 0);
     if (paceWeeks.length >= 4) {
@@ -8756,7 +8758,7 @@ const DetailPanel = {
       `${activeAbsArr.length}/${spanWeeks} uker med løping`,
       maxStreak > 1 ? `Lengste streak: ${maxStreak} uker på rad` : null,
       targetKmWeek   ? `${kmAboveTarget}/${weeks} uker over ${targetKmWeek} km` : null,
-      targetRunsWeek ? `${runsAboveTarget}/${weeks} uker med ${targetRunsWeek}+ løp` : null,
+      targetRunsWeek ? `${runsAboveTarget}/${weeks} uker med ${targetRunsWeek}+ økter` : null,
     ].filter(Boolean);
 
     // Only compare completed blocks: a still-running block has partial volume/consistency and would
@@ -9002,7 +9004,7 @@ function renderWeeklyDistChart(sessions) {
           afterBody: items => {
             const d = distDetails[distKeys[items[0].dataIndex]];
             if (!d) return [];
-            const lines = [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+            const lines = [`${d.km.toFixed(1)} km`, okter(d.runs), secsToHms(d.secs)];
             if (d.paceCount) lines.push(`Tempo: ${secsToMmSs(Math.round(d.paceSum/d.paceCount))}/km`);
             if (d.hrCount)   lines.push(`HR: ${Math.round(d.hrSum/d.hrCount)}`);
             const t = targetMap[distKeys[items[0].dataIndex]];
@@ -9059,7 +9061,7 @@ function renderPaceWeekChart(sessions) {
           afterBody: items => {
             const d = paceDetails[paceKeys[items[0].dataIndex]];
             if (!d) return [];
-            return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+            return [`${d.km.toFixed(1)} km`, okter(d.runs), secsToHms(d.secs)];
           }
         }}},
         scales:{
@@ -9604,7 +9606,7 @@ function renderDashboard() {
               if (items[0].datasetIndex !== 0) return [];
               const d = loadWeekDetails[loadWeeks[items[0].dataIndex]];
               if (!d) return [];
-              return [`${d.km.toFixed(1)} km`, `${d.runs} løp`, secsToHms(d.secs)];
+              return [`${d.km.toFixed(1)} km`, okter(d.runs), secsToHms(d.secs)];
             }
           }
         }
@@ -9775,7 +9777,7 @@ function renderDashboard() {
       const warn = w && w.band === 'red' ? (w.spent ? ' 🔴' : ' ⚠️') : '';
       const st = shoeStats[name] || {};
       const chips = [];
-      if (st.count)     chips.push(`<span class="shoe-stat"><span class="sv">${st.count}</span><span class="sl">løp</span></span>`);
+      if (st.count)     chips.push(`<span class="shoe-stat"><span class="sv">${st.count}</span><span class="sl">${oktNoun(st.count)}</span></span>`);
       if (st.paceCount) chips.push(`<span class="shoe-stat"><span class="sv">${secsToMmSs(Math.round(st.paceSum/st.paceCount))}</span><span class="sl">/km</span></span>`);
       if (st.hrCount)   chips.push(`<span class="shoe-stat"><span class="sl">HR</span><span class="sv">${Math.round(st.hrSum/st.hrCount)}</span></span>`);
       if (st.lastDate)  chips.push(`<span class="shoe-stat"><span class="sl">sist</span><span class="sv">${fmtDate(st.lastDate)}</span></span>`);

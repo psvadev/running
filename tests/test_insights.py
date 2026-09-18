@@ -86,7 +86,7 @@ def insights_text(pg, sessions, max_hr):
     return " ".join(pg.inner_text('#insightCard').split())
 
 
-FIRES = 'løp over maks puls'
+FIRES = 'økter over maks puls'
 
 with sync_playwright() as p:
     b = p.webkit.launch()
@@ -103,7 +103,7 @@ with sync_playwright() as p:
         session(days_ago(3), 150),        # ordinary run, under the setting
     ], 183)
     check('card fires', FIRES in txt, True)
-    check('counts BOTH exceedances', '2 løp over maks puls' in txt, True)
+    check('counts BOTH exceedances', '2 økter over maks puls' in txt, True)
     check('names the peak, not the latest', '195 bpm' in txt, True)
     check('names the setting it contradicts', 'mot 183 satt' in txt, True)
     # The generator is wrapped in a try/catch that prints DEBUG on throw — a card that renders an

@@ -21,7 +21,7 @@ all four bullet colours are exercised together.
 
 No local data file exists; every session is synthesised in-page.
 """
-import pathlib, sys, tempfile
+import pathlib, re, sys, tempfile
 sys.stdout.reconfigure(encoding="utf-8")
 from playwright.sync_api import sync_playwright
 
@@ -205,6 +205,25 @@ with sync_playwright() as pw:
     # And the old word is gone from all three, not merely joined by the new one.
     check("no surface still says løp/uke",
           any('løp/uke' in v for v in labels.values()), False)
+
+    # ── Counts say «økt» too (2026-09-18) ───────────────────────────────────────────────────────
+    # The rename above stopped at the threshold; every drill-down count tile still said «3 løp»
+    # beside «Denne uken»'s «3 økter». One word for a session, singular at 1.
+    print("== a session count says økt/økter, never løp ==")
+    def week_tiles(wk):
+        pg.evaluate(f"() => DetailPanel.openWeek('{wk}', Store.data.sessions)")
+        pg.wait_for_timeout(300)
+        t = pg.evaluate("""() => ({
+            labels: [...document.querySelectorAll('#detailBody .dpl')].map(e => e.textContent.trim()),
+            body: document.getElementById('detailBody').innerText })""")
+        pg.keyboard.press("Escape"); pg.wait_for_timeout(200)
+        return t
+    two, one = week_tiles('2026-32'), week_tiles('2026-33')
+    check("two sessions → «økter» tile", 'økter' in two['labels'], True)
+    check("one session → «økt» tile", 'økt' in one['labels'], True)
+    check("no tile is labelled «løp»", 'løp' in two['labels'] + one['labels'], False)
+    check("no «N løp» anywhere in either panel",
+          bool(re.search(r'\d\s*løp\b', two['body'] + one['body'])), False)
 
     check("no page errors", errs, [])
     b.close()
