@@ -1027,14 +1027,23 @@ with sync_playwright() as b0:
         u = pg.evaluate("(c) => landFlagUrl(c)", c)
         check(f"{c} resolves to an inline SVG", bool(u and u.startswith("data:image/svg+xml,")), True)
     # ⚠️ THE ACCEPTED TRADE-OFF. flagcdn answered for all ~250 countries; this set carries only the
-    # ones actually run in. An unlisted country must therefore fall back to its NAME, not vanish and
-    # not render a broken image — that is what makes the small set safe to ship.
-    check("an unlisted country has no flag", pg.evaluate("() => landFlagUrl('BR')"), None)
-    check("...and gibberish still returns null", pg.evaluate("() => landFlagUrl('ZZ')"), None)
+    # ones actually run in. An unlisted country falls back to the browser's own flag emoji (since
+    # 2026-09-18) and, where the browser has none, to its NAME — never vanishing, never a broken image.
+    # Which branch applies is the ENGINE's answer, so read it rather than assume it: CI's WebKit on
+    # Windows has no flag emoji (like Windows Chrome/Edge), Firefox and Apple devices do. Either way
+    # nothing is fetched — the request watch above covers this path too.
+    emoji = pg.evaluate("() => !!emojiFlagUrl('DE')")
+    br_url = pg.evaluate("() => landFlagUrl('BR')")
+    check("an unlisted country: emoji PNG where the browser has flags, else none",
+          (br_url or "").startswith("data:image/png") if emoji else br_url, True if emoji else None)
+    # ZZ is a pair of regional-indicator letters with no flag behind it. Firefox's emoji font draws
+    # it as two COLOURED letter boxes, which a colour test alone took for a flag (caught 2026-09-18).
+    check("...and gibberish is never mistaken for a flag", pg.evaluate("() => landFlagUrl('ZZ')"), None)
     chips = pg.evaluate("""() => [...document.querySelectorAll('.land-chip')].map(c =>
         ({ text: c.innerText.replace(/\\s+/g, ' ').trim(), flag: !!c.querySelector('img') }))""")
     br = [c for c in chips if c["text"].startswith("Brasil")]
-    check("...but the country is still NAMED, flagless", (len(br), br and br[0]["flag"]), (1, False))
+    check("...and the country is always NAMED, flagged only if the browser can",
+          (len(br), br and br[0]["flag"]), (1, emoji))
     check("...while a known one keeps its flag",
           [c["flag"] for c in chips if c["text"].startswith("Norge")], [True])
     check("no flag page errors", ferr, [])

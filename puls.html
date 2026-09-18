@@ -2649,15 +2649,15 @@ function landName(code) {           // 'NO' → "Norge"; raw fallback text passe
 // otherwise entirely local, that was the only thing leaving the machine that said anything about you,
 // and travel history is the most sensitive thing the app derives.
 //
-// Emoji flags were the obvious alternative and are wrong: Windows Chrome and Edge render regional
-// indicator pairs as bare letters ("NO"), and Edge is the primary browser here.
+// Emoji flags alone are wrong: Windows Chrome and Edge render regional indicator pairs as bare
+// letters ("NO"). But Firefox on Windows (his main browser) and every Apple device draw real flags,
+// so since 2026-09-18 emoji are the FALLBACK for a country with no bundled flag — see emojiFlagUrl.
 //
-// ⚠️ ONLY THE COUNTRIES THE APP ACTUALLY HAS TO DRAW ARE CARRIED, so this returns null for everything
-// else — where the CDN answered for all ~250. A deliberate trade, not an oversight: every call site
-// already handles null by showing the country NAME alone, so an unlisted country degrades to plain
-// text rather than a broken image. The whole set is ~2 KB; a broad one would have been ~40 KB of flags
-// for countries never visited. ADDING ONE IS THE JOB when a new country appears — a fresh trip is
-// exactly when the atlas is worth opening, so do not leave it nameless.
+// ⚠️ ONLY THE COUNTRIES THE APP ACTUALLY HAS TO DRAW ARE CARRIED. The whole set is ~2 KB; a broad one
+// would have been ~40 KB of flags for countries never visited. Anything else falls back to the
+// browser's own flag emoji, and where it has none (Windows Chrome/Edge) to null — every call site
+// already shows the country NAME alone then. Bundling a flag is still worth it for a country he keeps
+// returning to: an SVG looks the same in every browser, an emoji does not.
 //
 // Two groups, and the split is on purpose. NO/SE/FR/PH/JP are the countries run in. ES/IT/TH are there
 // only because `tests/make-screenshots.py` uses them: that fixture deliberately does NOT mirror real
@@ -2681,9 +2681,42 @@ const FLAG_SVG = {
 // this is otherwise a string rebuild per flag per render.
 const _flagUriCache = {};
 function landFlagUrl(code) {
-  if (!/^[A-Z]{2}$/.test(code) || !FLAG_SVG[code]) return null;
-  return _flagUriCache[code] ||
-    (_flagUriCache[code] = 'data:image/svg+xml,' + encodeURIComponent(FLAG_SVG[code]));
+  if (!/^[A-Z]{2}$/.test(code || '')) return null;
+  if (code in _flagUriCache) return _flagUriCache[code];
+  return (_flagUriCache[code] = FLAG_SVG[code]
+    ? 'data:image/svg+xml,' + encodeURIComponent(FLAG_SVG[code])
+    : emojiFlagUrl(code));
+}
+// The browser's own flag emoji, drawn to a canvas and returned as a PNG — or null when what it drew
+// is not a flag. Two tests, because each alone is fooled: Windows Chrome/Edge draw the two
+// regional-indicator letters in plain ink (colour test), while Firefox's own emoji font draws an
+// unknown pair like ZZ as two COLOURED letter boxes (width test — a real flag is one glyph, a pair
+// of letters is two). The colour test runs on the very drawing that becomes the image.
+// Cropped to the drawn pixels so it sits in a chip like the bundled SVGs. Nothing is fetched.
+function emojiFlagUrl(code) {
+  try {
+    const W = 72, H = 72, c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.font = '56px "Twemoji Mozilla","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000';
+    const ri = [...code].map(ch => 0x1F1A5 + ch.charCodeAt(0)), pair = String.fromCodePoint(...ri);
+    if (g.measureText(pair).width > 1.5 * g.measureText(String.fromCodePoint(ri[0])).width) return null;
+    g.fillText(pair, W / 2, H / 2);
+    const px = g.getImageData(0, 0, W, H).data;
+    let coloured = false, x0 = W, y0 = H, x1 = -1, y1 = -1;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] < 128) continue;
+      const x = (i / 4) % W, y = (i / 4 / W) | 0;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (Math.max(px[i], px[i + 1], px[i + 2]) - Math.min(px[i], px[i + 1], px[i + 2]) > 40) coloured = true;
+    }
+    if (!coloured) return null;
+    const out = document.createElement('canvas');
+    out.width = x1 - x0 + 1; out.height = y1 - y0 + 1;
+    out.getContext('2d').drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+    return out.toDataURL('image/png');
+  } catch { return null; }
 }
 // Map an IANA timezone → ISO country code. Strava's location_country is
 // deprecated (usually null), but every activity still carries a `timezone`

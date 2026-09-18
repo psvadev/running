@@ -162,8 +162,13 @@ with sync_playwright() as p:
     # ⚠️ #newEvtDate carries NO inline width, so it is the only one a stray `width:100%` on .inp could
     # actually stretch — the others' inline widths outrank a class rule and would hide the mistake.
     # Added after a falsification (adding .inp to the width:100% rule) passed every check above.
+    # Compared with a bare date input in the SAME engine, not a literal: the intrinsic size is the
+    # browser's (168 px in WebKit, 131 in Firefox — found by a one-off Firefox run 2026-09-18).
+    bare = pg.evaluate("""() => { const i = document.createElement('input'); i.type = 'date';
+        document.body.appendChild(i); const w = Math.round(i.getBoundingClientRect().width);
+        i.remove(); return w; }""")
     check("...and a field with no inline width keeps its intrinsic size",
-          width('newEvtDate', 'plan'), 168)
+          abs(width('newEvtDate', 'plan') - bare) <= 30, True)
     # Small muted text: one class, not 64 inline copies in two property orders.
     small = pg.evaluate("""() => {
         const cls = [...document.querySelectorAll('.muted-sm')];
@@ -269,6 +274,9 @@ with sync_playwright() as p:
     invalid = "() => document.getElementById('fLand').matches(':invalid')"
     # Start from a clean form: the refusal above already left this field red, and refilling the
     # same text fires no change event — the check would pass on the refusal's border, not the blur's.
+    # Blur first: the refusal left the cursor in the field, and Firefox measures `change` against the
+    # value at focus («Frankrikr») even across a programmatic clear — refilling it then fires nothing.
+    pg.locator("#fLand").blur()
     pg.evaluate("() => Form.clear()")
     check("control: a cleared field is not red", pg.evaluate(invalid), False)
     pg.fill("#fLand", "Frankrikr"); pg.locator("#fLand").blur()
