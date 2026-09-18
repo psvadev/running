@@ -238,6 +238,57 @@ with sync_playwright() as p:
     n, msg, _ = attempt("fKalorier", "0")
     check("the min boundary itself is accepted", (n, msg), (1, ""))
 
+    # ── Land: a known country or nothing (2026-09-18) ──────────────────────────────────────────
+    # An unrecognised name used to be stored as typed, and the atlas then counted «Frankrikr» or
+    # «England» as one more foreign country — no flag, no continent, but a step toward Passport.
+    print("== Land resolves Norwegian, English, aliases and codes; refuses the rest ==")
+    def land_of(value):
+        n, msg, left = attempt("fLand", value)
+        return n, msg, left, pg.evaluate("() => (Store.data.sessions[0] || {}).land ?? null")
+
+    for typed, code in (("Frankrike", "FR"), ("France", "FR"), ("philippines", "PH"),
+                        ("England", "GB"), ("jp", "JP")):
+        n, msg, _, land = land_of(typed)
+        check(f"«{typed}» saves as {code}", (n, msg, land), (1, "", code))
+    n, msg, _, land = land_of("")
+    check("control: blank still saves (= home), no land stored", (n, msg, land), (1, "", None))
+    n, msg, left, _ = land_of("Frankrikr")
+    check("«Frankrikr» is refused", n, 0)
+    check("...naming what was typed", "Frankrikr" in msg, True)
+    check("...and left in the field", left, "Frankrikr")
+    check("...and marked red, so the field itself says which one",
+          pg.evaluate("() => document.getElementById('fLand').matches(':invalid')"), True)
+
+    opts = pg.evaluate("() => [...document.querySelectorAll('#landDatalist option')].map(o => o.value)")
+    check("the list suggests the Norwegian name", "Filippinene" in opts, True)
+    check("...and the English one beside it", "Philippines" in opts, True)
+    check("...but a name both share only once", opts.count("Japan"), 1)
+
+    # The border: set on leaving the field, cleared by a fix, by clear(), and shown on an old
+    # free-text land opened for editing.
+    invalid = "() => document.getElementById('fLand').matches(':invalid')"
+    # Start from a clean form: the refusal above already left this field red, and refilling the
+    # same text fires no change event — the check would pass on the refusal's border, not the blur's.
+    pg.evaluate("() => Form.clear()")
+    check("control: a cleared field is not red", pg.evaluate(invalid), False)
+    pg.fill("#fLand", "Frankrikr"); pg.locator("#fLand").blur()
+    check("an unknown country turns red on leaving the field", pg.evaluate(invalid), True)
+    pg.fill("#fLand", "Frankrike")
+    check("...and clears as soon as the name is right", pg.evaluate(invalid), False)
+    # ⚠️ Blur between the two fills: WebKit fires `change` only if the value differs from what it
+    # was at FOCUS, and «Frankrikr» is what it was — so without the blur the field never turned red,
+    # and the clear() check below passed with nothing to clear. Hence the control.
+    pg.locator("#fLand").blur()
+    pg.fill("#fLand", "Frankrikr"); pg.locator("#fLand").blur()
+    check("control: red again before the clear", pg.evaluate(invalid), True)
+    pg.evaluate("() => Form.clear()")
+    check("Form.clear() does not leave a stale red border", pg.evaluate(invalid), False)
+    pg.evaluate("""() => { Store.data.sessions = [{ id:'old', dato:'2026-08-01', uke:'2026-31',
+        oktnavn:'Old', okttype:'Easy', treningsplan:'Runna', varighet:1800, distanse:5,
+        soner:[0,0,0,0,0], land:'Frankrikr' }]; Form.populate(Store.data.sessions[0]); }""")
+    pg.wait_for_timeout(200)
+    check("an old free-text land is red when opened for editing", pg.evaluate(invalid), True)
+
     # ── The field says it is wrong while you type, not only when you press Lagre ────────────────
     # Pure CSS `:invalid`, the same condition save() checks. Mirrors Verktøy's `.bad-input`, and the
     # reason is the one written there: "silently cleared" and "not filled in yet" look identical, so

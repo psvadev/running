@@ -220,6 +220,28 @@ with sync_playwright() as p:
     check("no width page errors", werr, [])
     pg.close()
 
+    # ── Atlas badge cards open from the keyboard (2026-09-18) ──────────────────────────────────
+    # They carry role="button" + tabindex="0", so Tab reaches them — and Enter used to do nothing.
+    print("== an atlas badge opens with Enter ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    kerr = []
+    pg.on("pageerror", lambda e: kerr.append(str(e)))
+    pg.goto(APP)
+    pg.evaluate("""() => localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions:[{ id:'k1', dato:'2026-08-01', uke:'2026-31', oktnavn:'Tur', okttype:'Easy',
+                    treningsplan:'Runna', varighet:1800, distanse:5, soner:[0,0,0,0,0], land:'SE' }],
+        shoes:[], goals:{}, events:[], settings:{zones:[]}, lastUpdated:'' }))""")
+    pg.goto(APP); pg.wait_for_timeout(500)
+    pg.evaluate("() => switchTab('atlas')"); pg.wait_for_timeout(400)
+    modal_open = "() => document.getElementById('detailModal').classList.contains('open')"
+    card = pg.locator("#atlasBadges [data-badge]").first
+    check("control: a badge card rendered", card.count() > 0, True)
+    check("control: nothing open before the key", pg.evaluate(modal_open), False)
+    card.focus(); pg.keyboard.press("Enter"); pg.wait_for_timeout(300)
+    check("Enter on a focused badge opens its panel", pg.evaluate(modal_open), True)
+    check("no badge-key page errors", kerr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))

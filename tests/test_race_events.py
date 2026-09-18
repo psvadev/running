@@ -1062,11 +1062,10 @@ with sync_playwright() as b0:
     pg.evaluate("""(p) => {
       const S = (id, d, typ, km) => ({ id, dato:d, uke:'', oktnavn:p, okttype:typ, treningsplan:'Runna',
         varighet: km*360, distanse: km, tempo:360, soner:[0,600,600,0,0], notater:p,
-        // `land` carries the payload too (added 2026-09-09). It is free text by design —
-        // resolveLandInput's own comment reads "typed Norwegian name or 2-letter code → ISO code,
-        // else raw text" — so an unrecognised country name is stored verbatim. Every render site
-        // escapes it today (detail panel, atlas chips and lists, panel title, datalist); this is
-        // what makes that a checked fact rather than a lucky one.
+        // `land` carries the payload too (added 2026-09-09). The form refuses an unknown country
+        // since 2026-09-18, but data saved before then can still hold free text, so every render
+        // site must keep escaping it (detail panel, atlas chips and lists, panel title, datalist);
+        // this is what makes that a checked fact rather than a lucky one.
         beskrivelse:p, land:p, sko:p, lopetype:'utendors' });
       localStorage.setItem('lpl_cache', JSON.stringify({
         sessions: [S('x','2026-04-06','Easy',5),  S('y','2026-04-13','Long',9),

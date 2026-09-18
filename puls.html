@@ -134,7 +134,7 @@
      copy the pairing here on the strength of that comment, and do not drop it there on the strength
      of this one. (First written with the redundant pair; falsification showed removing it changed
      nothing.) Empty is never invalid on an optional field, so a blank form is not a wall of red. */
-  #panel-form input[type=number]:invalid { border-color: var(--danger); }
+  #panel-form input[type=number]:invalid, #panel-form #fLand:invalid { border-color: var(--danger); }
   .form-group input[readonly] { background: var(--surface); border-color: transparent; color: var(--accent); cursor: default; opacity: 1; }
   .form-group input[readonly]:focus { border-color: transparent; outline: none; }
   .form-section { margin-bottom: 20px; }
@@ -2635,7 +2635,7 @@ const LandNames = (() => {
     try { const n = nb?.of(c); if (n && n !== c) nbToCode[n.toLowerCase()] = c; } catch {}
     try { const n = en?.of(c); if (n && n !== c) enToCode[n.toLowerCase()] = c; } catch {}
   });
-  return { nb, nbToCode, enToCode };
+  return { nb, en, nbToCode, enToCode };
 })();
 
 function landName(code) {           // 'NO' → "Norge"; raw fallback text passes through
@@ -2764,17 +2764,39 @@ function countryFromTz(tz) {          // "(GMT+01:00) Europe/Oslo" → "NO"; unk
   return TZ_COUNTRY[tz.trim().split(' ').pop()] || '';
 }
 
-function resolveLandInput(txt) {    // typed Norwegian name or 2-letter code → ISO code, else raw text
+// Names people actually say that no ISO name matches — «England» is not «Storbritannia».
+const LAND_ALIASES = { england:'GB', skottland:'GB', scotland:'GB', wales:'GB', 'nord-irland':'GB',
+  'northern ireland':'GB', uk:'GB', holland:'NL' };
+// Typed Norwegian or English name, alias or 2-letter code → ISO code, else the raw text. The raw
+// text survives only so save() can NAME it when refusing — until 2026-09-18 it was stored, and the
+// atlas counted «Frankrikr» or «England» as one more foreign country with no flag and no continent.
+function resolveLandInput(txt) {
   const t = (txt || '').trim();
   if (!t) return null;
   if (/^[A-Za-z]{2}$/.test(t) && ISO_COUNTRY_CODES.includes(t.toUpperCase())) return t.toUpperCase();
-  return LandNames.nbToCode[t.toLowerCase()] || t;
+  const k = t.toLowerCase();
+  return LandNames.nbToCode[k] || LandNames.enToCode[k] || LAND_ALIASES[k] || t;
 }
+const isLandCode = v => /^[A-Z]{2}$/.test(v || '');
+// Also called wherever the form writes the field itself (clear, edit), which fires no event — a
+// border left red from the previous session would otherwise sit on a blank or valid field.
+function markLandInput() {
+  const el = document.getElementById('fLand'); if (!el) return;
+  const v = resolveLandInput(el.value);
+  el.setCustomValidity(v && !isLandCode(v) ? 'Ukjent land' : '');
+}
+// Norwegian AND English names, so either suggests as you type; the English one only where it
+// differs («Philippines» beside «Filippinene», not «Japan» twice). Saved as the code either way, so
+// the field reads back in Norwegian.
 function buildLandDatalist() {
   const dl = document.getElementById('landDatalist');
   if (!dl || !LandNames.nb) return;
-  dl.innerHTML = ISO_COUNTRY_CODES.map(c => landName(c))
-    .sort((a, b) => a.localeCompare(b, 'nb'))
+  const names = new Set();
+  ISO_COUNTRY_CODES.forEach(c => {
+    names.add(landName(c));
+    try { const en = LandNames.en?.of(c); if (en && en !== c) names.add(en); } catch {}
+  });
+  dl.innerHTML = [...names].sort((a, b) => a.localeCompare(b, 'nb'))
     .map(n => `<option value="${escapeHtml(n)}">`).join('');
 }
 
@@ -3280,7 +3302,13 @@ function renderAtlas(sessions, events) {
   document.querySelectorAll('#atlasBadges .af-btn').forEach(el => el.addEventListener('click', e => {
     e.preventDefault(); atlasFilter = el.dataset.filter; renderAtlas(Store.data.sessions, Store.data.events);
   }));
-  document.querySelectorAll('#atlasBadges [data-badge]').forEach(el => el.addEventListener('click', () => DetailPanel.openBadge(el.dataset.badge)));
+  document.querySelectorAll('#atlasBadges [data-badge]').forEach(el => {
+    el.addEventListener('click', () => DetailPanel.openBadge(el.dataset.badge));
+    // role="button" + tabindex promise keyboard activation; a div gives none by itself.
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); DetailPanel.openBadge(el.dataset.badge); }
+    });
+  });
 }
 
 function showToast(msg, type = 'info', duration = 4000) {
@@ -6092,6 +6120,7 @@ const Form = {
     document.getElementById('fNotater').value = s.notater || '';
     document.getElementById('fUtenforAnalyse').checked = !!s.utenforAnalyse;
     document.getElementById('fLand').value = s.land ? landName(s.land) : '';
+    markLandInput();   // an old free-text land shows red before Lagre refuses it
     document.getElementById('fStravaId').value = s.stravaId || '';
     this.refreshShoeDropdown(s.sko);
   },
@@ -6159,6 +6188,14 @@ const Form = {
       return;
     }
     const s = this.read();
+    // Refused, not stored: an unknown country would become a country of its own in the atlas.
+    // The typed text stays in the field (same rule as the numeric ranges above).
+    if (s.land && !isLandCode(s.land)) {
+      alert(`«Land»: kjenner ikke igjen «${s.land}». Velg et land fra listen — norsk eller engelsk navn.`);
+      markLandInput();
+      document.getElementById('fLand').focus();
+      return;
+    }
     if (!s.dato) { alert('Velg en dato.'); return; }
     if (s.distanse <= 0) { alert('Fyll inn distanse.'); return; }
     const savedId = s.id;   // stable in both paths (editId when editing, fresh genId when new)
@@ -6190,6 +6227,7 @@ const Form = {
      'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fRpe','fBeskrivelse','fNotater','fLand','fStravaId'].forEach(id => {
       document.getElementById(id).value = '';
     });
+    markLandInput();
     const lastSession = Store.data.sessions[Store.data.sessions.length - 1];
     const lastLopetype = lastSession?.løpetype || 'treadmill';
     document.getElementById('fLopetype').value = lastLopetype;
@@ -12718,6 +12756,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('keydown', e => { if (e.key === 'Escape') DetailPanel.close(); });
 
   buildLandDatalist();
+  // Red border once you leave the field, not per keystroke — «Fra» is on its way to «Frankrike».
+  // Once red, it re-checks per keystroke so the border clears the moment the name is right.
+  document.getElementById('fLand')?.addEventListener('change', markLandInput);
+  document.getElementById('fLand')?.addEventListener('input', e => { if (!e.target.validity.valid) markLandInput(); });
 
   // Load from cache immediately, then try to silently reattach the file handle
   // Skip local file restore if Drive is connected — Drive is the source of truth
