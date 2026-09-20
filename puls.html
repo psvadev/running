@@ -333,6 +333,15 @@
   .shoe-stat { display:inline-flex; gap:3px; align-items:baseline; background:rgba(255,255,255,.04); border-radius:4px; padding:2px 7px; font-size:10px; }
   .shoe-stat .sl { color:var(--muted); }
   .shoe-stat .sv { color:var(--text); font-weight:500; }
+  /* Standard sko — session group × surface. `max-content` on the label column so the two select
+     columns share what is left evenly and stay equal width; the whole grid caps at 520 px so it does
+     not stretch across a wide Planlegging card. `min-width:0` lets the selects shrink on a phone
+     instead of pushing the grid wider than the screen. */
+  .shoe-def-grid { display:grid; grid-template-columns:max-content 1fr 1fr; gap:6px 10px; align-items:center; width:100%; max-width:520px; }
+  .shoe-def-grid .sdg-head { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .shoe-def-grid .sdg-row { display:flex; flex-direction:column; font-size:13px; color:var(--text); }
+  .shoe-def-grid .sdg-row small { font-size:10px; color:var(--muted); }
+  .shoe-def-grid .sdg-sel { min-width:0; width:100%; }
   .land-chip { display:inline-flex; align-items:center; gap:8px; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:6px 14px; font-size:13px; cursor:pointer; transition:border-color .15s; }
   .land-chip:hover { border-color:var(--accent); }
   .land-chip img { height:16px; width:auto; border-radius:2px; display:block; }
@@ -851,6 +860,10 @@
           <select id="fSko" style="flex:1"></select>
           <button class="btn-secondary btn-sm" id="btnAddShoe" title="Legg til sko">+</button>
         </div>
+        <!-- Says where the pre-selected shoe came from when it came from Strava. A forgotten gear
+             change there sends Strava's DEFAULT shoe, which is indistinguishable from a deliberate
+             one — so the defence is showing it while it can still be corrected. -->
+        <div id="shoeSrcHint" class="muted-sm" style="margin-top:2px"></div>
       </div>
       <div class="form-group">
         <label>RPE (1–10)</label>
@@ -1420,12 +1433,22 @@
            a sub-heading inside the card, not another card title. Only the shared size+colour moves
            to .muted-sm; the rest is what makes it its own thing. -->
       <span class="muted-sm" style="font-weight:600;text-transform:uppercase;letter-spacing:.05em">Standard sko</span>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">Utendørs
-        <select id="defaultShoeOutdoor" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:13px;min-width:150px"></select>
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">Tredemølle
-        <select id="defaultShoeTreadmill" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:13px;min-width:150px"></select>
-      </label>
+      <span class="muted-sm">Forhåndsvelger sko i loggskjemaet — alltid overstyrbar per økt. Tomt felt = sko fra «Andre økter».</span>
+      <!-- A grid, not rows of labels: the shoe depends on BOTH the session group and the surface, and
+           only a table makes that readable. `grid-template-columns` with auto first column keeps the
+           labels tight; at 402 px the whole card scrolls, the grid itself stays 3 columns. -->
+      <div class="shoe-def-grid">
+        <span></span><span class="sdg-head">Utendørs</span><span class="sdg-head">Tredemølle</span>
+        <span class="sdg-row">Rolig<small>Easy · Steady · Long</small></span>
+        <select class="inp sdg-sel" id="defaultShoeRoligOutdoor"></select>
+        <select class="inp sdg-sel" id="defaultShoeRoligTreadmill"></select>
+        <span class="sdg-row">Fart<small>Tempo · Intervaller</small></span>
+        <select class="inp sdg-sel" id="defaultShoeFartOutdoor"></select>
+        <select class="inp sdg-sel" id="defaultShoeFartTreadmill"></select>
+        <span class="sdg-row">Andre økter<small>Test · Race · egne typer</small></span>
+        <select class="inp sdg-sel" id="defaultShoeOutdoor"></select>
+        <select class="inp sdg-sel" id="defaultShoeTreadmill"></select>
+      </div>
     </div>
     <div id="shoeList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -3528,6 +3551,11 @@ const Store = {
 // CUSTOM ØKTTYPE / TRENINGSPLAN LISTS
 // ═══════════════════════════════════════════════════════
 const CORE_OKTTYPER = ['Easy','Steady','Long','Tempo','Intervaller','Test','Race'];
+// Which session types share a shoe. Only the two groups he actually separates — Test/Race and any
+// custom type fall through to the per-venue «Andre økter» default, because his third pair is an in-between
+// one he picks per run (2026-09-20). Venue still splits each group: one pair lives indoors.
+const SHOE_GROUPS = { rolig: ['Easy', 'Steady', 'Long'], fart: ['Tempo', 'Intervaller'] };
+const shoeGroupOf = okttype => Object.keys(SHOE_GROUPS).find(g => SHOE_GROUPS[g].includes(okttype)) || null;
 // The two types that are a MAXIMAL EFFORT rather than training — the runs that re-anchor the
 // projections. Which of the two you get is decided by the words Runna happened to use in the .ics
 // ("race" → Race, "time trial" → Test, see deriveOkttype), so the same effort can arrive under
@@ -5800,6 +5828,8 @@ const Form = {
   lastAutoOktnavn: '',
   planTouched: false,   // set once Treningsplan is hand-picked; syncPlanForType then keeps its hands off
   planPrefill: null,    // {fieldId: value} applyPlannedDefault() wrote, so clearPlanPrefill can take back only that
+  shoeTouched: false,   // a hand-picked shoe is final for the rest of this form — same rule as planTouched
+  pendingGearId: null,  // Strava gear this form could not match; save() links it to the shoe he picks
 
   init() {
     document.getElementById('fDato').value = localISODate();
@@ -5808,12 +5838,16 @@ const Form = {
 
     document.getElementById('fDato').addEventListener('change', () => {
       this.updateWeek();
-      if (!this.editId) { this.applyPlannedDefault(); this.applyVenueForType(); this.syncPlanForType(); this.maybeAutoName(); }
+      if (!this.editId) { this.applyPlannedDefault(); this.applyVenueForType(); this.applyShoeDefault(); this.syncPlanForType(); this.maybeAutoName(); }
     });
     document.getElementById('btnSaveSession').addEventListener('click', () => this.save());
     document.getElementById('btnClearForm').addEventListener('click', () => this.clear());
     document.getElementById('btnCancelEdit').addEventListener('click', () => this.cancelEdit());
     document.getElementById('btnAddShoe').addEventListener('click', () => switchTab('plan'));
+
+    // A hand-picked shoe is final for the rest of this form — changing Økt-type or Løpetype
+    // afterwards must not quietly swap it back to the rule's pick. Same shape as planTouched.
+    document.getElementById('fSko').addEventListener('change', () => { this.shoeTouched = true; });
 
     // Treningsplan change: toggle Øktbeskrivelse visibility + auto-name. A hand-pick is final for
     // the rest of this form — syncPlanForType() will not touch the field again until clear().
@@ -5825,6 +5859,8 @@ const Form = {
     document.getElementById('fOkttype').addEventListener('change', () => {
       if (!this.editId) {
         this.applyVenueForType();   // Tempo/Intervaller → Tredemølle on manual pick
+        this.applyShoeDefault();    // …and the shoe for that group × venue (applyVenueForType only
+                                    // reaches this for the two types it moves)
         this.syncPlanForType();     // Race outside every block → Egentrening
       }
       this.maybeAutoName();
@@ -5960,14 +5996,47 @@ const Form = {
     }
   },
 
-  // Pre-select #fSko from the current venue's default shoe (Innstillinger → Standard sko).
-  // Only when the default names an existing, non-retired shoe — otherwise leave the current pick.
+  // Pre-select #fSko from «Standard sko» (Planlegging → Sko): the session GROUP × venue cell if it is
+  // filled, else that venue's «Andre økter» shoe — the setting that existed alone until 2026-09-20, so an
+  // empty grid behaves exactly as before. Only an existing, non-retired shoe wins; otherwise the
+  // current pick stands. Never during an edit, and never after a hand-pick (see shoeTouched).
   applyShoeDefault() {
+    if (this.editId || this.shoeTouched) return;
     const venue = document.getElementById('fLopetype').value === 'treadmill' ? 'treadmill' : 'outdoor';
-    const defName = (Store.data.shoeDefaults || {})[venue];
-    if (defName && Store.data.shoes.some(s => s.name === defName && !s.retired)) {
-      this.refreshShoeDropdown(defName);
+    const defs = Store.data.shoeDefaults || {};
+    const group = shoeGroupOf(document.getElementById('fOkttype').value);
+    const named = n => n && Store.data.shoes.some(s => s.name === n && !s.retired);
+    const groupName = group && ((defs.groups || {})[group] || {})[venue];
+    const defName = named(groupName) ? groupName : defs[venue];
+    if (named(defName)) this.refreshShoeDropdown(defName);
+  },
+
+  // Strava's gear → the Puls shoe, or a hint when the two are not connected yet.
+  //   linked  (shoe.stravaGearId === gear.id)  → select it
+  //   by name (case-insensitive)               → select it AND store the link, so a renamed shoe or
+  //                                              a gear id change only costs one match
+  //   unknown                                  → leave the Standard sko pick, name the Strava shoe,
+  //                                              and remember the id so save() can learn from his own
+  //                                              pick (pendingGearId). Never a guess of ours.
+  // A retired shoe is ignored, like everywhere else.
+  applyStravaGear(gear) {
+    this.pendingGearId = null;
+    const hint = document.getElementById('shoeSrcHint');
+    if (hint) hint.textContent = '';
+    if (!gear || !gear.id || this.shoeTouched) return;
+    const active = Store.data.shoes.filter(s => !s.retired);
+    let shoe = active.find(s => s.stravaGearId === gear.id);
+    if (!shoe && gear.name) {
+      shoe = active.find(s => s.name.toLowerCase() === gear.name.trim().toLowerCase());
+      if (shoe) { shoe.stravaGearId = gear.id; FileIO.save(); }
     }
+    if (shoe) {
+      this.refreshShoeDropdown(shoe.name);
+      if (hint) hint.textContent = `Sko fra Strava: ${shoe.name}`;
+      return;
+    }
+    this.pendingGearId = gear.id;
+    if (hint && gear.name) hint.textContent = `Strava-sko «${gear.name}» er ikke koblet — velg sko, så huskes det`;
   },
 
   // Prefill Økt-type + Mål distanse + Øktbeskrivelse from an imported Runna planned session matching
@@ -6231,6 +6300,13 @@ const Form = {
     }
     if (!s.dato) { alert('Velg en dato.'); return; }
     if (s.distanse <= 0) { alert('Fyll inn distanse.'); return; }
+    // He picked a shoe on a form whose Strava gear matched nothing — store the link now, so the next
+    // import of that gear resolves by itself. His explicit pick, never inferred from a pattern.
+    if (this.pendingGearId && s.sko) {
+      const shoe = Store.data.shoes.find(x => x.name === s.sko);
+      if (shoe && !shoe.stravaGearId) shoe.stravaGearId = this.pendingGearId;
+      this.pendingGearId = null;
+    }
     const savedId = s.id;   // stable in both paths (editId when editing, fresh genId when new)
 
     if (this.editId) {
@@ -6264,7 +6340,6 @@ const Form = {
     const lastSession = Store.data.sessions[Store.data.sessions.length - 1];
     const lastLopetype = lastSession?.løpetype || 'treadmill';
     document.getElementById('fLopetype').value = lastLopetype;
-    this.applyShoeDefault();   // pre-select the shoe for this venue (overridable per session)
     document.getElementById('fUtenPuls').checked = false;
     document.getElementById('fUtenforAnalyse').checked = false;
     this.togglePulsdata();
@@ -6275,6 +6350,12 @@ const Form = {
     this.lastAutoOktnavn = '';
     this.applyPlannedDefault();   // Økt-type + Mål distanse from that day's imported Runna plan (if any)
     this.applyVenueForType();     // Tempo/Intervaller → Tredemølle (after the type is known)
+    this.shoeTouched = false;     // a new form owes nothing to the last form's hand-pick
+    this.pendingGearId = null;
+    const shoeHint = document.getElementById('shoeSrcHint');
+    if (shoeHint) shoeHint.textContent = '';
+    this.applyShoeDefault();      // ⚠️ AFTER the plan prefill: the shoe rule reads Økt-type, and on a
+                                  // fresh form that type arrives from applyPlannedDefault above
     this.maybeAutoName();
     updateStravaFetchVisibility();
     const stravaMsg = document.getElementById('stravaFetchMsg');
@@ -10315,6 +10396,11 @@ const StravaImport = {
       // fall back to the activity timezone (e.g. "Europe/Oslo" → NO). Prefill only
       // for abroad runs — Norway is the blank home default, so a resolved 'NO' is
       // left blank (keeps the "empty = Norge" convention). Unknown → blank too.
+      // Sko — Strava's gear for this activity, matched to a Puls shoe by a stored link or by name.
+      // New sessions only: an edit's re-pull promises never to touch the shoe. Beats the Standard
+      // sko rule (it is his per-run pick) but never a hand-pick made in this form.
+      if (!Form.editId) Form.applyStravaGear(detail?.gear);
+
       const landEl = document.getElementById('fLand');
       if (!landEl.value) {
         let code = a.location_country
@@ -11618,22 +11704,34 @@ const Settings = {
     this.renderShoeList();
   },
 
-  // Populate the two "Standard sko" dropdowns from active shoes; persist on change.
+  // Populate the six "Standard sko" dropdowns from active shoes; persist on change. «Andre økter» is
+  // the original per-venue setting and keeps writing `shoeDefaults[venue]`; the group rows write
+  // `shoeDefaults.groups[group][venue]` and DELETE the key when set back to blank, so an unused grid
+  // leaves no empty scaffolding in the file.
   renderShoeDefaults() {
     const defs = Store.data.shoeDefaults || (Store.data.shoeDefaults = {});
     const active = Store.data.shoes.filter(s => !s.retired);
-    [['defaultShoeOutdoor', 'outdoor'], ['defaultShoeTreadmill', 'treadmill']].forEach(([id, venue]) => {
+    const fill = (id, cur, blank, write) => {
       const sel = document.getElementById(id);
       if (!sel) return;
-      const cur = defs[venue] || '';
-      sel.innerHTML = `<option value="">(ingen)</option>` +
+      sel.innerHTML = `<option value="">${blank}</option>` +
         active.map(s => `<option value="${escapeHtml(s.name)}"${s.name === cur ? ' selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
-      sel.onchange = () => {
+      sel.onchange = () => { write(sel.value); FileIO.save(); };
+    };
+    [['defaultShoeOutdoor', 'outdoor'], ['defaultShoeTreadmill', 'treadmill']].forEach(([id, venue]) =>
+      fill(id, defs[venue] || '', '(ingen)', v => {
         Store.data.shoeDefaults = Store.data.shoeDefaults || {};
-        Store.data.shoeDefaults[venue] = sel.value;
-        FileIO.save();
-      };
-    });
+        Store.data.shoeDefaults[venue] = v;
+      }));
+    [['Rolig', 'rolig'], ['Fart', 'fart']].forEach(([label, group]) =>
+      [['Outdoor', 'outdoor'], ['Treadmill', 'treadmill']].forEach(([suffix, venue]) =>
+        fill(`defaultShoe${label}${suffix}`, ((defs.groups || {})[group] || {})[venue] || '', '(ikke satt)', v => {
+          const g = Store.data.shoeDefaults.groups || (Store.data.shoeDefaults.groups = {});
+          const row = g[group] || (g[group] = {});
+          if (v) row[venue] = v; else delete row[venue];
+          if (!Object.keys(row).length) delete g[group];
+          if (!Object.keys(g).length) delete Store.data.shoeDefaults.groups;
+        })));
   },
 
   renderShoeList() {

@@ -205,6 +205,187 @@ with sync_playwright() as pw:
     check("...and no longer warns", 'Sliten' in ins2, False)
 
     # ── 5. 402 px ───────────────────────────────────────────────────────────────────────────
+    # ── Standard sko: session group × venue (2026-09-20) ───────────────────────────────────────
+    # «Standard sko» knew only Ute/Inne, and Tempo/Intervaller auto-switch to Tredemølle — so every
+    # indoor session got the same shoe whether it was an easy run or intervals. Now the GROUP picks
+    # first (Rolig = Easy/Steady/Long, Fart = Tempo/Intervaller) and falls back to «Ellers» per venue.
+    print("== the shoe rule: group first, venue fallback ==")
+    sp = b.new_page(viewport={"width": 1280, "height": 900})
+    serr = []
+    sp.on("pageerror", lambda e: serr.append(str(e)))
+    sp.on("dialog", lambda d: d.accept())
+    sp.add_init_script(FREEZE)
+
+    def seed(groups=None, planned=None, retired=()):
+        """A fresh store: shoes A/B/C, «Ellers» = A out / B in, plus whatever grid is under test."""
+        sp.goto(APP)
+        sp.evaluate("""([groups, planned, retired]) => localStorage.setItem('lpl_cache', JSON.stringify({
+            sessions: [{ id:'s1', dato:'2026-08-10', uke:'2026-33', oktnavn:'Tur', okttype:'Easy',
+                         treningsplan:'Egentrening', løpetype:'utendors', distanse:5, varighet:1800,
+                         soner:[0,0,0,0,0], sko:'A' }],
+            shoes: ['A','B','C'].map(n => ({ name:n, retired: retired.indexOf(n) >= 0 })),
+            shoeDefaults: Object.assign({ outdoor:'A', treadmill:'B' }, groups ? { groups } : {}),
+            plannedSessions: planned || [], goals:{}, events:[], settings:{ zones: [] },
+            lastUpdated:'' }))""", [groups, planned, list(retired)])
+        sp.goto(APP)
+        sp.wait_for_timeout(500)
+        sp.evaluate("() => switchTab('form')")
+        sp.wait_for_timeout(200)
+
+    def pick(okttype, venue=None):
+        """Choose a type (and optionally a venue) the way a person would, then read #fSko."""
+        sp.select_option("#fOkttype", okttype)
+        sp.wait_for_timeout(150)
+        if venue:
+            sp.select_option("#fLopetype", venue)
+            sp.wait_for_timeout(150)
+        return sp.input_value("#fSko")
+
+    GROUPS = {"rolig": {"treadmill": "A"}, "fart": {"treadmill": "C"}}
+    seed()
+    check("control: with no grid, the venue still decides (today's behaviour)",
+          [pick("Easy", "treadmill"), pick("Easy", "utendors")], ["B", "A"])
+    seed(GROUPS)
+    check("Easy indoors takes the Rolig cell, not «Ellers»", pick("Easy", "treadmill"), "A")
+    check("Steady counts as Rolig", pick("Steady", "treadmill"), "A")
+    check("Intervaller switches venue AND takes the Fart cell", pick("Intervaller"), "C")
+    check("...and the venue is Tredemølle, as before", sp.input_value("#fLopetype"), "treadmill")
+    check("Fart outdoors has no cell → «Ellers» for Utendørs", pick("Intervaller", "utendors"), "A")
+    check("Race is not grouped → «Ellers»", pick("Race", "treadmill"), "B")
+    seed(GROUPS, retired=["A"])
+    check("a retired shoe in a cell is ignored", pick("Easy", "treadmill"), "B")
+
+    # A hand-picked shoe is final — the rule must not take it back when the type changes afterwards.
+    seed(GROUPS)
+    pick("Easy", "treadmill")
+    sp.select_option("#fSko", "B")
+    sp.wait_for_timeout(100)
+    check("a hand-picked shoe survives a type change", pick("Intervaller"), "B")
+    sp.evaluate("() => Form.clear()")
+    sp.wait_for_timeout(250)
+    # Økt-type deliberately SURVIVES clear() (logging two of the same type in a row is the common
+    # case), so the cleared form is still Intervaller/Tredemølle — the rule's answer there is C, and
+    # the point of the check is that it is no longer the hand-picked B.
+    check("...and a cleared form obeys the rule again",
+          [sp.input_value("#fOkttype"), sp.input_value("#fSko")], ["Intervaller", "C"])
+
+    # ⚠️ The ordering fix: clear() applied the shoe BEFORE the Runna prefill set Økt-type, so a fresh
+    # form on an interval day picked the easy shoe. Frozen clock = 2026-08-18.
+    seed(GROUPS, planned=[{"id": "p1", "date": "2026-08-18", "okttype": "Intervaller",
+                           "distance": 6, "title": "5x1000"}])
+    sp.evaluate("() => Form.clear()")
+    sp.wait_for_timeout(250)
+    check("a planned interval day prefills the Fart shoe",
+          [sp.input_value("#fOkttype"), sp.input_value("#fSko")], ["Intervaller", "C"])
+
+    # A planned LONG day is the case the ordering actually protects: applyVenueForType re-applies the
+    # shoe for Tempo/Intervaller by itself, so only a type it does NOT move can catch a clear() that
+    # picks the shoe before the prefill knows the type. Before the fix this kept the previous form's
+    # answer (fart → «Ellers» A) instead of the Rolig cell.
+    seed({"rolig": {"outdoor": "C"}, "fart": {"treadmill": "B"}},
+         planned=[{"id": "p2", "date": "2026-08-18", "okttype": "Long", "distance": 15, "title": "Langtur"}])
+    pick("Intervaller")                      # leaves the form on fart/treadmill = B
+    sp.evaluate("() => Form.clear()")
+    sp.wait_for_timeout(250)
+    check("a planned long day prefills the Rolig shoe, not the previous form's",
+          [sp.input_value("#fOkttype"), sp.input_value("#fSko")], ["Long", "C"])
+
+    print("== Standard sko settings write only what is set ==")
+    seed()
+    sp.evaluate("() => switchTab('plan')")
+    sp.wait_for_timeout(300)
+    sp.select_option("#defaultShoeFartTreadmill", "C")
+    sp.wait_for_timeout(150)
+    check("a group cell persists", sp.evaluate("() => Store.data.shoeDefaults.groups"),
+          {"fart": {"treadmill": "C"}})
+    sp.select_option("#defaultShoeFartTreadmill", "")
+    sp.wait_for_timeout(150)
+    check("...and blanking it leaves no empty scaffolding",
+          sp.evaluate("() => 'groups' in Store.data.shoeDefaults"), False)
+    sp.select_option("#defaultShoeOutdoor", "C")
+    sp.wait_for_timeout(150)
+    check("the «Ellers» row still writes the original per-venue key",
+          sp.evaluate("() => Store.data.shoeDefaults.outdoor"), "C")
+
+    # ── The shoe Strava already knows (2026-09-20) ──────────────────────────────────────────────
+    # He sets the shoe per run in Strava, so that beats the rule — but a forgotten gear change sends
+    # Strava's default, which looks identical to a deliberate one. Hence the visible hint.
+    print("== Strava's gear picks the shoe, and says so ==")
+    seed(GROUPS)
+    sp.evaluate("() => Form.applyStravaGear({ id: 'g-c', name: 'C' })")
+    sp.wait_for_timeout(100)
+    check("a name match selects that shoe", sp.input_value("#fSko"), "C")
+    check("...and says where it came from", sp.text_content("#shoeSrcHint"), "Sko fra Strava: C")
+    check("...and stores the link, so the name may change later",
+          sp.evaluate("() => Store.data.shoes.find(s => s.name === 'C').stravaGearId"), "g-c")
+    sp.evaluate("() => { Store.data.shoes.find(s => s.name === 'C').name = 'C2'; Form.refreshShoeDropdown('A'); }")
+    sp.evaluate("() => Form.applyStravaGear({ id: 'g-c', name: 'helt annet navn' })")
+    sp.wait_for_timeout(100)
+    check("the stored link wins over the name", sp.input_value("#fSko"), "C2")
+
+    seed(GROUPS)
+    sp.select_option("#fOkttype", "Easy")
+    sp.select_option("#fLopetype", "treadmill")
+    sp.wait_for_timeout(150)
+    sp.evaluate("() => Form.applyStravaGear({ id: 'g-x', name: 'Ukjent sko' })")
+    sp.wait_for_timeout(100)
+    check("unknown gear leaves the rule's pick alone", sp.input_value("#fSko"), "A")
+    check("...and asks to be connected", "ikke koblet" in (sp.text_content("#shoeSrcHint") or ""), True)
+    # His own pick teaches it the link — nothing is inferred from a pattern.
+    sp.select_option("#fSko", "B")
+    sp.evaluate("""() => { document.getElementById('fDistanse').value = '5';
+        document.getElementById('fVarighet').removeAttribute('readonly');
+        document.getElementById('fVarighet').value = '0:30:00'; }""")
+    sp.click("#btnSaveSession")
+    sp.wait_for_timeout(400)
+    check("saving links the gear to the shoe he picked",
+          sp.evaluate("() => Store.data.shoes.find(s => s.name === 'B').stravaGearId"), "g-x")
+    # ⚠️ Move the dropdown OFF B first. Without that, this passed even with the link-storing line
+    # disabled — the field was already showing B from the pick above (falsification, 2026-09-20).
+    check("...and the next import of that gear resolves by itself",
+          sp.evaluate("""() => { Form.shoeTouched = false; Form.refreshShoeDropdown('A');
+              Form.applyStravaGear({ id: 'g-x' });
+              return document.getElementById('fSko').value; }"""), "B")
+
+    seed(GROUPS)
+    sp.select_option("#fOkttype", "Easy")
+    sp.select_option("#fLopetype", "treadmill")
+    sp.select_option("#fSko", "B")           # a hand-pick in this form
+    sp.wait_for_timeout(150)
+    sp.evaluate("() => Form.applyStravaGear({ id: 'g-c2', name: 'C' })")
+    sp.wait_for_timeout(100)
+    check("a hand-picked shoe beats Strava too", sp.input_value("#fSko"), "B")
+    seed(GROUPS, retired=["C"])
+    sp.evaluate("() => Form.applyStravaGear({ id: 'g-c3', name: 'C' })")
+    sp.wait_for_timeout(100)
+    check("a retired shoe is never selected from gear", sp.input_value("#fSko") != "C", True)
+
+    # ⚠️ Through the REAL import path, not applyStravaGear directly: the checks above all called the
+    # helper, so disabling its one call site in _populate broke nothing (falsification, 2026-09-20).
+    # Strava is stubbed — no network, no token.
+    print("== the gear arrives through «Hent fra Strava» ==")
+    seed(GROUPS)
+    STUB = """(gear) => {
+      StravaIO.fetchActivityDetail = async () => ({ id: 9001, calories: 400, gear });
+      StravaIO.fetchZones = async () => null;
+      window.__act = { id: 9001, distance: 8000, moving_time: 2700, trainer: true,
+                       has_heartrate: false, average_speed: 2.96, timezone: '(GMT+01:00) Europe/Oslo' };
+    }"""
+    sp.evaluate(STUB, {"id": "g-pop", "name": "C"})
+    sp.evaluate("() => StravaImport._populate(window.__act)")
+    sp.wait_for_timeout(500)
+    check("the imported activity's shoe is selected", sp.input_value("#fSko"), "C")
+    check("...and named as Strava's", sp.text_content("#shoeSrcHint"), "Sko fra Strava: C")
+    # Re-pulling while EDITING must not move the shoe — that promise predates this feature.
+    sp.evaluate("() => { Form.editId = 's1'; Form.refreshShoeDropdown('B'); }")
+    sp.evaluate("() => StravaImport._populate(window.__act)")
+    sp.wait_for_timeout(500)
+    check("an edit's re-pull leaves the saved shoe alone", sp.input_value("#fSko"), "B")
+    sp.evaluate("() => { Form.editId = null; }")
+
+    check("no shoe-rule page errors", serr, [])
+    sp.close()
+
     print("== 402 px ==")
     pg.set_viewport_size({"width": 402, "height": 900})
     pg.evaluate("() => switchTab('plan')")
