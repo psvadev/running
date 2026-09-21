@@ -34,7 +34,9 @@ SEED = """() => {
       { id:'s1', dato:'2026-08-01', okttype:'Easy', distanse:5,  varighet:1800, lopetype:'treadmill' },
       { id:'s2', dato:'2026-08-03', okttype:'Long', distanse:15, varighet:5400, lopetype:'utendors' }
     ],
-    shoes: [], goals: {}, settings: { zones: [] }, events: [], plannedSessions: [],
+    shoes: [], goals: {}, settings: { zones: [] }, events: [],
+    plannedSessions: [{ id:'p1', date:'2026-08-09', okttype:'Long', distance:21,
+                        title:'Long Run', estimatedSecs:9000 }],
     lastUpdated: '' }));
 }"""
 
@@ -466,6 +468,132 @@ with sync_playwright() as b0:
     check("no page errors", perrs, [])
     pg.close()
 
+    # ── 5b. Drivstoff ───────────────────────────────────────────────────────────────────────
+    # The rule the card exists to hold: the CARB TARGET and what the gels actually deliver are two
+    # numbers. Rounding the count is allowed to miss the target; merging them into one figure is not,
+    # because that is what hides a 25 % overshoot behind a tidy "2 gel".
+    print("== Drivstoff ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    ferr = []
+    pg.on("pageerror", lambda e: ferr.append(str(e)))
+    boot(pg)
+
+    def plan(km, mins, gel=25):
+        return pg.evaluate("([k,m,g]) => FuelCalc.plan(k, m*60, g)", [km, mins, gel])
+
+    # ---- the cutoff. 75 is the first FUELLED minute, not the last unfuelled one.
+    check("74 min needs nothing", plan(10, 74)["fuel"], False)
+    check("75 min does", plan(10, 75)["fuel"], True)
+    check("76 min does", plan(10, 76)["fuel"], True)
+
+    # ---- the bands, each computing from the LOW end of its printed label
+    check("75-120 min is 30 g/t", (plan(15, 105)["band"]["rate"], plan(15, 105)["band"]["label"]),
+          (30, "30 g/t"))
+    check("2-3 t is the low end of 45-60", (plan(20, 150)["band"]["rate"], plan(20, 150)["band"]["label"]),
+          (45, "45–60 g/t"))
+    check("over 3 t is the low end of 60-90", (plan(30, 200)["band"]["rate"], plan(30, 200)["band"]["label"]),
+          (60, "60–90 g/t"))
+    check("...and that band says it needs practice", "magetrening" in plan(30, 200)["band"]["warn"], True)
+    check("the rate drives the target, not the distance",
+          (plan(10, 150)["target"], plan(30, 150)["target"]), (113, 113))
+
+    # ---- target vs actual, and round-not-ceil
+    # 2 t at 45 g/t = 90 g of target. Three 25 g gels is 75, four is 100: round picks four and the
+    # card must print 90 and 100 side by side. ceil would have said four for a 76 g target too.
+    two_h = plan(17, 120)
+    check("a 2 h run targets 90 g", two_h["target"], 90)
+    check("...taken as 4 x 25 g", (two_h["gels"], two_h["actual"]), (4, 100))
+    check("...and the two numbers stay apart", two_h["target"] != two_h["actual"], True)
+    check("a bigger unit changes the COUNT, never the target",
+          (plan(17, 120, 40)["target"], plan(17, 120, 40)["gels"], plan(17, 120, 40)["actual"]),
+          (90, 2, 80))
+    # round, not ceil: 37.5 g of target is 1.5 units of 25 g. ceil would make it 2 in both directions;
+    # the test that separates them is a target just OVER a whole unit.
+    check("a target just over one unit rounds DOWN", plan(10, 75, 25)["gels"], 2)
+    check("...and 130 g of target takes 5 x 25, not 6",
+          (plan(30, 173, 25)["gels"], plan(30, 173, 25)["target"]), (5, 130))
+    check("...which the card names as a shortfall", plan(30, 173, 25)["short"], 5)
+    check("an overshoot is not called a shortfall", two_h["short"], 0)
+
+    # ---- timing is a separate layer. Change FUEL_TIMING and every gram must stay put.
+    check("the first intake is FUEL_TIMING.firstMin",
+          plan(20, 150)["times"][0], pg.evaluate("() => FUEL_TIMING.firstMin"))
+    roomy = plan(20, 150)
+    check("spacing is at least minGapMin when it fits",
+          min(b - a for a, b in zip(roomy["times"], roomy["times"][1:])) >= 20 - 1e-9, True)
+    check("the last intake clears the tail buffer",
+          roomy["times"][-1] <= 150 - 15 + 1e-9, True)
+    # The mirror of the hard floor, and it has to bite: a small carb budget over a long run spreads
+    # evenly to 32 and 104 min, which is 72 minutes unfuelled followed by a gel taken 15 minutes
+    # before you stop. The tail buffer is a CEILING on the last intake, not a target to stretch to.
+    thin = plan(17, 119)
+    check("a thin budget does not stretch to fill the run",
+          [round(t) for t in thin["times"]], [32, 77])
+    check("...capped at maxGapMin exactly",
+          round(thin["times"][1] - thin["times"][0]), pg.evaluate("() => FUEL_TIMING.maxGapMin"))
+    check("...while the grams are untouched by the cap", (thin["target"], thin["gels"]), (60, 2))
+    check("a budget that fills the window is still spread evenly",
+          max(b - a for a, b in zip(roomy["times"], roomy["times"][1:]))
+          <= pg.evaluate("() => FUEL_TIMING.maxGapMin") + 1e-9, True)
+    moved = pg.evaluate("""() => {
+      const before = FuelCalc.plan(20, 150*60, 25);
+      const keep = { ...FUEL_TIMING };
+      FUEL_TIMING.firstMin = 10; FUEL_TIMING.minGapMin = 30;
+      const after = FuelCalc.plan(20, 150*60, 25);
+      Object.assign(FUEL_TIMING, keep);
+      return { schedMoved: JSON.stringify(before.times) !== JSON.stringify(after.times),
+               grams: [before.target, before.gels, before.actual].join() ===
+                      [after.target, after.gels, after.actual].join() };
+    }""")
+    check("moving FUEL_TIMING moves the schedule", moved["schedMoved"], True)
+    check("...and leaves every gram untouched", moved["grams"], True)
+
+    # ---- grams win, layout bends. 80 min at 30 g/t = 40 g; in 10 g units that is four intakes in a
+    # 33 min window. The count must NOT drop to make the spacing work.
+    tight, roomy80 = plan(12, 80, 10), plan(12, 80, 40)
+    check("a too-small unit keeps every gram", tight["actual"], 40)
+    check("...and the same target in one big unit is the same target",
+          (tight["target"], roomy80["target"]), (40, 40))
+    check("...spacing compresses to hardGapMin, never below",
+          min(b - a for a, b in zip(tight["times"], tight["times"][1:])),
+          pg.evaluate("() => FUEL_TIMING.hardGapMin"))
+    check("...and it is flagged as impractical", tight["tight"], True)
+    check("a roomy plan is not flagged", roomy["tight"], False)
+
+    # ---- on screen
+    fill(pg, "#fuDist", "10")
+    fill(pg, "#fuPace", "7:00")                       # 70 min
+    check("under the cutoff the card says so and stops",
+          ("75 min" in txt(pg, "#fuHero"), txt(pg, "#fuOut"), txt(pg, "#fuStrip")), (True, "", ""))
+    fill(pg, "#fuDist", "17")                         # 119 min
+    out = txt(pg, "#fuOut")
+    # 119 min at 30 g/t = ~60 g of target; two 25 g gels deliver 50. Both numbers on screen, which is
+    # the whole rule — a card printing only "2 gel" would hide a 10 g gap behind a tidy answer.
+    check("both numbers are printed", ("~60 g" in out and "50 g" in out), True)
+    check("the hero is the decision, not the arithmetic",
+          txt(pg, "#fuHero").startswith("2 geler à 25 g"), True)
+    check("every intake is listed in minutes AND km",
+          txt(pg, "#fuStrip").count("min (~"), 2)
+    check("...and the km markers follow distance x pace",
+          "Gel 1 32 min (~4.6 km)" in txt(pg, "#fuStrip"), True)
+    check("a shortfall is named", "g under" in txt(pg, "#fuNote"), True)
+    # Same run, entered the other way, must give the same answer.
+    hero_pace, out_pace, strip_pace = txt(pg, "#fuHero"), out, txt(pg, "#fuStrip")
+    pg.click("#fuModes .tc-mode[data-mode='tid']")
+    fill(pg, "#fuTime", "1:59:00")
+    check("Fra tid agrees with Fra tempo",
+          (txt(pg, "#fuHero"), txt(pg, "#fuOut"), txt(pg, "#fuStrip")),
+          (hero_pace, out_pace, strip_pace))
+    check("the pace row is hidden in Fra tid", pg.locator("#fuPaceIn").is_visible(), False)
+    # h:mm:ss must be parsed STRICTLY here, exactly as in Tid og tempo — "1:70:00" is a typo, not 2:10.
+    fill(pg, "#fuTime", "1:70:00")
+    check("an impossible duration is rejected, not reinterpreted",
+          pg.evaluate("() => document.getElementById('fuTime').classList.contains('bad-input')"), True)
+    check("...and the card asks again rather than answering",
+          txt(pg, "#fuHero").startswith("Fyll inn"), True)
+    check("no Drivstoff page errors", ferr, [])
+    pg.close()
+
     # ── 6. Store-free — the design rule, made executable ────────────────────────────────────
     print("== reads nothing from Store ==")
 
@@ -475,12 +603,13 @@ with sync_playwright() as b0:
         p.fill("#tcDist", "10"); p.fill("#tcPace", "6:15")
         p.fill("#ivReps", "6");  p.fill("#ivVal", "400")
         p.fill("#ivPace", "5:30"); p.fill("#ivRest", "90")
+        p.fill("#fuDist", "17"); p.fill("#fuPace", "7:00")
         p.wait_for_timeout(200)
         # ⚠️ Read the Enkel surfaces BEFORE switching mode. Fra plan hides #ivEnkel, and inner_text on
         # a hidden element returns "" — so capturing afterwards would compare "" to "" and report
         # agreement for half the snapshot. This suite's whole point is that it cannot do that.
         s = (txt(p, "#tcOut"), txt(p, "#tcSplits"), txt(p, "#ivHero"), txt(p, "#ivOut"),
-             txt(p, "#pcTable"))
+             txt(p, "#pcTable"), txt(p, "#fuHero"), txt(p, "#fuOut"), txt(p, "#fuStrip"))
         assert all(s), "a Store-free snapshot went blank — the selectors moved"
         # Fra plan too. It is the ONE tool whose input the app also stores, so it is the one most
         # likely to acquire a Store read by accident — pasting must stay the only way in.
@@ -488,12 +617,26 @@ with sync_playwright() as b0:
         p.fill("#ivPaste", "200m at 5:05/km, 60s walking rest\n400m at 5:15/km, 90s walking rest")
         p.wait_for_timeout(250)
         s += (txt(p, "#ivPlanOut"), txt(p, "#ivPlanSegs"), txt(p, "#ivPlanHero"))
+        # Drivstoff is the one card another tab writes into, so its ENTRY POINT is snapshotted too.
+        # Not a separate empty-Store check: prefill's likeliest wrong turn is reaching for the
+        # planned session it was handed values from, and that is invisible unless a plan exists.
+        p.evaluate("() => FuelCalc.prefill(12, 4680)")
+        p.wait_for_timeout(200)
+        s += (p.input_value("#fuDist"), p.input_value("#fuTime"), txt(p, "#fuHero"), txt(p, "#fuOut"))
         p.close()
         return s
 
     empty, seeded = snapshot(False), snapshot(True)
     check("output identical with and without sessions", empty, seeded)
     check("...and it was not simply blank", empty[0].startswith("1:02:30"), True)
+
+    # Planlegging PUSHES a planned run into Drivstoff — a write from outside, so the card still knows
+    # nothing. The snapshot above already proves the push ignores the store; these pin what it DID.
+    # Counted from the END — the prefill values are the last four appended, so inserting a snapshot
+    # above cannot silently re-aim these at someone else's output.
+    check("a pushed plan fills both fields", (empty[-4], empty[-3]), ("12", "1:18:00"))
+    check("...and the card answered from those values alone",
+          empty[-2].startswith("2 geler à 25 g"), True)
 
     # ── 7. Decimal point, never a comma ─────────────────────────────────────────────────────
     print("== decimal point on output, either separator on input ==")

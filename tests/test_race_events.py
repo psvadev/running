@@ -810,6 +810,78 @@ with sync_playwright() as b0:
     check("no page errors", cerr, [])
     pg.close()
 
+    # ── 3b. The ⛽ chip: a planned run long enough to need fuelling ─────────────────────────
+    # The gate is estimatedSecs ALONE. The plan states no pace target, so a 17 km row with no
+    # estimate is a run of unknown duration — and duration is the entire question. Deriving a pace
+    # to reach a verdict is the invention this app refuses to make, so it stays silent instead.
+    # Clock is frozen at 2026-08-05 (Wednesday, ISO week 2026-32: Mon 08-03 – Sun 08-09).
+    print("== the ⛽ chip on a planned session ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    gerr = []
+    pg.on("pageerror", lambda e: gerr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.evaluate("""() => localStorage.setItem('lpl_cache', JSON.stringify({
+      sessions: [{ id:'r1', dato:'2026-08-04', uke:'2026-32', oktnavn:'x', okttype:'Easy',
+                   treningsplan:'Runna', distanse:5, varighet:1800, tempo:360, soner:[0,0,0,0,0] }],
+      shoes: [], goals: {}, settings: { zones: [] },
+      events: [{ id:'b', type:'plan', title:'Blokk', date:'2026-08-03', endDate:'2026-10-01' }],
+      plannedSessions: [
+        { id:'f1', date:'2026-08-06', okttype:'Long', distance:17, title:'Long Run', estimatedSecs:7200 },
+        { id:'f2', date:'2026-08-08', okttype:'Long', distance:16, title:'Long Run', estimatedSecs:6900 },
+        { id:'f3', date:'2026-08-07', okttype:'Easy', distance:6,  title:'Easy Run', estimatedSecs:2400 },
+        { id:'f4', date:'2026-08-09', okttype:'Long', distance:15, title:'Ukjent varighet' },
+        { id:'f5', date:'2026-08-04', okttype:'Long', distance:18, title:'Allerede forbi', estimatedSecs:8000 },
+        { id:'f6', date:'2026-08-12', okttype:'Long', distance:19, title:'Neste uke', estimatedSecs:8100 }
+      ], lastUpdated: '' }));""")
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('plan')")
+    pg.wait_for_timeout(500)
+
+    chips = pg.evaluate("() => [...document.querySelectorAll('#plannedList [data-fuel-secs]')]"
+                        ".map(c => c.dataset.fuelKm)")
+    check("a long upcoming run with an estimate gets the chip", "17" in chips, True)
+    check("a short one does not", "6" not in chips, True)
+    check("⚠️ a long one with NO estimate does not — no pace is invented", "15" not in chips, True)
+    check("a past one does not, however long", "18" not in chips, True)
+    check("...and nothing else sneaks in", sorted(chips), ["16", "17", "19"])
+
+    head = pg.locator('#plannedAdherence').inner_text()
+    check("the weekly line counts only THIS week's qualifying runs", "⛽ 2 økter" in head, True)
+    check("...and says what the count means", "fueling er aktuelt" in head, True)
+
+    # The chip is a jump, and the jump has to arrive loaded — landing on an empty calculator would
+    # leave him retyping what the plan already knows.
+    pg.click("#plannedList [data-fuel-secs]")
+    pg.wait_for_timeout(500)
+    check("clicking lands on Verktøy",
+          pg.evaluate("() => document.querySelector('.panel.active')?.id"), "panel-tools")
+    check("...with the planned distance and duration already in",
+          (pg.input_value("#fuDist"), pg.input_value("#fuTime")), ("17", "2:00:00"))
+    check("...and the card has answered", "geler" in pg.inner_text("#fuHero"), True)
+
+    # The list re-renders on every import, match and expand. A listener bound per render would fire
+    # once per redraw — invisible until the day it prefills three times and the mode flickers.
+    calls = pg.evaluate("""() => {
+      switchTab('plan'); Settings.renderPlannedList(); Settings.renderPlannedList();
+      let n = 0; const real = FuelCalc.prefill.bind(FuelCalc);
+      FuelCalc.prefill = (...a) => { n++; return real(...a); };
+      document.querySelector('#plannedList [data-fuel-secs]').click();
+      FuelCalc.prefill = real;
+      return n;
+    }""")
+    check("one click is one jump, however often the list was redrawn", calls, 1)
+
+    # Silent at zero: most weeks hold nothing long enough, and a standing "0 økter" would be noise
+    # on every one of them.
+    pg.evaluate("""() => { Store.data.plannedSessions = Store.data.plannedSessions
+        .filter(p => p.id === 'f3'); Settings.renderPlannedList(); }""")
+    pg.wait_for_timeout(200)
+    check("no qualifying run means no line at all",
+          "⛽" in pg.locator('#plannedAdherence').inner_text(), False)
+    check("no chip page errors", gerr, [])
+    pg.close()
+
     # ── 4. Mobile 402px — the new race-fields row ───────────────────────────────────────────
     print("== mobile 402px ==")
     pg = b.new_page(viewport={"width": 402, "height": 900})

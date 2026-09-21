@@ -1535,7 +1535,10 @@
          different questions even though the arithmetic is identical. -->
     <div class="pc-io" id="tcTargetIn" style="display:none">
       <label class="pc-field"><span id="tcTimeLabel">🎯 Tidsmål</span>
-        <input type="text" id="tcTime" placeholder="29:30" inputmode="text" maxlength="7" autocomplete="off">
+        <!-- data-hms: this field takes h:mm:ss, so markInvalidInput must parse it strictly rather
+             than as mm:ss. An attribute, not an id list, so a third duration field cannot be added
+             without it and silently fall back to the looser parser. -->
+        <input type="text" id="tcTime" placeholder="29:30" inputmode="text" maxlength="7" data-hms autocomplete="off">
       </label>
     </div>
     <!-- Round numbers bracketing whatever is in the box — NOT derived from your PRs, which would make
@@ -1630,6 +1633,57 @@
       </div>
       <div class="iv-note" id="ivPlanNote"></div>
     </div>
+  </div>
+
+  <!-- Drivstoff. Last of the four, because it is the one you open once before a long run rather than
+       during a session. Reads nothing from Store like the rest of the tab — Planlegging PUSHES a
+       planned run in through FuelCalc.prefill(), which is a write, not a read, and keeps the rule
+       intact: this card still answers for a distance and a pace you have never run. -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Drivstoff</div>
+    <p class="tc-help">Når en økt blir lang nok, er spørsmålet bare <b>hvor mye karbo</b> og <b>når</b>. Oppgi distanse og enten tempo eller tid, så regner kortet ut målet og fordeler gelene utover økta. Under <b>75 minutter</b> trengs det normalt ingenting.</p>
+
+    <div class="tc-modes" id="fuModes">
+      <button type="button" class="tc-mode tc-on" data-mode="tempo">Fra tempo</button>
+      <button type="button" class="tc-mode" data-mode="tid">Fra tid</button>
+    </div>
+
+    <div class="pc-io">
+      <label class="pc-field">📏 Distanse
+        <input type="text" id="fuDist" placeholder="15" inputmode="decimal" autocomplete="off">
+        <span class="pc-unit">km</span>
+      </label>
+      <!-- Gram per enhet, not a fixed 25: he buys what the shop has, and a 40 g gel changes the
+           count but must never change the target. The two numbers are printed separately below
+           for exactly that reason. -->
+      <label class="pc-field">⛽ Gel
+        <input type="text" id="fuGel" placeholder="25" inputmode="decimal" autocomplete="off">
+        <span class="pc-unit">g karbo</span>
+      </label>
+    </div>
+
+    <div class="pc-io" id="fuPaceIn">
+      <label class="pc-field">⏱️ Tempo
+        <input type="text" id="fuPace" placeholder="6:30" inputmode="text" maxlength="5" autocomplete="off">
+        <span class="pc-unit">/km</span>
+      </label>
+      <span class="pc-swap">↔</span>
+      <label class="pc-field">⚡ Fart
+        <input type="text" id="fuKmh" placeholder="9.2" inputmode="decimal" autocomplete="off">
+        <span class="pc-unit">km/t</span>
+      </label>
+    </div>
+
+    <div class="pc-io" id="fuTimeIn" style="display:none">
+      <label class="pc-field">⌛ Varighet
+        <input type="text" id="fuTime" placeholder="1:38:00" inputmode="text" maxlength="7" data-hms autocomplete="off">
+      </label>
+    </div>
+
+    <div class="iv-hero" id="fuHero"></div>
+    <div class="tc-out" id="fuOut"></div>
+    <div class="iv-strip" id="fuStrip"></div>
+    <div class="iv-note" id="fuNote"></div>
   </div>
 
 </div>
@@ -10843,7 +10897,7 @@ function markInvalidInput(el) {
   if (!el) return;
   const v = el.value.trim();
   const ok = !v || ((el.placeholder || '').includes(':')
-    ? (el.id === 'tcTime' ? strictHmsToSecs(v) : mmSsToSecs(v)) > 0
+    ? (el.dataset.hms !== undefined ? strictHmsToSecs(v) : mmSsToSecs(v)) > 0
     : DEC_RE.test(v.replace(',', '.')));
   el.classList.toggle('bad-input', !ok);
 }
@@ -11269,6 +11323,177 @@ const IntervalCalc = {
   },
 };
 
+// ── Drivstoff ─────────────────────────────────────────────────────────────────────────────────
+// Carbohydrate need is driven by DURATION, not distance: 15 km at 7:00 and 15 km at 5:00 are
+// different problems, and the slow one is the one that needs fuelling.
+//
+// Each band runs UP TO BUT NOT INCLUDING its maxMin, which is what makes 75 exactly the first
+// fuelled minute rather than the last unfuelled one. `rate` is the LOW end of the printed label on
+// purpose — a band that quietly used its midpoint would produce a total you cannot trace back to the
+// text beside it, and the low end is also the one to practise with first.
+const FUEL_BANDS = [
+  { maxMin: 75,       rate: 0,  label: '—' },
+  { maxMin: 120,      rate: 30, label: '30 g/t' },
+  { maxMin: 180,      rate: 45, label: '45–60 g/t' },
+  { maxMin: Infinity, rate: 60, label: '60–90 g/t', warn: 'Over 60 g/t krever magetrening — bygg opp mot det, ikke debuter på løpsdagen.' },
+];
+
+// SEPARATE from the bands on purpose, and the separation is the point: the g/h rates are the sourced
+// part, while when the first gel goes down is a habit you should be able to move without touching a
+// single gram. Changing anything here must change the schedule and nothing else.
+//   firstMin      — nothing in the first half hour; you start topped up.
+//   minGapMin     — the comfortable spacing the layout aims for.
+//   hardGapMin    — the floor. A second gel ten minutes after the first is not a plan.
+//   tailBufferMin — carbs taken inside the last quarter hour arrive after the finish.
+//   maxGapMin     — the mirror of hardGapMin, and it earns its place: 2 gels over a 2 h run spread
+//                   evenly across the whole window land at 32 and 104 min, so you run 72 minutes
+//                   unfuelled and then take one 15 minutes before you stop. The tail buffer is a
+//                   CEILING on the last intake, never a target to stretch out to.
+const FUEL_TIMING = { firstMin: 32, minGapMin: 20, maxGapMin: 45, hardGapMin: 15, tailBufferMin: 15 };
+
+// Planlegging's ⛽ chip and its weekly count are the same question asked twice, so they share one
+// rule, and it lives beside the cutoff it depends on rather than in the renderer.
+// ⚠️ estimatedSecs ONLY — Runna's own estimate, which the import carries for upcoming sessions and
+// nothing else (DATA.md). No estimate means no chip: the plan states no pace target, and deriving
+// one to reach a fuelling verdict is precisely the invention this app refuses to make elsewhere.
+const fuelWorthy = (p, today) =>
+  p.date >= today && (p.estimatedSecs || 0) >= FUEL_BANDS[0].maxMin * 60;
+
+const FuelCalc = {
+  mode: 'tempo',
+
+  bandFor: mins => FUEL_BANDS.find(b => mins < b.maxMin),
+
+  // GRAMS WIN, LAYOUT BENDS. Dropping a gel to make the spacing work would silently revise the carb
+  // decision the card just made, so the count is an input here and never an output: spacing relaxes
+  // from even → hardGapMin, and if even that overruns the tail buffer the schedule is still printed,
+  // with a note saying the unit is too small. A card that refuses to answer is worse than one that
+  // names its compromise.
+  schedule(gels, durMin) {
+    const T = FUEL_TIMING;
+    const last = durMin - T.tailBufferMin;
+    if (gels <= 1) return { times: [T.firstMin], gap: 0, tight: false, compressed: false };
+    const even = (last - T.firstMin) / (gels - 1);
+    const gap = Math.min(Math.max(even, T.hardGapMin), T.maxGapMin);
+    const times = Array.from({ length: gels }, (_, i) => T.firstMin + i * gap);
+    // Both flags read the schedule that was actually produced, not the ideal spacing it came from.
+    // The two agree today, but a flag derived from an intermediate can quietly start describing a
+    // schedule the card is no longer showing.
+    return { times, gap, compressed: gap < T.minGapMin, tight: times[gels - 1] > last + 1e-9 };
+  },
+
+  // The whole answer as data, so the tests can read numbers instead of parsing sentences.
+  plan(km, durSec, gelGrams) {
+    const mins = durSec / 60;
+    const band = this.bandFor(mins);
+    if (!band.rate) return { fuel: false, mins, band };
+    const target = Math.round(mins / 60 * band.rate);
+    const gels = Math.max(1, Math.round(target / gelGrams));
+    const actual = gels * gelGrams;
+    return { fuel: true, mins, band, target, gels, actual, gelGrams,
+             short: Math.max(0, target - actual), ...this.schedule(gels, mins),
+             paceSec: km > 0 ? durSec / km : 0 };
+  },
+
+  read() {
+    const km = parseDec(document.getElementById('fuDist').value);
+    const gel = parseDec(document.getElementById('fuGel').value) || 25;
+    const durSec = this.mode === 'tid'
+      ? strictHmsToSecs(document.getElementById('fuTime').value)
+      : km * mmSsToSecs(document.getElementById('fuPace').value);
+    return { km, gel, durSec };
+  },
+
+  setMode(mode) {
+    this.mode = mode;
+    document.querySelectorAll('#fuModes .tc-mode').forEach(b =>
+      b.classList.toggle('tc-on', b.dataset.mode === mode));
+    document.getElementById('fuPaceIn').style.display = mode === 'tempo' ? 'flex' : 'none';
+    document.getElementById('fuTimeIn').style.display = mode === 'tid'   ? 'flex' : 'none';
+    this.render();
+  },
+
+  render() {
+    const hero = document.getElementById('fuHero');
+    const out = document.getElementById('fuOut');
+    const strip = document.getElementById('fuStrip');
+    const note = document.getElementById('fuNote');
+    // The strip carries a top border, so an empty one is a stray rule under the card. Hidden the
+    // same way IntervalCalc hides its own, rather than given a second :empty rule in the CSS.
+    const blank = () => {
+      out.innerHTML = strip.innerHTML = note.innerHTML = '';
+      strip.style.display = 'none';
+    };
+
+    const { km, gel, durSec } = this.read();
+    if (!(km > 0) || !(durSec > 0)) {
+      hero.className = 'iv-hero iv-empty';
+      hero.textContent = this.mode === 'tid' ? 'Fyll inn distanse og varighet.' : 'Fyll inn distanse og tempo.';
+      blank();
+      return;
+    }
+
+    const p = this.plan(km, durSec, gel);
+    if (!p.fuel) {
+      // The cutoff answer is the whole answer. No stats, no schedule — anything else would imply
+      // there is a decision to make.
+      hero.className = 'iv-hero iv-empty';
+      hero.textContent = `Under ${FUEL_BANDS[0].maxMin} min (${fmtDur(Math.round(durSec))}) — fueling underveis trengs normalt ikke.`;
+      blank();
+      return;
+    }
+
+    hero.className = 'iv-hero';
+    hero.innerHTML = `${p.gels} ${p.gels === 1 ? 'gel' : 'geler'} à ${p.gelGrams} g`
+      + `<span class="iv-hero-sep">·</span>første etter ${Math.round(p.times[0])} min`;
+
+    // Target and actual are TWO numbers and are never merged. 40 g of target taken as 2 × 25 g is
+    // 25 % more than the band suggests, and printing one number would hide that in either direction.
+    out.innerHTML = statHtml(fmtDur(Math.round(durSec)), 'varighet', true)
+      + statHtml(p.band.label, 'anbefalt rate')
+      + statHtml(`~${p.target} g`, 'karbomål')
+      + statHtml(`${p.actual} g`, 'faktisk i geler');
+
+    // Minutes AND km: the watch shows one and the route the other, and having to convert mid-run is
+    // exactly the arithmetic this card exists to remove.
+    strip.style.display = '';
+    strip.innerHTML = `<span class="ivs-lead">Når</span>` + p.times.map((t, i) => {
+      const at = Math.round(t);
+      const atKm = p.paceSec > 0 ? ` <span class="pc-unit">(~${(t * 60 / p.paceSec).toFixed(1)} km)</span>` : '';
+      return `<span>Gel ${i + 1} <span class="ivs-t">${at} min</span>${atKm}</span>`;
+    }).join('');
+
+    const notes = [];
+    if (p.short) notes.push(`Dette lander ca. <b>${p.short} g under</b> det beregnede målet — geler kommer i hele enheter, og én gel til ville bommet mer den andre veien.`);
+    if (p.tight) notes.push(`<b>${p.gels} enheter à ${p.gelGrams} g</b> blir for mange til en praktisk plan: selv med ${FUEL_TIMING.hardGapMin} min mellom hver strekker rekka seg inn i de siste ${FUEL_TIMING.tailBufferMin} minuttene, der karboen uansett ikke rekker å gjøre nytte. Karbomålet står — bruk heller en enhet med mer karbo.`);
+    else if (p.compressed) notes.push(`Tett plan — ${Math.round(p.gap)} min mellom hver, mot vanlige ${FUEL_TIMING.minGapMin}.`);
+    if (p.band.warn) notes.push(p.band.warn);
+    notes.push('Tallene er et utgangspunkt, ikke en resept: magetoleranse er individuell, så tren på løpsfuelingen i lange økter før du bruker den i et løp.');
+    note.innerHTML = notes.map(t => `<div>${t}</div>`).join('');
+  },
+
+  // Planlegging's ⛽ chip lands here. A WRITE from the outside, never a read from within: the card
+  // still knows nothing about Store, and the same call works for a run that exists only in your head.
+  prefill(km, durSec) {
+    document.getElementById('fuDist').value = km || '';
+    document.getElementById('fuTime').value = durSec ? secsToHms(durSec) : '';
+    this.setMode('tid');
+    document.getElementById('fuHero').scrollIntoView({ block: 'center' });
+  },
+
+  init() {
+    if (!document.getElementById('fuDist')) return;
+    ['fuDist', 'fuGel', 'fuTime'].forEach(id =>
+      document.getElementById(id).addEventListener('input', () => this.render()));
+    bindPaceSpeed(document.getElementById('fuPace'), document.getElementById('fuKmh'), () => this.render());
+    document.getElementById('fuModes').addEventListener('click', e => {
+      const btn = e.target.closest('.tc-mode');
+      if (btn) this.setMode(btn.dataset.mode);
+    });
+    this.setMode('tempo');
+  },
+};
+
 // ═══════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════
@@ -11290,6 +11515,14 @@ const Settings = {
     // Planned sessions (Runna .ics import)
     document.getElementById('runnaIcsFile').addEventListener('change', e => this.importRunnaIcs(e));
     document.getElementById('btnClearPlanned').addEventListener('click', () => this.clearPlanned());
+    // ⛽ chips, delegated on the list — it is re-rendered on every expand, import and match, so a
+    // per-chip listener would either be lost or, bound here per render, stack one deep per redraw.
+    document.getElementById('plannedList').addEventListener('click', e => {
+      const chip = e.target.closest('[data-fuel-secs]');
+      if (!chip) return;
+      switchTab('tools');
+      FuelCalc.prefill(parseDec(chip.dataset.fuelKm), +chip.dataset.fuelSecs);
+    });
 
     // Shoe management
     document.getElementById('btnAddShoeMain').addEventListener('click', () => this.addShoe());
@@ -12353,6 +12586,12 @@ const Settings = {
         ? `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">· ${planned.length} totalt i planen${excusedTxt}</span></div>`
         : `<div style="font-size:13px">${okter(planned.length)} <span style="color:var(--muted)">· hentet fra fullførte økter, så forfall kan ikke måles${excusedTxt}</span></div>`);
     }
+    // Silent at zero: most weeks have no run long enough, and a standing "0 økter" line would be
+    // noise on every one of them.
+    const fuelWk = planned.filter(p => fuelWorthy(p, today) && isoWeek(p.date) === isoWeek(today)).length;
+    if (fuelWk) adhEl.insertAdjacentHTML('beforeend',
+      `<div style="font-size:11px;color:var(--muted);margin-top:3px">⛽ ${okter(fuelWk)} denne uken er lange nok til at fueling er aktuelt</div>`);
+
     const COLLAPSE_N = 10;
     const overflow = planned.length - COLLAPSE_N;
     const shown = this.plannedExpanded ? planned : planned.slice(0, COLLAPSE_N);
@@ -12367,6 +12606,7 @@ const Settings = {
         <span style="color:${tc};min-width:76px;flex-shrink:0;font-weight:500">${escapeHtml(p.okttype)}</span>
         <span style="flex:1;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(plannedTitle(p))}</span>
         <span style="font-weight:600;flex-shrink:0">${p.distance} km</span>
+        ${fuelWorthy(p, today) ? `<button type="button" class="tc-chip" data-fuel-km="${p.distance}" data-fuel-secs="${p.estimatedSecs}" title="Regn ut fueling for denne økta" style="flex-shrink:0;padding:2px 8px">⛽</button>` : ''}
       </div>`;
     }).join('');
     if (overflow > 0) html += `<button class="btn-secondary btn-sm" id="btnTogglePlanned" style="align-self:flex-start;margin-top:8px">${this.plannedExpanded ? '▴ Vis færre' : `▾ Vis alle (${planned.length})`}</button>`;
@@ -12910,6 +13150,7 @@ document.addEventListener('DOMContentLoaded', () => {
   PaceConv.init();
   TimeCalc.init();
   IntervalCalc.init();
+  FuelCalc.init();
   // After the three, so it attaches to every field they own without each having to remember to.
   initToolValidation();
   // Delegated on document, so it covers every number field in the app and needs no ordering.
