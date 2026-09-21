@@ -240,9 +240,24 @@
   @media (max-width: 700px) { .pc-table { column-count:2; } }
 
   /* Verktøy — the calculators that share the pc-* input styling above */
-  .pc-field select { background:var(--surface2); border:1px solid var(--border); color:var(--text);
-                     border-radius:6px; padding:8px 6px; font:inherit; font-size:12px; }
-  .pc-field select:focus { outline:none; border-color:var(--accent); }
+  /* appearance:none is load-bearing, not tidiness. WebKit renders a default-appearance select as a
+     NATIVE control and ignores the author's background and colour outright — so these three selects
+     computed to black-on-transparent there for as long as they have existed, which on the dark card
+     reads as a disabled field. Chromium and Firefox honoured the rule, which is why it went unseen
+     until one of them landed in a README screenshot (WebKit is what generates those, and is also
+     what every iPhone runs). The arrow has to be drawn back by hand once appearance is off.
+     ⚠️ The LITERAL FALLBACKS in the var() calls are load-bearing too, and are the actual fix: WebKit
+     does not inherit custom properties into a <select>, so --surface2 reads as EMPTY here while
+     resolving normally on the input right beside it. Without a fallback each var() collapses to its
+     initial value — transparent, and black text. The literals must track the :root tokens they
+     name; there is only one theme, so they cannot drift out from under a theme switch. */
+  .pc-field select { appearance:none; -webkit-appearance:none;
+                     background-color:var(--surface2,#222536); border:1px solid var(--border,#2e3248);
+                     color:var(--text,#e8eaf0);
+                     border-radius:6px; padding:8px 22px 8px 8px; font:inherit; font-size:12px;
+                     background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238b93a7' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+                     background-repeat:no-repeat; background-position:right 7px center; background-size:9px 5px; }
+  .pc-field select:focus { outline:none; border-color:var(--accent,#6c8fff); }
   /* Placeholders must not read as values. The inputs are 15px/600 and centred, so an unstyled
      placeholder looked filled-in — a card showing 6 / 5:30 / 90 while saying "fyll inn" is a
      contradiction the user hits immediately. */
@@ -1641,7 +1656,7 @@
        intact: this card still answers for a distance and a pace you have never run. -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Drivstoff</div>
-    <p class="tc-help">Når en økt blir lang nok, er spørsmålet bare <b>hvor mye karbohydrat</b> og <b>når</b>. Oppgi distanse og enten tempo eller tid, så regner kortet ut målet og fordeler gelene utover økta. Under <b>75 minutter</b> trengs det normalt ingenting.</p>
+    <p class="tc-help">Når en økt blir lang nok, er spørsmålet bare <b>hvor mye karbohydrat</b> og <b>når</b>. Oppgi distanse og enten tempo eller tid, så regner kortet ut målet og fordeler gelene utover økta. Under <b>75 minutter</b> trengs det normalt ingenting — og på en <b>rolig</b> økt går den grensen ved <b>2 timer</b>.</p>
 
     <div class="tc-modes" id="fuModes">
       <button type="button" class="tc-mode tc-on" data-mode="tempo">Fra tempo</button>
@@ -1659,6 +1674,16 @@
       <label class="pc-field">⛽ Gel
         <input type="text" id="fuGel" placeholder="25" inputmode="decimal" autocomplete="off">
         <span class="pc-unit">g karbohydrat</span>
+      </label>
+      <!-- A select, not a second pill row: one .tc-modes group per card, and this matches the unit
+           pickers the Intervaller card already uses. Rolig is the default because nearly every run
+           this gets opened for is an easy one — and because under-stating an easy run is the
+           cheaper error, while the ⛽ chip sets it from the planned session's own type. -->
+      <label class="pc-field">🔥 Innsats
+        <select id="fuEffort">
+          <option value="rolig">Rolig / langtur</option>
+          <option value="lop">Løp / hard økt</option>
+        </select>
       </label>
     </div>
 
@@ -11331,12 +11356,43 @@ const IntervalCalc = {
 // fuelled minute rather than the last unfuelled one. `rate` is the LOW end of the printed label on
 // purpose — a band that quietly used its midpoint would produce a total you cannot trace back to the
 // text beside it, and the low end is also the one to practise with first.
-const FUEL_BANDS = [
-  { maxMin: 75,       rate: 0,  label: '—' },
-  { maxMin: 120,      rate: 30, label: '30 g/t' },
-  { maxMin: 180,      rate: 45, label: '45–60 g/t' },
-  { maxMin: Infinity, rate: 60, label: '60–90 g/t', warn: 'Over 60 g/t krever magetrening — bygg opp mot det, ikke debuter på løpsdagen.' },
-];
+// TWO ladders, because intensity is the one thing duration cannot stand in for. Reported from real
+// use: 10 km at 7:30/km is 75 minutes, and a single race-calibrated ladder prescribed two gels for a
+// run he would not even drink on. At conversational pace a far larger share of the energy comes from
+// fat, so an easy session needs roughly one band less per hour AND tolerates a longer unfuelled
+// window — which is why rolig's cutoff is 2 t rather than 75 min, not merely its rates.
+//
+// ⚠️ «One band down» is tidier than the evidence. It is a practical default, chosen so the two
+// ladders can be reasoned about side by side, and it belongs in the same category as FUEL_TIMING —
+// something to move when his own runs say otherwise, not a sourced rate. The 30/45/60 column is the
+// sourced one.
+//
+// ⚠️ DISTANCE NEVER IMPLIES INTENSITY. A 10 km entry is 10 km; only the effort control says how hard
+// it is meant to be. Nothing here may infer the ladder from how far the run is.
+const FUEL_BANDS = {
+  // ⚠️ Three states on the easy ladder, not two — his correction, and it is a real distinction:
+  // between 75 min and 2 t fuelling is OPTIONAL, not unnecessary. Most easy runs of that length go
+  // fine without, but taking one is a legitimate choice and a long easy run is exactly where you
+  // practise race fuelling. The suggested amount is still 0; only the claim changes.
+  rolig: [
+    { maxMin: 75,       rate: 0,  label: '—' },
+    { maxMin: 120,      rate: 0,  label: '—', optional: true },
+    { maxMin: 180,      rate: 30, label: '30 g/t' },
+    { maxMin: Infinity, rate: 45, label: '45 g/t' },
+  ],
+  lop: [
+    { maxMin: 75,       rate: 0,  label: '—' },
+    { maxMin: 120,      rate: 30, label: '30 g/t' },
+    { maxMin: 180,      rate: 45, label: '45–60 g/t' },
+    { maxMin: Infinity, rate: 60, label: '60–90 g/t', warn: 'Over 60 g/t krever magetrening — bygg opp mot det, ikke debuter på løpsdagen.' },
+  ],
+};
+
+// The easy/hard split is the same question the shoe grid already answers, so it reads the same list
+// rather than a second one that can drift from it. The FALLBACK differs on purpose: the shoe grid
+// sends Test, Race and custom types to its «Andre økter» row, while here anything that is not an
+// easy session is fuelled as a hard one — under-fuelling a race is the costlier mistake.
+const fuelEffortOf = okttype => SHOE_GROUPS.rolig.includes(okttype) ? 'rolig' : 'lop';
 
 // SEPARATE from the bands on purpose, and the separation is the point: the g/h rates are the sourced
 // part, while when the first gel goes down is a habit you should be able to move without touching a
@@ -11367,13 +11423,25 @@ const FUEL_WALK_PACE = 10 * 60;
 // ⚠️ estimatedSecs ONLY — Runna's own estimate, which the import carries for upcoming sessions and
 // nothing else (DATA.md). No estimate means no chip: the plan states no pace target, and deriving
 // one to reach a fuelling verdict is precisely the invention this app refuses to make elsewhere.
+// The gate is the row's OWN ladder, and it opens where the card first has something to SAY — which
+// includes «optional», not only a gram total. A chip leading to a flat «trengs ikke» is noise; one
+// leading to «this is where you could start practising» is the nudge itself.
+// Where the SILENT band ends, which is where the first speaking one begins — not that band's own
+// maxMin, which is where it stops.
+const fuelFirstSay = effort => {
+  const bands = FUEL_BANDS[effort];
+  const i = bands.findIndex(b => b.rate > 0 || b.optional);
+  return i <= 0 ? 0 : bands[i - 1].maxMin;
+};
 const fuelWorthy = (p, today) =>
-  p.date >= today && (p.estimatedSecs || 0) >= FUEL_BANDS[0].maxMin * 60;
+  p.date >= today && (p.estimatedSecs || 0) >= fuelFirstSay(fuelEffortOf(p.okttype)) * 60;
 
 const FuelCalc = {
   mode: 'tempo',
 
-  bandFor: mins => FUEL_BANDS.find(b => mins < b.maxMin),
+  effort: 'rolig',        // nearly every run he opens this for is an easy one
+
+  bandFor: (mins, effort) => FUEL_BANDS[effort].find(b => mins < b.maxMin),
 
   // GRAMS WIN, LAYOUT BENDS. Dropping a gel to make the spacing work would silently revise the carb
   // decision the card just made, so the count is an input here and never an output: spacing relaxes
@@ -11394,18 +11462,18 @@ const FuelCalc = {
   },
 
   // The whole answer as data, so the tests can read numbers instead of parsing sentences.
-  plan(km, durSec, gelGrams) {
+  plan(km, durSec, gelGrams, effort = 'rolig') {
     const mins = durSec / 60;
-    const band = this.bandFor(mins);
+    const band = this.bandFor(mins, effort);
     const paceSec = km > 0 ? durSec / km : 0;
     // Cutoff first: a short walk is already answered by «trengs normalt ikke», and that is the
     // friendlier true statement. Only a LONG entry at walking pace needs its pace questioned.
-    if (!band.rate) return { fuel: false, mins, band, paceSec };
-    if (paceSec > FUEL_WALK_PACE) return { fuel: false, walk: true, mins, band, paceSec };
+    if (!band.rate) return { fuel: false, mins, band, paceSec, effort };
+    if (paceSec > FUEL_WALK_PACE) return { fuel: false, walk: true, mins, band, paceSec, effort };
     const target = Math.round(mins / 60 * band.rate);
     const gels = Math.max(1, Math.round(target / gelGrams));
     const actual = gels * gelGrams;
-    return { fuel: true, mins, band, target, gels, actual, gelGrams, paceSec,
+    return { fuel: true, mins, band, target, gels, actual, gelGrams, paceSec, effort,
              short: Math.max(0, target - actual), ...this.schedule(gels, mins) };
   },
 
@@ -11415,7 +11483,7 @@ const FuelCalc = {
     const durSec = this.mode === 'tid'
       ? strictHmsToSecs(document.getElementById('fuTime').value)
       : km * mmSsToSecs(document.getElementById('fuPace').value);
-    return { km, gel, durSec };
+    return { km, gel, durSec, effort: document.getElementById('fuEffort').value };
   },
 
   setMode(mode) {
@@ -11439,7 +11507,7 @@ const FuelCalc = {
       strip.style.display = 'none';
     };
 
-    const { km, gel, durSec } = this.read();
+    const { km, gel, durSec, effort } = this.read();
     if (!(km > 0) || !(durSec > 0)) {
       hero.className = 'iv-hero iv-empty';
       hero.textContent = this.mode === 'tid' ? 'Fyll inn distanse og varighet.' : 'Fyll inn distanse og tempo.';
@@ -11447,7 +11515,7 @@ const FuelCalc = {
       return;
     }
 
-    const p = this.plan(km, durSec, gel);
+    const p = this.plan(km, durSec, gel, effort);
     // ⚠️ Both refusals carry `fuel: false`, so the WALK case must be read first. Tested the other
     // way round, 11 km in 2:20 answered «Under 75 min (2:20:00)» — a refusal giving a reason that
     // is flatly untrue is worse than the wrong answer it replaced.
@@ -11464,7 +11532,23 @@ const FuelCalc = {
       // The cutoff answer is the whole answer. No stats, no schedule — anything else would imply
       // there is a decision to make.
       hero.className = 'iv-hero iv-empty';
-      hero.textContent = `Under ${FUEL_BANDS[0].maxMin} min (${fmtDur(Math.round(durSec))}) — fueling underveis trengs normalt ikke.`;
+      // NAME THE LADDER. The same 75 minutes is «nothing needed» as an easy run and two gels as a
+      // race, so a refusal that does not say which question it answered invites the wrong one to be
+      // asked. On the easy ladder it also points at the control, because that is the whole fix.
+      const cut = p.band.maxMin >= 120 ? `${p.band.maxMin / 60} t` : `${p.band.maxMin} min`;
+      const dur = fmtDur(Math.round(durSec));
+      hero.className = 'iv-hero iv-empty';
+      // «Valgfritt» and «trengs ikke» are different claims and only one of them is true here. The
+      // suggested amount is 0 either way; what changes is whether taking something would be odd.
+      // innerHTML is safe for all three: every interpolation is a formatted NUMBER (a duration, a
+      // cutoff), never anything typed. Nothing from the form reaches this line.
+      hero.innerHTML = p.band.optional
+        ? `Rolig økt på ${dur} — her er fueling <b>valgfritt</b>. De fleste klarer seg uten, men én gel `
+          + `er helt greit, og en lang rolig økt er nettopp stedet å trene på løpsfuelingen.`
+        : effort === 'rolig'
+        ? `Rolig økt under ${cut} (${dur}) — fueling underveis trengs normalt ikke. `
+          + `Er økta et løp eller en hard økt, bytt innsats over.`
+        : `Under ${cut} (${dur}) — fueling underveis trengs normalt ikke.`;
       blank();
       return;
     }
@@ -11500,9 +11584,12 @@ const FuelCalc = {
 
   // Planlegging's ⛽ chip lands here. A WRITE from the outside, never a read from within: the card
   // still knows nothing about Store, and the same call works for a run that exists only in your head.
-  prefill(km, durSec) {
+  prefill(km, durSec, okttype) {
     document.getElementById('fuDist').value = km || '';
     document.getElementById('fuTime').value = durSec ? secsToHms(durSec) : '';
+    // The plan knows what kind of session it is, so the card should not have to be told twice. Still
+    // a push of a plain value, so nothing here reads Store.
+    document.getElementById('fuEffort').value = fuelEffortOf(okttype);
     this.setMode('tid');
     document.getElementById('fuHero').scrollIntoView({ block: 'center' });
   },
@@ -11511,6 +11598,7 @@ const FuelCalc = {
     if (!document.getElementById('fuDist')) return;
     ['fuDist', 'fuGel', 'fuTime'].forEach(id =>
       document.getElementById(id).addEventListener('input', () => this.render()));
+    document.getElementById('fuEffort').addEventListener('change', () => this.render());
     bindPaceSpeed(document.getElementById('fuPace'), document.getElementById('fuKmh'), () => this.render());
     document.getElementById('fuModes').addEventListener('click', e => {
       const btn = e.target.closest('.tc-mode');
@@ -11547,7 +11635,7 @@ const Settings = {
       const chip = e.target.closest('[data-fuel-secs]');
       if (!chip) return;
       switchTab('tools');
-      FuelCalc.prefill(parseDec(chip.dataset.fuelKm), +chip.dataset.fuelSecs);
+      FuelCalc.prefill(parseDec(chip.dataset.fuelKm), +chip.dataset.fuelSecs, chip.dataset.fuelType);
     });
 
     // Shoe management
@@ -12632,7 +12720,7 @@ const Settings = {
         <span style="color:${tc};min-width:76px;flex-shrink:0;font-weight:500">${escapeHtml(p.okttype)}</span>
         <span style="flex:1;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(plannedTitle(p))}</span>
         <span style="font-weight:600;flex-shrink:0">${p.distance} km</span>
-        ${fuelWorthy(p, today) ? `<button type="button" class="tc-chip" data-fuel-km="${p.distance}" data-fuel-secs="${p.estimatedSecs}" title="Regn ut fueling for denne økta" style="flex-shrink:0;padding:2px 8px">⛽</button>` : ''}
+        ${fuelWorthy(p, today) ? `<button type="button" class="tc-chip" data-fuel-km="${p.distance}" data-fuel-secs="${p.estimatedSecs}" data-fuel-type="${escapeHtml(p.okttype)}" title="Regn ut fueling for denne økta" style="flex-shrink:0;padding:2px 8px">⛽</button>` : ''}
       </div>`;
     }).join('');
     if (overflow > 0) html += `<button class="btn-secondary btn-sm" id="btnTogglePlanned" style="align-self:flex-start;margin-top:8px">${this.plannedExpanded ? '▴ Vis færre' : `▾ Vis alle (${planned.length})`}</button>`;

@@ -859,6 +859,23 @@ with sync_playwright() as b0:
     check("...with the planned distance and duration already in",
           (pg.input_value("#fuDist"), pg.input_value("#fuTime")), ("17", "2:00:00"))
     check("...and the card has answered", "geler" in pg.inner_text("#fuHero"), True)
+    # The plan already knows what KIND of session it is, so the card should not have to be told
+    # twice — and getting this wrong is the whole bug that made the calculator useless for his easy
+    # runs. Still a push of a plain string, so the no-Store rule holds.
+    check("the chip carries the session type", pg.evaluate(
+        "() => [...document.querySelectorAll('#plannedList [data-fuel-secs]')]"
+        ".every(c => c.dataset.fuelType)"), True)
+    check("...and a Long lands on the easy ladder", pg.input_value("#fuEffort"), "rolig")
+    pg.evaluate("() => switchTab('plan')")
+    pg.wait_for_timeout(300)
+    pg.evaluate("""() => { Store.data.plannedSessions.find(p => p.id === 'f1').okttype = 'Race';
+        Settings.renderPlannedList(); }""")
+    pg.wait_for_timeout(200)
+    pg.click("#plannedList [data-fuel-type='Race']")
+    pg.wait_for_timeout(400)
+    check("...while a Race lands on the hard one", pg.input_value("#fuEffort"), "lop")
+    check("...and the two ladders really disagree about that run",
+          "geler" in pg.inner_text("#fuHero"), True)
 
     # The list re-renders on every import, match and expand. A listener bound per render would fire
     # once per redraw — invisible until the day it prefills three times and the mode flickers.

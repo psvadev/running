@@ -478,13 +478,60 @@ with sync_playwright() as b0:
     pg.on("pageerror", lambda e: ferr.append(str(e)))
     boot(pg)
 
-    def plan(km, mins, gel=25):
-        return pg.evaluate("([k,m,g]) => FuelCalc.plan(k, m*60, g)", [km, mins, gel])
+    check("⚠️ the card OPENS on the easy ladder — read before anything touches the control",
+          pg.input_value("#fuEffort"), "rolig")
+    check("...and the easy option is the one the markup lists first",
+          pg.evaluate("() => document.getElementById('fuEffort').options[0].value"), "rolig")
+
+    def plan(km, mins, gel=25, effort="lop"):
+        return pg.evaluate("([k,m,g,e]) => FuelCalc.plan(k, m*60, g, e)", [km, mins, gel, effort])
+
 
     # ---- the cutoff. 75 is the first FUELLED minute, not the last unfuelled one.
     check("74 min needs nothing", plan(10, 74)["fuel"], False)
     check("75 min does", plan(10, 75)["fuel"], True)
     check("76 min does", plan(10, 76)["fuel"], True)
+
+    # ---- the two ladders. Reported from real use, and the reason the card was wrong for almost
+    # every run he actually does: 10 km at 7:30/km is 75 min, and a single race-calibrated ladder
+    # told him to take two gels on a run he would not even drink on. Intensity is the variable
+    # duration cannot stand in for.
+    check("⚠️ his case: 75 min easy suggests no gels", plan(10, 75, effort="rolig")["fuel"], False)
+    check("...while the same 75 min as a race does", plan(10, 75, effort="lop")["fuel"], True)
+    check("grams start at 2 t on the easy ladder",
+          [plan(15, m, effort="rolig")["fuel"] for m in (119, 120, 121)], [False, True, True])
+    # ⚠️ His correction: 75 min – 2 t easy is OPTIONAL, not unnecessary. The amount is still 0; the
+    # CLAIM is what changes, and a card saying "not needed" there would be overstating its case.
+    check("...but 75 min – 2 t easy is optional, not unnecessary",
+          [plan(15, m, effort="rolig")["band"].get("optional") for m in (74, 76, 119, 121)],
+          [None, True, True, None])
+    check("...and optional still suggests nothing", plan(15, 100, effort="rolig").get("gels"), None)
+    check("a genuinely short easy run is not called optional",
+          plan(8, 60, effort="rolig")["band"].get("optional"), None)
+    check("the race cutoff stays at 75 min",
+          [plan(10, m, effort="lop")["fuel"] for m in (74, 75, 76)], [False, True, True])
+    # One band down, per hour, at every duration where both ladders answer.
+    check("easy runs one band below race at 2-3 t",
+          (plan(20, 150, effort="rolig")["band"]["rate"], plan(20, 150, effort="lop")["band"]["rate"]),
+          (30, 45))
+    check("...and above 3 t",
+          (plan(30, 200, effort="rolig")["band"]["rate"], plan(30, 200, effort="lop")["band"]["rate"]),
+          (45, 60))
+    check("a 2 h long run is 2 gels easy, 4 as a race",
+          (plan(17, 120, effort="rolig")["gels"], plan(17, 120, effort="lop")["gels"]), (2, 4))
+    # ⚠️ DISTANCE MUST NEVER IMPLY INTENSITY — only the control says how hard the run is meant to be.
+    check("⚠️ distance alone never picks the ladder",
+          plan(42, 75, effort="rolig")["fuel"], False)
+
+    # The easy/hard split reads the shoe grid's own list rather than a second one that can drift.
+    # Pinned, because a rename there would otherwise silently re-fuel his easy runs as races.
+    check("Easy, Steady and Long fuel as easy sessions",
+          pg.evaluate("() => ['Easy','Steady','Long'].map(fuelEffortOf)"), ["rolig"] * 3)
+    check("...and everything else as hard, including custom types",
+          pg.evaluate("() => ['Tempo','Intervaller','Test','Race','Bakkedrag'].map(fuelEffortOf)"),
+          ["lop"] * 5)
+    check("...reading the shoe grid's list, not a copy of it",
+          pg.evaluate("() => SHOE_GROUPS.rolig.every(t => fuelEffortOf(t) === 'rolig')"), True)
 
     # ---- the pace floor. Reported from real use: 5 km against 75 min is 15:00/km, and the card
     # prescribed two gels for a walk. A PACE floor, not a distance one — the two counterexamples
@@ -579,7 +626,9 @@ with sync_playwright() as b0:
     check("...and it is flagged as impractical", tight["tight"], True)
     check("a roomy plan is not flagged", roomy["tight"], False)
 
-    # ---- on screen
+    # ---- on screen. The race ladder, because these checks are about its numbers and its 75 min
+    # cutoff; the easy ladder gets its own block further down.
+    pg.select_option("#fuEffort", "lop")
     fill(pg, "#fuDist", "10")
     fill(pg, "#fuPace", "7:00")                       # 70 min
     check("under the cutoff the card says so and stops",
@@ -622,6 +671,38 @@ with sync_playwright() as b0:
           pg.evaluate("() => document.getElementById('fuTime').classList.contains('bad-input')"), True)
     check("...and the card asks again rather than answering",
           txt(pg, "#fuHero").startswith("Fyll inn"), True)
+    # ---- the effort control on screen
+    pg.click("#fuModes .tc-mode[data-mode='tid']")
+    fill(pg, "#fuDist", "10")
+    fill(pg, "#fuTime", "1:15:00")
+    pg.select_option("#fuEffort", "rolig")
+    pg.wait_for_timeout(150)
+    h = txt(pg, "#fuHero")
+    check("⚠️ his 75 min 10K suggests no gels", "geler" in h, False)
+    check("...calling it optional, never unnecessary",
+          ("valgfritt" in h, "trengs normalt ikke" in h), (True, False))
+    check("...and saying a long easy run is where you practise", "trene på" in h, True)
+    # Below the optional band the stronger claim IS true, and it names the ladder that made it —
+    # the same 75 minutes is two gels as a race, so an unlabelled refusal invites the wrong reading.
+    fill(pg, "#fuTime", "1:00:00")
+    h60 = txt(pg, "#fuHero")
+    check("a genuinely short easy run does say not needed", "trengs normalt ikke" in h60, True)
+    check("...naming the ladder that said so", "Rolig økt under 75 min" in h60, True)
+    check("...and pointing at the control, because that is the whole fix", "bytt innsats" in h60, True)
+    fill(pg, "#fuTime", "1:15:00")
+    pg.select_option("#fuEffort", "lop")
+    pg.wait_for_timeout(150)
+    check("switching to the race ladder answers, with no input retyped",
+          txt(pg, "#fuHero").startswith("2 geler à 25 g"), True)
+    check("...and the inputs really were untouched",
+          (pg.input_value("#fuDist"), pg.input_value("#fuTime")), ("10", "1:15:00"))
+    pg.select_option("#fuEffort", "rolig")
+    pg.wait_for_timeout(150)
+    # Switching back must restore the EASY answer, not leave the race one on screen — the control
+    # has to be readable in both directions or it is a one-way trapdoor.
+    back = txt(pg, "#fuHero")
+    check("switching back restores the easy answer", ("valgfritt" in back, "geler" in back), (True, False))
+
     check("no Drivstoff page errors", ferr, [])
     pg.close()
 
@@ -635,6 +716,7 @@ with sync_playwright() as b0:
         p.fill("#ivReps", "6");  p.fill("#ivVal", "400")
         p.fill("#ivPace", "5:30"); p.fill("#ivRest", "90")
         p.fill("#fuDist", "17"); p.fill("#fuPace", "7:00")
+        p.select_option("#fuEffort", "lop")
         p.wait_for_timeout(200)
         # ⚠️ Read the Enkel surfaces BEFORE switching mode. Fra plan hides #ivEnkel, and inner_text on
         # a hidden element returns "" — so capturing afterwards would compare "" to "" and report
@@ -651,9 +733,10 @@ with sync_playwright() as b0:
         # Drivstoff is the one card another tab writes into, so its ENTRY POINT is snapshotted too.
         # Not a separate empty-Store check: prefill's likeliest wrong turn is reaching for the
         # planned session it was handed values from, and that is invisible unless a plan exists.
-        p.evaluate("() => FuelCalc.prefill(12, 4680)")
+        p.evaluate("() => FuelCalc.prefill(12, 4680, 'Race')")
         p.wait_for_timeout(200)
-        s += (p.input_value("#fuDist"), p.input_value("#fuTime"), txt(p, "#fuHero"), txt(p, "#fuOut"))
+        s += (p.input_value("#fuDist"), p.input_value("#fuTime"), p.input_value("#fuEffort"),
+              txt(p, "#fuHero"), txt(p, "#fuOut"))
         p.close()
         return s
 
@@ -665,7 +748,8 @@ with sync_playwright() as b0:
     # nothing. The snapshot above already proves the push ignores the store; these pin what it DID.
     # Counted from the END — the prefill values are the last four appended, so inserting a snapshot
     # above cannot silently re-aim these at someone else's output.
-    check("a pushed plan fills both fields", (empty[-4], empty[-3]), ("12", "1:18:00"))
+    check("a pushed plan fills both fields", (empty[-5], empty[-4]), ("12", "1:18:00"))
+    check("...and sets the ladder from the session's own type", empty[-3], "lop")
     check("...and the card answered from those values alone",
           empty[-2].startswith("2 geler à 25 g"), True)
 
