@@ -167,6 +167,76 @@ with sync_playwright() as pw:
     panel = pg.evaluate("() => (document.querySelector('#detailPanel, .detail-panel') || document.body).innerText")
     check("the detail panel shows 6.5/10", '6.5/10' in panel, True)
 
+    # ── 7. Karbohydrat underveis — the other field you fill AFTER the run ───────────────────
+    # It lives here rather than in its own suite for one reason: BLANK AND 0 ARE DIFFERENT ANSWERS.
+    # «ikke registrert» versus «tok ingenting på en to timers økt», and the second is the one most
+    # likely to explain a session that felt awful. `|| null` would erase it and look like a clean
+    # save — the same silent-data-loss shape as the parseInt above, which is what this suite is for.
+    print("== karbohydrat: blank and 0 are different answers ==")
+    # The section above leaves the detail modal open, and its backdrop swallows every click here.
+    pg.evaluate("() => document.getElementById('detailModal')?.classList.remove('open')")
+    pg.wait_for_timeout(150)
+
+    def log_karbo(date, value):
+        pg.evaluate("() => switchTab('form')")
+        pg.wait_for_timeout(250)
+        pg.evaluate("() => Form.clear()")
+        pg.wait_for_timeout(150)
+        pg.fill('#fDato', date)
+        pg.fill('#fDistanse', '17')
+        pg.fill('#fSone2', '2:04:00')          # Varighet is readonly — auto fra soner
+        if value is not None:
+            pg.fill('#fKarbohydrat', value)
+        pg.click('#btnSaveSession')
+        pg.wait_for_timeout(400)
+        return pg.evaluate("(d) => (Store.data.sessions.find(s => s.dato === d) || {}).karbohydrat", date)
+
+    check("a real amount is stored as a number", log_karbo('2026-08-18', '50'), 50)
+    check("⚠️ an explicit 0 SURVIVES — it is an observation, not an empty field",
+          log_karbo('2026-08-19', '0'), 0)
+    check("...and a blank field is null, not 0", log_karbo('2026-08-20', None), None)
+    check("...so the two are distinguishable in the store", pg.evaluate("""
+      () => { const g = d => Store.data.sessions.find(s => s.dato === d).karbohydrat;
+              return [g('2026-08-19') === 0, g('2026-08-20') === null]; }"""), [True, True])
+
+    # ⚠️ The phantom-value shape: a field that keeps a previous session's number while LOOKING blank
+    # is how `stigning: 1` ended up on outdoor runs (DATA.md). Editing a filled session and then a
+    # blank one must leave the form empty, not showing 50.
+    print("== editing never carries a value onto the next session ==")
+    fid = pg.evaluate("() => Store.data.sessions.find(s => s.dato === '2026-08-18').id")
+    bid = pg.evaluate("() => Store.data.sessions.find(s => s.dato === '2026-08-20').id")
+    pg.evaluate(f"() => Form.editSession('{fid}')")
+    pg.wait_for_timeout(300)
+    check("the stored amount comes back on edit", pg.input_value('#fKarbohydrat'), '50')
+    pg.evaluate(f"() => Form.editSession('{bid}')")
+    pg.wait_for_timeout(300)
+    check("⚠️ then a session without one shows EMPTY, not the last value",
+          pg.input_value('#fKarbohydrat'), '')
+    zid = pg.evaluate("() => Store.data.sessions.find(s => s.dato === '2026-08-19').id")
+    pg.evaluate(f"() => Form.editSession('{zid}')")
+    pg.wait_for_timeout(300)
+    check("...and a stored 0 shows as 0, never as blank", pg.input_value('#fKarbohydrat'), '0')
+
+    # Write-only data is useless data: the export is what the AI analysis reads.
+    print("== it reaches the export and the detail panel ==")
+    tsv = pg.evaluate("""() => formatSessionTsv(
+        Store.data.sessions.filter(s => ['2026-08-18','2026-08-19'].includes(s.dato)), {})""")
+    # The export is a header line plus one BLOCK per session, not a flat table — so the value is
+    # found by the header's column INDEX on the block's data row, never by line number.
+    lines = tsv.split('\n')
+    col = lines[0].split('\t').index('Karbohydrat (g)')
+    rows = {r.split('\t')[0]: r.split('\t') for r in lines if r.startswith('2026-08-1')}
+    check("the export has a Karbohydrat column", 'Karbohydrat (g)' in lines[0], True)
+    check("...carrying the amount", rows['2026-08-18'][col], '50')
+    check("⚠️ ...and carrying a 0 rather than an empty cell", rows['2026-08-19'][col], '0')
+
+    pg.evaluate(f"() => DetailPanel.openSession('{fid}')")
+    pg.wait_for_timeout(400)
+    panel = pg.evaluate("() => (document.querySelector('#detailPanel, .detail-panel') || document.body).innerText")
+    check("the detail panel shows the amount", '50 g' in panel, True)
+    # g/t is the unit Drivstoff speaks in, so it is what makes the number comparable to the advice.
+    check("...and the rate it works out to", 'g/t' in panel, True)
+
     check("no page errors", errs, [])
     b.close()
 

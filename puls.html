@@ -913,6 +913,22 @@
         </select>
       </div>
       <div class="form-group">
+        <!-- What he actually took DURING the run, not what he burned (that is Kalorier, from the
+             watch) and not a day's intake. Grams, not a gel count: 2 means nothing years later
+             without the size, and it breaks the moment the unit changes or some of it was drunk.
+             Always visible rather than gated on duration. A field that HIDES but still saves is the
+             exact shape of the phantom `stigning: 1` bug (see DATA.md) — and duration here is
+             usually derived from the zone times, so a duration gate would pop the field in late
+             anyway. The cost of always showing it is one optional number among fifteen. -->
+        <label>Karbohydrat underveis (g)</label>
+        <!-- NOT placeholder="0". Blank and 0 are different answers here — «ikke registrert» versus
+             «tok ingenting på en to timers økt», and the second is the one most likely to explain a
+             session that felt awful. A 0 in grey would blur exactly that line, so the placeholder
+             shows a typical amount and the hint states the rule outright. -->
+        <input type="number" id="fKarbohydrat" min="0" max="500" placeholder="50">
+        <div class="muted-sm" style="margin-top:2px">Tomt = ikke registrert · 0 = tok ingenting</div>
+      </div>
+      <div class="form-group">
         <label>Land</label>
         <input type="text" id="fLand" list="landDatalist" placeholder="Norge" autocomplete="off">
         <datalist id="landDatalist"></datalist>
@@ -2149,6 +2165,9 @@ const TSV_COLS = [
   ['Høydemeter (m)', s => s.hoydeMeter != null ? s.hoydeMeter : ''],
   ['Sko',            s => s.sko || ''],
   ['RPE',            s => s.rpe || ''],
+  // `!= null`, not truthiness: a recorded 0 — took nothing on a long run — is a real observation
+  // and the one most likely to explain a bad session.
+  ['Karbohydrat (g)', s => s.karbohydrat != null ? s.karbohydrat : ''],
   ['Land',           s => s.land || ''],
 ];
 
@@ -6286,6 +6305,10 @@ const Form = {
       // parseFloat, NOT parseInt: the scale has half-steps, and parseInt('6.5') is 6 — a silent
       // downgrade that would look like a successful save and read back as a different effort.
       rpe: parseFloat(document.getElementById('fRpe').value) || null,
+      // 0 is a real answer — "I took nothing on a 2 h run" is exactly the case worth recording —
+      // so an explicit 0 must survive, and only a BLANK field becomes null.
+      karbohydrat: document.getElementById('fKarbohydrat').value.trim() === ''
+        ? null : (parseInt(document.getElementById('fKarbohydrat').value, 10) || 0),
       beskrivelse: document.getElementById('fBeskrivelse').value.trim() || null,
       notater: document.getElementById('fNotater').value.trim() || null,
       utenforAnalyse: document.getElementById('fUtenforAnalyse').checked || undefined,
@@ -6326,6 +6349,7 @@ const Form = {
     // the 1 % default while editing — an existing session's incline is whatever it was recorded as.
     this.syncVenueFields(false);
     document.getElementById('fRpe').value = s.rpe || '';
+    document.getElementById('fKarbohydrat').value = s.karbohydrat ?? '';   // ?? so a stored 0 shows
     this.syncPlanFields();
     document.getElementById('fBeskrivelse').value = s.beskrivelse || '';
     document.getElementById('fNotater').value = s.notater || '';
@@ -6444,7 +6468,7 @@ const Form = {
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
-     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fRpe','fBeskrivelse','fNotater','fLand','fStravaId'].forEach(id => {
+     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fRpe','fKarbohydrat','fBeskrivelse','fNotater','fLand','fStravaId'].forEach(id => {
       document.getElementById(id).value = '';
     });
     markLandInput();
@@ -8580,6 +8604,11 @@ const DetailPanel = {
       ['Høydemeter',     s.hoydeMeter ? s.hoydeMeter+' m' : null],
       ['Sko',            s.sko  || null],
       ['RPE',            s.rpe  ? `<span style="font-weight:600;color:${rpeColor(s.rpe)}">${s.rpe}/10</span>` : null, true],
+      // g/t alongside the total, because that is the unit Drivstoff speaks in — without it you
+      // cannot tell whether 50 g on a 2 h run was close to what the card suggested.
+      ['Karbohydrat',    s.karbohydrat != null
+        ? `${s.karbohydrat} g${s.varighet ? ` <span style="color:var(--muted)">· ${Math.round(s.karbohydrat / (s.varighet / 3600))} g/t</span>` : ''}`
+        : null],
       ['Land',           s.land ? landName(s.land) : null],
       ['Avvik',          s.utenforAnalyse ? 'Holdt utenfor analyse (trender/kvalitetsgrafer)' : null],
       ['Øktbeskrivelse', s.beskrivelse || null],
@@ -11397,7 +11426,14 @@ const fuelEffortOf = okttype => SHOE_GROUPS.rolig.includes(okttype) ? 'rolig' : 
 // SEPARATE from the bands on purpose, and the separation is the point: the g/h rates are the sourced
 // part, while when the first gel goes down is a habit you should be able to move without touching a
 // single gram. Changing anything here must change the schedule and nothing else.
-//   firstMin      — nothing in the first half hour; you start topped up.
+//   firstMin      — nothing in the first three quarters of an hour; you start topped up. Was 32,
+//                   raised to 45 on 2026-09-21 because that matches the advice he actually hears.
+//                   It also makes the schedules land on round numbers you can hold in your head
+//                   mid-run — 45/90/135 on a 2½ h run, every 30 min on a 3½ h one — where 32 gave
+//                   45/77/122 and gaps of 33. The one case it makes worse is the shortest fuelled
+//                   run: a 75 min race leaves only 15 min of window after the first gel, so two
+//                   25 g units get flagged TETT. That run was always slightly over-prescribed
+//                   (50 g against a 37.5 g target); this only stops hiding it.
 //   minGapMin     — the comfortable spacing the layout aims for.
 //   hardGapMin    — the floor. A second gel ten minutes after the first is not a plan.
 //   tailBufferMin — carbs taken inside the last quarter hour arrive after the finish.
@@ -11405,7 +11441,7 @@ const fuelEffortOf = okttype => SHOE_GROUPS.rolig.includes(okttype) ? 'rolig' : 
 //                   evenly across the whole window land at 32 and 104 min, so you run 72 minutes
 //                   unfuelled and then take one 15 minutes before you stop. The tail buffer is a
 //                   CEILING on the last intake, never a target to stretch out to.
-const FUEL_TIMING = { firstMin: 32, minGapMin: 20, maxGapMin: 45, hardGapMin: 15, tailBufferMin: 15 };
+const FUEL_TIMING = { firstMin: 45, minGapMin: 20, maxGapMin: 45, hardGapMin: 15, tailBufferMin: 15 };
 
 // The bands describe RUNNING, and duration only stands in for energy cost while you are running.
 // Reported from real use: 5 km entered against 75 minutes is 15:00/km — a walk — and the card
@@ -11417,6 +11453,15 @@ const FUEL_TIMING = { firstMin: 32, minGapMin: 20, maxGapMin: 45, hardGapMin: 15
 // 10:00/km sits well clear of his own slowest CONTINUOUS session (8:42/km); the only thing slower is
 // an interval session whose average carries its walk recoveries, and those are far under the cutoff.
 const FUEL_WALK_PACE = 10 * 60;
+
+// Remembering the gel size is NOT a Store read, and the distinction is the whole reason it is
+// allowed here. The tab's rule is that a tool must not derive its ANSWER from your training history,
+// so that it can still answer for a run you have never done. The unit you happen to buy is a UI
+// preference — the same category as a remembered tab — so it lives under its own key, never in the
+// session file, and the statelessness test still compares output with and without sessions.
+// ⚠️ localStorage throws in private mode and with site data blocked, and can come back empty, so
+// every access is guarded and 25 g stays the answer whenever it fails.
+const FUEL_GEL_KEY = 'lpl_fuel_gel';
 
 // Planlegging's ⛽ chip and its weekly count are the same question asked twice, so they share one
 // rule, and it lives beside the cutoff it depends on rather than in the renderer.
@@ -11599,6 +11644,19 @@ const FuelCalc = {
     ['fuDist', 'fuGel', 'fuTime'].forEach(id =>
       document.getElementById(id).addEventListener('input', () => this.render()));
     document.getElementById('fuEffort').addEventListener('change', () => this.render());
+
+    const gelEl = document.getElementById('fuGel');
+    try {
+      const saved = localStorage.getItem(FUEL_GEL_KEY);
+      if (saved) gelEl.value = saved;
+    } catch (_) { /* blocked or unavailable — the 25 g placeholder is still the right answer */ }
+    // Blanking the field FORGETS, rather than storing an empty string that would later read back as
+    // "no preference" anyway — the two must not drift apart.
+    gelEl.addEventListener('input', () => {
+      const v = gelEl.value.trim();
+      try { v ? localStorage.setItem(FUEL_GEL_KEY, v) : localStorage.removeItem(FUEL_GEL_KEY); }
+      catch (_) { /* nothing to do: the card still works, it just will not remember */ }
+    });
     bindPaceSpeed(document.getElementById('fuPace'), document.getElementById('fuKmh'), () => this.render());
     document.getElementById('fuModes').addEventListener('click', e => {
       const btn = e.target.closest('.tc-mode');

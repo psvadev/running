@@ -593,10 +593,13 @@ with sync_playwright() as b0:
     # evenly to 32 and 104 min, which is 72 minutes unfuelled followed by a gel taken 15 minutes
     # before you stop. The tail buffer is a CEILING on the last intake, not a target to stretch to.
     thin = plan(17, 119)
-    check("a thin budget does not stretch to fill the run",
-          [round(t) for t in thin["times"]], [32, 77])
+    T = pg.evaluate("() => FUEL_TIMING")
+    check("a thin budget starts at firstMin like any other",
+          round(thin["times"][0]), T["firstMin"])
     check("...capped at maxGapMin exactly",
-          round(thin["times"][1] - thin["times"][0]), pg.evaluate("() => FUEL_TIMING.maxGapMin"))
+          round(thin["times"][1] - thin["times"][0]), T["maxGapMin"])
+    check("...and stops WELL short of the tail buffer instead of stretching to it",
+          round(thin["times"][-1]) < 119 - T["tailBufferMin"] - 1, True)
     check("...while the grams are untouched by the cap", (thin["target"], thin["gels"]), (60, 2))
     check("a budget that fills the window is still spread evenly",
           max(b - a for a, b in zip(roomy["times"], roomy["times"][1:]))
@@ -654,8 +657,11 @@ with sync_playwright() as b0:
           txt(pg, "#fuHero").startswith("2 geler à 25 g"), True)
     check("every intake is listed in minutes AND km",
           txt(pg, "#fuStrip").count("min (~"), 2)
+    # Derived from the pace and the constant, so moving firstMin cannot turn this into a stale
+    # literal that has to be hand-edited (or, worse, quietly relaxed).
+    first_km = T["firstMin"] * 60 / 420          # 17 km in 119 min = 7:00/km
     check("...and the km markers follow distance x pace",
-          "Gel 1 32 min (~4.6 km)" in txt(pg, "#fuStrip"), True)
+          f'Gel 1 {T["firstMin"]} min (~{first_km:.1f} km)' in txt(pg, "#fuStrip"), True)
     check("a shortfall is named", "g under" in txt(pg, "#fuNote"), True)
     # Same run, entered the other way, must give the same answer.
     hero_pace, out_pace, strip_pace = txt(pg, "#fuHero"), out, txt(pg, "#fuStrip")
