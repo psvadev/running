@@ -307,30 +307,44 @@ with sync_playwright() as pw:
     check("the «Ellers» row still writes the original per-venue key",
           sp.evaluate("() => Store.data.shoeDefaults.outdoor"), "C")
 
-    # ── The shoe Strava already knows (2026-09-20) ──────────────────────────────────────────────
-    # He sets the shoe per run in Strava, so that beats the rule — but a forgotten gear change sends
-    # Strava's default, which looks identical to a deliberate one. Hence the visible hint.
-    print("== Strava's gear picks the shoe, and says so ==")
+    # ── Strava's gear only gets to DISAGREE (2026-09-20, flipped the same day) ──────────────────
+    # It shipped with Strava winning. Then his own history: 7 of 90 Strava-linked runs disagreed with
+    # Puls, every one a Runna session carrying Strava's DEFAULT shoe — and he corrects Strava (when
+    # he does) AFTER logging here, so the gear is stale at fetch time. Puls is where he always sets
+    # the shoe, so the rule picks and the gear may only warn.
+    print("== Strava's gear warns, it never picks ==")
     seed(GROUPS)
-    sp.evaluate("() => Form.applyStravaGear({ id: 'g-c', name: 'C' })")
+    sp.select_option("#fOkttype", "Easy")
+    sp.select_option("#fLopetype", "treadmill")   # rule → A
+    sp.wait_for_timeout(150)
+    sp.evaluate("() => Form.noteStravaGear({ id: 'g-c', name: 'C' })")
     sp.wait_for_timeout(100)
-    check("a name match selects that shoe", sp.input_value("#fSko"), "C")
-    check("...and says where it came from", sp.text_content("#shoeSrcHint"), "Sko fra Strava: C")
-    check("...and stores the link, so the name may change later",
+    check("a disagreeing gear does NOT move the shoe", sp.input_value("#fSko"), "A")
+    hint = sp.text_content("#shoeSrcHint") or ""
+    check("...it says so instead, naming both", ("C" in hint and "A" in hint and "Strava" in hint), True)
+    check("...and stores the link, so a later rename still compares right",
           sp.evaluate("() => Store.data.shoes.find(s => s.name === 'C').stravaGearId"), "g-c")
+    # Agreement is silent — a line that never goes away is wallpaper.
+    sp.select_option("#fSko", "C")
+    sp.wait_for_timeout(150)
+    check("picking Strava's shoe clears the warning", sp.text_content("#shoeSrcHint"), "")
+    # The stored link is what makes the comparison survive a rename in either place.
     sp.evaluate("() => { Store.data.shoes.find(s => s.name === 'C').name = 'C2'; Form.refreshShoeDropdown('A'); }")
-    sp.evaluate("() => Form.applyStravaGear({ id: 'g-c', name: 'helt annet navn' })")
+    sp.evaluate("() => { Form.shoeTouched = false; Form.noteStravaGear({ id: 'g-c', name: 'helt annet navn' }); }")
     sp.wait_for_timeout(100)
-    check("the stored link wins over the name", sp.input_value("#fSko"), "C2")
+    check("the link, not the name, decides what Strava means",
+          "C2" in (sp.text_content("#shoeSrcHint") or ""), True)
+    check("...and it still did not touch the shoe", sp.input_value("#fSko"), "A")
 
     seed(GROUPS)
     sp.select_option("#fOkttype", "Easy")
     sp.select_option("#fLopetype", "treadmill")
     sp.wait_for_timeout(150)
-    sp.evaluate("() => Form.applyStravaGear({ id: 'g-x', name: 'Ukjent sko' })")
+    sp.evaluate("() => Form.noteStravaGear({ id: 'g-x', name: 'Ukjent sko' })")
     sp.wait_for_timeout(100)
     check("unknown gear leaves the rule's pick alone", sp.input_value("#fSko"), "A")
-    check("...and asks to be connected", "ikke koblet" in (sp.text_content("#shoeSrcHint") or ""), True)
+    check("...and says it will be linked to what he saves",
+          "ikke koblet" in (sp.text_content("#shoeSrcHint") or ""), True)
     # His own pick teaches it the link — nothing is inferred from a pattern.
     sp.select_option("#fSko", "B")
     sp.evaluate("""() => { document.getElementById('fDistanse').value = '5';
@@ -340,23 +354,15 @@ with sync_playwright() as pw:
     sp.wait_for_timeout(400)
     check("saving links the gear to the shoe he picked",
           sp.evaluate("() => Store.data.shoes.find(s => s.name === 'B').stravaGearId"), "g-x")
-    # ⚠️ Move the dropdown OFF B first. Without that, this passed even with the link-storing line
-    # disabled — the field was already showing B from the pick above (falsification, 2026-09-20).
-    check("...and the next import of that gear resolves by itself",
+    # ⚠️ The form must be OFF B for this to mean anything: with the link-storing line disabled it
+    # passed on the leftover selection (falsification, 2026-09-20).
+    check("...so the next run with that gear is compared, not re-asked",
           sp.evaluate("""() => { Form.shoeTouched = false; Form.refreshShoeDropdown('A');
-              Form.applyStravaGear({ id: 'g-x' });
-              return document.getElementById('fSko').value; }"""), "B")
+              Form.noteStravaGear({ id: 'g-x' });
+              return document.getElementById('shoeSrcHint').textContent.includes('B'); }"""), True)
 
-    seed(GROUPS)
-    sp.select_option("#fOkttype", "Easy")
-    sp.select_option("#fLopetype", "treadmill")
-    sp.select_option("#fSko", "B")           # a hand-pick in this form
-    sp.wait_for_timeout(150)
-    sp.evaluate("() => Form.applyStravaGear({ id: 'g-c2', name: 'C' })")
-    sp.wait_for_timeout(100)
-    check("a hand-picked shoe beats Strava too", sp.input_value("#fSko"), "B")
     seed(GROUPS, retired=["C"])
-    sp.evaluate("() => Form.applyStravaGear({ id: 'g-c3', name: 'C' })")
+    sp.evaluate("() => Form.noteStravaGear({ id: 'g-c3', name: 'C' })")
     sp.wait_for_timeout(100)
     check("a retired shoe is never selected from gear", sp.input_value("#fSko") != "C", True)
 
@@ -374,13 +380,15 @@ with sync_playwright() as pw:
     sp.evaluate(STUB, {"id": "g-pop", "name": "C"})
     sp.evaluate("() => StravaImport._populate(window.__act)")
     sp.wait_for_timeout(500)
-    check("the imported activity's shoe is selected", sp.input_value("#fSko"), "C")
-    check("...and named as Strava's", sp.text_content("#shoeSrcHint"), "Sko fra Strava: C")
-    # Re-pulling while EDITING must not move the shoe — that promise predates this feature.
+    check("the import leaves the rule's shoe in place", sp.input_value("#fSko"), "A")
+    check("...and carries Strava's disagreement through",
+          "C" in (sp.text_content("#shoeSrcHint") or ""), True)
+    # Re-pulling while EDITING must not move the shoe, and must not nag about it either.
     sp.evaluate("() => { Form.editId = 's1'; Form.refreshShoeDropdown('B'); }")
     sp.evaluate("() => StravaImport._populate(window.__act)")
     sp.wait_for_timeout(500)
     check("an edit's re-pull leaves the saved shoe alone", sp.input_value("#fSko"), "B")
+    check("...and says nothing about gear", sp.text_content("#shoeSrcHint"), "")
     sp.evaluate("() => { Form.editId = null; }")
 
     check("no shoe-rule page errors", serr, [])

@@ -860,9 +860,9 @@
           <select id="fSko" style="flex:1"></select>
           <button class="btn-secondary btn-sm" id="btnAddShoe" title="Legg til sko">+</button>
         </div>
-        <!-- Says where the pre-selected shoe came from when it came from Strava. A forgotten gear
-             change there sends Strava's DEFAULT shoe, which is indistinguishable from a deliberate
-             one — so the defence is showing it while it can still be corrected. -->
+        <!-- Says when Strava's gear DISAGREES with the shoe chosen here. Strava never picks the
+             shoe: Runna-synced runs arrive carrying Strava's default, and he corrects Strava (if at
+             all) after logging here, so at fetch time the gear is the stale one. -->
         <div id="shoeSrcHint" class="muted-sm" style="margin-top:2px"></div>
       </div>
       <div class="form-group">
@@ -5830,6 +5830,7 @@ const Form = {
   planPrefill: null,    // {fieldId: value} applyPlannedDefault() wrote, so clearPlanPrefill can take back only that
   shoeTouched: false,   // a hand-picked shoe is final for the rest of this form — same rule as planTouched
   pendingGearId: null,  // Strava gear this form could not match; save() links it to the shoe he picks
+  stravaGear: null,     // the imported activity's gear, kept only to compare against the chosen shoe
 
   init() {
     document.getElementById('fDato').value = localISODate();
@@ -5847,7 +5848,10 @@ const Form = {
 
     // A hand-picked shoe is final for the rest of this form — changing Økt-type or Løpetype
     // afterwards must not quietly swap it back to the rule's pick. Same shape as planTouched.
-    document.getElementById('fSko').addEventListener('change', () => { this.shoeTouched = true; });
+    document.getElementById('fSko').addEventListener('change', () => {
+      this.shoeTouched = true;
+      this.updateShoeHint();
+    });
 
     // Treningsplan change: toggle Øktbeskrivelse visibility + auto-name. A hand-pick is final for
     // the rest of this form — syncPlanForType() will not touch the field again until clear().
@@ -6009,6 +6013,7 @@ const Form = {
     const groupName = group && ((defs.groups || {})[group] || {})[venue];
     const defName = named(groupName) ? groupName : defs[venue];
     if (named(defName)) this.refreshShoeDropdown(defName);
+    this.updateShoeHint();   // the rule may have just moved away from (or onto) Strava's shoe
   },
 
   // Strava's gear → the Puls shoe, or a hint when the two are not connected yet.
@@ -6019,24 +6024,49 @@ const Form = {
   //                                              and remember the id so save() can learn from his own
   //                                              pick (pendingGearId). Never a guess of ours.
   // A retired shoe is ignored, like everywhere else.
-  applyStravaGear(gear) {
+  // Strava's gear for the imported activity — REMEMBERED, never applied. Shipped 2026-09-20 with
+  // Strava winning; his own history killed that the same day: 7 of 90 Strava-linked runs disagreed
+  // with Puls, all of them Runna sessions that synced with Strava's DEFAULT shoe, and he corrects
+  // Strava (when he does) after logging in Puls — so at fetch time the gear is the stale one.
+  // Puls is where he always sets the shoe, so Puls decides; Strava only gets to disagree out loud,
+  // which is the reminder to fix it there while the run is still in front of him.
+  // Un-flip trigger: the mismatch line stops appearing for months — then the gear has earned it.
+  noteStravaGear(gear) {
+    this.stravaGear = gear && gear.id ? gear : null;
     this.pendingGearId = null;
-    const hint = document.getElementById('shoeSrcHint');
-    if (hint) hint.textContent = '';
-    if (!gear || !gear.id || this.shoeTouched) return;
+    this.updateShoeHint();
+  },
+
+  // The shoe Strava's gear resolves to: a stored link first, else an exact name match — which then
+  // STORES the link, so a later rename or a second gear id costs one match, not a wrong comparison.
+  shoeForGear(gear) {
+    if (!gear || !gear.id) return null;
     const active = Store.data.shoes.filter(s => !s.retired);
-    let shoe = active.find(s => s.stravaGearId === gear.id);
-    if (!shoe && gear.name) {
-      shoe = active.find(s => s.name.toLowerCase() === gear.name.trim().toLowerCase());
-      if (shoe) { shoe.stravaGearId = gear.id; FileIO.save(); }
-    }
-    if (shoe) {
-      this.refreshShoeDropdown(shoe.name);
-      if (hint) hint.textContent = `Sko fra Strava: ${shoe.name}`;
+    const linked = active.find(s => s.stravaGearId === gear.id);
+    if (linked) return linked;
+    const named = gear.name && active.find(s => s.name.toLowerCase() === gear.name.trim().toLowerCase());
+    if (named) { named.stravaGearId = gear.id; FileIO.save(); }
+    return named || null;
+  },
+
+  // Re-run whenever the shoe or the rule's pick changes, not just on import: the line must never
+  // outlive the disagreement it describes.
+  updateShoeHint() {
+    const hint = document.getElementById('shoeSrcHint');
+    if (!hint) return;
+    const gear = this.stravaGear;
+    if (!gear || this.editId) { hint.textContent = ''; return; }
+    const shoe = this.shoeForGear(gear);
+    const chosen = document.getElementById('fSko').value;
+    if (!shoe) {
+      // Unknown gear: the link is learned from the shoe he saves (see save()), so the next run with
+      // that gear can be compared instead of guessed at.
+      this.pendingGearId = gear.id;
+      hint.textContent = gear.name ? `Strava-sko «${gear.name}» er ikke koblet — den kobles til skoen du lagrer` : '';
       return;
     }
-    this.pendingGearId = gear.id;
-    if (hint && gear.name) hint.textContent = `Strava-sko «${gear.name}» er ikke koblet — velg sko, så huskes det`;
+    hint.textContent = shoe.name === chosen ? ''
+      : `⚠️ Strava har ${shoe.name} på denne økten — rett den der hvis «${chosen}» er riktig`;
   },
 
   // Prefill Økt-type + Mål distanse + Øktbeskrivelse from an imported Runna planned session matching
@@ -6223,6 +6253,8 @@ const Form = {
     document.getElementById('fUtenforAnalyse').checked = !!s.utenforAnalyse;
     document.getElementById('fLand').value = s.land ? landName(s.land) : '';
     markLandInput();   // an old free-text land shows red before Lagre refuses it
+    this.stravaGear = null;
+    this.updateShoeHint();   // an old session's shoe is its own; no gear line belongs here
     document.getElementById('fStravaId').value = s.stravaId || '';
     this.refreshShoeDropdown(s.sko);
   },
@@ -6352,6 +6384,7 @@ const Form = {
     this.applyVenueForType();     // Tempo/Intervaller → Tredemølle (after the type is known)
     this.shoeTouched = false;     // a new form owes nothing to the last form's hand-pick
     this.pendingGearId = null;
+    this.stravaGear = null;
     const shoeHint = document.getElementById('shoeSrcHint');
     if (shoeHint) shoeHint.textContent = '';
     this.applyShoeDefault();      // ⚠️ AFTER the plan prefill: the shoe rule reads Økt-type, and on a
@@ -10396,10 +10429,11 @@ const StravaImport = {
       // fall back to the activity timezone (e.g. "Europe/Oslo" → NO). Prefill only
       // for abroad runs — Norway is the blank home default, so a resolved 'NO' is
       // left blank (keeps the "empty = Norge" convention). Unknown → blank too.
-      // Sko — Strava's gear for this activity, matched to a Puls shoe by a stored link or by name.
-      // New sessions only: an edit's re-pull promises never to touch the shoe. Beats the Standard
-      // sko rule (it is his per-run pick) but never a hand-pick made in this form.
-      if (!Form.editId) Form.applyStravaGear(detail?.gear);
+      // Sko — Strava's gear is only COMPARED with the shoe Puls picked, never applied (see
+      // noteStravaGear). New sessions only: an edit's re-pull promises never to touch the shoe.
+      // No editId check here on purpose: updateShoeHint owns that rule (falsification 2026-09-20
+      // showed this second guard changed nothing — two spellings of one decision).
+      Form.noteStravaGear(detail?.gear);
 
       const landEl = document.getElementById('fLand');
       if (!landEl.value) {
