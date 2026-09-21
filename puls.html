@@ -1641,7 +1641,7 @@
        intact: this card still answers for a distance and a pace you have never run. -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Drivstoff</div>
-    <p class="tc-help">Når en økt blir lang nok, er spørsmålet bare <b>hvor mye karbo</b> og <b>når</b>. Oppgi distanse og enten tempo eller tid, så regner kortet ut målet og fordeler gelene utover økta. Under <b>75 minutter</b> trengs det normalt ingenting.</p>
+    <p class="tc-help">Når en økt blir lang nok, er spørsmålet bare <b>hvor mye karbohydrat</b> og <b>når</b>. Oppgi distanse og enten tempo eller tid, så regner kortet ut målet og fordeler gelene utover økta. Under <b>75 minutter</b> trengs det normalt ingenting.</p>
 
     <div class="tc-modes" id="fuModes">
       <button type="button" class="tc-mode tc-on" data-mode="tempo">Fra tempo</button>
@@ -1658,7 +1658,7 @@
            for exactly that reason. -->
       <label class="pc-field">⛽ Gel
         <input type="text" id="fuGel" placeholder="25" inputmode="decimal" autocomplete="off">
-        <span class="pc-unit">g karbo</span>
+        <span class="pc-unit">g karbohydrat</span>
       </label>
     </div>
 
@@ -11451,7 +11451,7 @@ const FuelCalc = {
     // 25 % more than the band suggests, and printing one number would hide that in either direction.
     out.innerHTML = statHtml(fmtDur(Math.round(durSec)), 'varighet', true)
       + statHtml(p.band.label, 'anbefalt rate')
-      + statHtml(`~${p.target} g`, 'karbomål')
+      + statHtml(`~${p.target} g`, 'mål')
       + statHtml(`${p.actual} g`, 'faktisk i geler');
 
     // Minutes AND km: the watch shows one and the route the other, and having to convert mid-run is
@@ -11465,7 +11465,7 @@ const FuelCalc = {
 
     const notes = [];
     if (p.short) notes.push(`Dette lander ca. <b>${p.short} g under</b> det beregnede målet — geler kommer i hele enheter, og én gel til ville bommet mer den andre veien.`);
-    if (p.tight) notes.push(`<b>${p.gels} enheter à ${p.gelGrams} g</b> blir for mange til en praktisk plan: selv med ${FUEL_TIMING.hardGapMin} min mellom hver strekker rekka seg inn i de siste ${FUEL_TIMING.tailBufferMin} minuttene, der karboen uansett ikke rekker å gjøre nytte. Karbomålet står — bruk heller en enhet med mer karbo.`);
+    if (p.tight) notes.push(`<b>${p.gels} enheter à ${p.gelGrams} g</b> blir for mange til en praktisk plan: selv med ${FUEL_TIMING.hardGapMin} min mellom hver blir de bakerste liggende mindre enn ${FUEL_TIMING.tailBufferMin} min før mål, der en gel uansett ikke rekker å gjøre nytte. Målet står — bruk heller en enhet med mer karbohydrat.`);
     else if (p.compressed) notes.push(`Tett plan — ${Math.round(p.gap)} min mellom hver, mot vanlige ${FUEL_TIMING.minGapMin}.`);
     if (p.band.warn) notes.push(p.band.warn);
     notes.push('Tallene er et utgangspunkt, ikke en resept: magetoleranse er individuell, så tren på løpsfuelingen i lange økter før du bruker den i et løp.');
