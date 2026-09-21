@@ -11351,6 +11351,17 @@ const FUEL_BANDS = [
 //                   CEILING on the last intake, never a target to stretch out to.
 const FUEL_TIMING = { firstMin: 32, minGapMin: 20, maxGapMin: 45, hardGapMin: 15, tailBufferMin: 15 };
 
+// The bands describe RUNNING, and duration only stands in for energy cost while you are running.
+// Reported from real use: 5 km entered against 75 minutes is 15:00/km — a walk — and the card
+// confidently prescribed two gels for it. It is a PACE floor and deliberately not a distance one:
+// 10 km at 9:00/km is 90 minutes and genuinely wants fuelling, while 11 km in 140 minutes is a walk
+// that any distance floor waves through. The same check catches the entry error that produces the
+// same reading — a distance typed as 5 instead of 15, or an hour typed where minutes were meant —
+// which is the likelier way to get here than an actual plan to walk.
+// 10:00/km sits well clear of his own slowest CONTINUOUS session (8:42/km); the only thing slower is
+// an interval session whose average carries its walk recoveries, and those are far under the cutoff.
+const FUEL_WALK_PACE = 10 * 60;
+
 // Planlegging's ⛽ chip and its weekly count are the same question asked twice, so they share one
 // rule, and it lives beside the cutoff it depends on rather than in the renderer.
 // ⚠️ estimatedSecs ONLY — Runna's own estimate, which the import carries for upcoming sessions and
@@ -11386,13 +11397,16 @@ const FuelCalc = {
   plan(km, durSec, gelGrams) {
     const mins = durSec / 60;
     const band = this.bandFor(mins);
-    if (!band.rate) return { fuel: false, mins, band };
+    const paceSec = km > 0 ? durSec / km : 0;
+    // Cutoff first: a short walk is already answered by «trengs normalt ikke», and that is the
+    // friendlier true statement. Only a LONG entry at walking pace needs its pace questioned.
+    if (!band.rate) return { fuel: false, mins, band, paceSec };
+    if (paceSec > FUEL_WALK_PACE) return { fuel: false, walk: true, mins, band, paceSec };
     const target = Math.round(mins / 60 * band.rate);
     const gels = Math.max(1, Math.round(target / gelGrams));
     const actual = gels * gelGrams;
-    return { fuel: true, mins, band, target, gels, actual, gelGrams,
-             short: Math.max(0, target - actual), ...this.schedule(gels, mins),
-             paceSec: km > 0 ? durSec / km : 0 };
+    return { fuel: true, mins, band, target, gels, actual, gelGrams, paceSec,
+             short: Math.max(0, target - actual), ...this.schedule(gels, mins) };
   },
 
   read() {
@@ -11434,6 +11448,18 @@ const FuelCalc = {
     }
 
     const p = this.plan(km, durSec, gel);
+    // ⚠️ Both refusals carry `fuel: false`, so the WALK case must be read first. Tested the other
+    // way round, 11 km in 2:20 answered «Under 75 min (2:20:00)» — a refusal giving a reason that
+    // is flatly untrue is worse than the wrong answer it replaced.
+    if (p.walk) {
+      // NAME the pace. In «Fra tid» it is derived and never shown, so it is exactly the number that
+      // is wrong and exactly the one you cannot see — which is how 5 km mot 75 min got an answer.
+      hero.className = 'iv-hero iv-empty';
+      hero.textContent = `${km} km på ${fmtDur(Math.round(durSec))} er ${secsToMmSs(Math.round(p.paceSec))} /km `
+        + `— gangfart. Tallene her gjelder løping, så sjekk distansen og tiden.`;
+      blank();
+      return;
+    }
     if (!p.fuel) {
       // The cutoff answer is the whole answer. No stats, no schedule — anything else would imply
       // there is a decision to make.

@@ -486,6 +486,23 @@ with sync_playwright() as b0:
     check("75 min does", plan(10, 75)["fuel"], True)
     check("76 min does", plan(10, 76)["fuel"], True)
 
+    # ---- the pace floor. Reported from real use: 5 km against 75 min is 15:00/km, and the card
+    # prescribed two gels for a walk. A PACE floor, not a distance one — the two counterexamples
+    # below are what rule distance out, and they are the reason this section exists.
+    walk = plan(5, 75)
+    check("a walking pace gets no fuelling plan", walk["fuel"], False)
+    check("...named as a walk, not as something else", walk.get("walk"), True)
+    check("...and the pace it objects to is reported", round(walk["paceSec"]), 900)
+    check("⚠️ a DISTANCE floor would not have caught this one", plan(11, 140).get("walk"), True)
+    check("⚠️ ...nor let this one through: 10 km at 9:00 is 90 min and wants fuelling",
+          (plan(10, 90)["fuel"], plan(10, 90).get("walk")), (True, None))
+    check("10:00/km exactly is still running", plan(8, 80)["fuel"], True)
+    check("...and a hair slower is not", plan(8, 81).get("walk"), True)
+    # The cutoff answers a SHORT walk, because «trengs normalt ikke» is the friendlier true
+    # statement. Only a long entry at walking pace has its pace questioned.
+    check("a short walk is answered by the cutoff, not the pace floor",
+          (plan(3, 40)["fuel"], plan(3, 40).get("walk")), (False, None))
+
     # ---- the bands, each computing from the LOW end of its printed label
     check("75-120 min is 30 g/t", (plan(15, 105)["band"]["rate"], plan(15, 105)["band"]["label"]),
           (30, "30 g/t"))
@@ -494,8 +511,10 @@ with sync_playwright() as b0:
     check("over 3 t is the low end of 60-90", (plan(30, 200)["band"]["rate"], plan(30, 200)["band"]["label"]),
           (60, "60–90 g/t"))
     check("...and that band says it needs practice", "magetrening" in plan(30, 200)["band"]["warn"], True)
+    # Both distances must be RUNNING at 150 min, or the pace floor answers instead of the bands —
+    # 10 km in 2.5 h was the original pair here and is 15:00/km, i.e. the walk case.
     check("the rate drives the target, not the distance",
-          (plan(10, 150)["target"], plan(30, 150)["target"]), (113, 113))
+          (plan(18, 150)["target"], plan(30, 150)["target"]), (113, 113))
 
     # ---- target vs actual, and round-not-ceil
     # 2 t at 45 g/t = 90 g of target. Three 25 g gels is 75, four is 100: round picks four and the
@@ -565,6 +584,18 @@ with sync_playwright() as b0:
     fill(pg, "#fuPace", "7:00")                       # 70 min
     check("under the cutoff the card says so and stops",
           ("75 min" in txt(pg, "#fuHero"), txt(pg, "#fuOut"), txt(pg, "#fuStrip")), (True, "", ""))
+    # ⚠️ BOTH refusals carry fuel: False, so the renderer has to read the walk case FIRST. Written
+    # the other way round, 11 km in 2:20 answered "Under 75 min (2:20:00)" — a refusal whose stated
+    # reason is flatly untrue, which is worse than the wrong answer it replaced.
+    fill(pg, "#fuDist", "11")
+    pg.click("#fuModes .tc-mode[data-mode='tid']")
+    fill(pg, "#fuTime", "2:20:00")
+    hero = txt(pg, "#fuHero")
+    check("a long walk is refused for the RIGHT reason", "gangfart" in hero, True)
+    check("...never as being under the cutoff", "Under 75 min" in hero, False)
+    check("...and it names the pace, which «Fra tid» never shows", "12:44" in hero, True)
+    pg.click("#fuModes .tc-mode[data-mode='tempo']")
+
     fill(pg, "#fuDist", "17")                         # 119 min
     out = txt(pg, "#fuOut")
     # 119 min at 30 g/t = ~60 g of target; two 25 g gels deliver 50. Both numbers on screen, which is
