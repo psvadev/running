@@ -443,8 +443,9 @@ with sync_playwright() as p:
     # competition is only the cards this check is about.
     print("== the countdown survives a full card ==")
 
-    crowd = ([session(days_ago(n), 150, okttype='Steady', distanse=6.0, tempo=0,
-                      soner=[0, 0, 0, 0, 0]) for n in range(29, 56, 3)]             # prior 4wk: 54 km
+    # Prior sessions at 5 km so the 100 km mark falls 6 days ago — inside the 10-day milestone window.
+    crowd = ([session(days_ago(n), 150, okttype='Steady', distanse=5.0, tempo=0,
+                      soner=[0, 0, 0, 0, 0]) for n in range(29, 56, 3)]             # prior 4wk: 45 km
              + [session(days_ago(n), 201 if n in (3, 6) else 150, okttype='Steady', distanse=7.0,
                         tempo=0, soner=[0, 0, 0, 0, 0]) for n in range(0, 28, 3)])  # recent: 70 km
     data = {'sessions': crowd, 'shoes': [], 'shoeDefaults': {}, 'goals': {},
@@ -470,6 +471,26 @@ with sync_playwright() as p:
     check('control: the PRs hold slots', full.count('-PR') >= 3, True)
     check('control: another priority-4 card is competing', 'over maks puls' in full, True)
     check('the block countdown still earns a slot', 'starter' in full, True)
+
+    # ── The km milestone is news for 10 days, then a statistic ──────────────────────────────────
+    # His call (2026-09-22): at 30 days a priority-5 slot still said «500 km passert» 62 km later,
+    # and 10 rather than a PR's 14 because a PR is the bigger news. 12 is the falsifier: it passes
+    # both the old 30-day window and a milestone that borrowed the PR's 14.
+    print("== the km milestone expires after 10 days ==")
+
+    def milestone_shown(cross_ago):
+        d = dict(data, sessions=[session(days_ago(cross_ago), 150, okttype='Steady', distanse=100.0)],
+                 events=[], bestEffortsTop3={})
+        pg.goto(APP)
+        pg.evaluate("d => localStorage.setItem('lpl_cache', JSON.stringify(d))", d)
+        pg.goto(APP)
+        pg.wait_for_timeout(500)
+        pg.evaluate("() => switchTab('dash')")
+        pg.wait_for_timeout(400)
+        return 'totalt passert' in pg.inner_text('#insightCard')
+
+    check('milestone crossed 9 days ago: still shown', milestone_shown(9), True)
+    check('milestone crossed 12 days ago: gone', milestone_shown(12), False)
 
     if errs:
         print('  PAGE ERRORS:', errs)

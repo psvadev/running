@@ -7390,7 +7390,11 @@ function renderInsights(sessions) {
       if (cumKm >= top) { crossDate = s.dato; break; }
     }
     // Only while it's still an event. Older than that it's a statistic, and Rekorder owns those.
-    if (crossDate && crossDate >= thirtyDaysAgo) {
+    // 10 days, his call (2026-09-22): at 30 a priority-5 slot still said «500 km passert» 62 km on.
+    // Shorter than a PR's 14 on purpose — a PR is the bigger news. The window is the lever, NOT the
+    // priority: this is the first generator pushed, so at a tied lower priority it would still win
+    // every tie on a full card (see the countdown case in test_insights).
+    if (crossDate && crossDate >= localISODaysAgo(10)) {
       candidates.push({ icon:'🎯', val:`${top} km`, sub:`totalt passert (${totalKm.toFixed(0)} km totalt)`, priority: 5 });
     }
   }
