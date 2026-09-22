@@ -8585,7 +8585,9 @@ function hrGraphRange(series, zones) {
   const hrs = series.hr.filter(h => h != null);
   // Open zone ends (0 / Infinity) must not stretch the axis — only a boundary someone SET counts.
   const floor = zones && zones[0].min > 0 ? zones[0].min : Infinity;
-  const ceil  = zones && Number.isFinite(zones[4].max) ? zones[4].max : -Infinity;
+  // With S5's ceiling open (his is), show a band's worth of S5 anyway — the point of spanning the
+  // ladder is to see how far below the top zone a run stayed, and an axis ending at 180 hid S5 entirely.
+  const ceil  = !zones ? -Infinity : Number.isFinite(zones[4].max) ? zones[4].max : zones[4].min + 10;
   const hrLo = Math.floor((Math.min(...hrs, floor) - 5) / 10) * 10;
   // Rounded UP to a labelled 20: only round 20s get tick labels, so an axis ending at 163 left the
   // top of the line with nothing to read it against (seen on his first real run).
@@ -8800,11 +8802,19 @@ const DetailPanel = {
     // Step chosen from the WIDTH as well as the duration: at 402 px a 65 min run on a 10 min step
     // printed «60 min» on top of «65 min», because Chart.js also labels the axis end. So only round
     // multiples of the step are labelled, and the step grows until ~70 px fits each label.
-    const maxLabels = Math.max(3, Math.floor(el.clientWidth / 70));
+    // ⚠️ The TICK LIST is filtered, not just the labels. Chart.js always adds a tick at the axis end
+    // (65 on a 65 min run), 5 min from the last round step; its label-thinning then saw the two
+    // crowding and dropped the 60 — on his desktop AND his iPhone, the axis simply stopped at 40/50.
+    // Hiding the end tick's label was not enough, because the tick itself still took part in thinning.
+    // That thinning depends on real font metrics and never fires in the headless harness, so the fix
+    // removes the cause instead of trusting a test to watch Chart.js decide.
+    const maxLabels = Math.min(8, Math.max(3, Math.floor(el.clientWidth / 80)));
     const step = [5, 10, 15, 20, 30, 60].find(n => xmax / n <= maxLabels) || 60;
+    const onStep = v => Math.abs(v % step) < 1e-6;
     const xAxis = show => ({ type: 'linear', min: 0, max: xmax, grid: { display: false }, display: show,
-      ticks: { color: muted, font: { size: 10 }, stepSize: step,
-               callback: v => Math.abs(v % step) < 1e-6 ? Math.round(v) + ' min' : null } });
+      afterBuildTicks: a => { a.ticks = a.ticks.filter(t => onStep(t.value)); },
+      ticks: { color: muted, font: { size: 10 }, stepSize: step, autoSkip: false, maxRotation: 0,
+               callback: v => Math.round(v) + ' min' } });
     // Pinned y-axis width so both charts share a left edge: a moment in the HR chart must sit
     // directly above the same moment in the pace strip, and Chart.js otherwise sizes each axis to
     // its own labels.

@@ -272,6 +272,11 @@ with sync_playwright() as p:
       return hrGraphRange({{ hr: [72, 150, 161], pace: null }}, hrZoneBounds()); }}""")
     check("an open floor does not drag the HR axis below the run", rng["hrLo"], 60)
     check("the top is a labelled round 20, never a bare 163", rng["hrHi"] % 20, 0)
+    # His S5 ceiling is open too. Spanning the ladder only means anything if S5 is ON the axis.
+    rng5 = pg.evaluate("""() => { Store.data.settings.zones =
+        [{min:null,max:127},{min:128,max:157},{min:158,max:170},{min:171,max:180},{min:181,max:null}];
+      return hrGraphRange({ hr: [72, 150, 165], pace: null }, hrZoneBounds()); }""")
+    check("⚠️ an open S5 ceiling still puts S5 on the axis", rng5["hrHi"] > 181, True)
     pg.close()
 
     pg, errs = fresh()
@@ -311,6 +316,9 @@ with sync_playwright() as p:
     # percentile edges (5:59, 7:02). Each of those is pinned here.
     print("== the pace strip reads on real-shaped data ==")
     pg, errs = fresh(pace="1")
+    # HIS width. At 900 px the step is already 10 and Chart.js never thins, so the dropped-60 bug was
+    # invisible there — the mutation restoring what he actually saw passed (falsification, 2026-09-22).
+    pg.set_viewport_size({"width": 1180, "height": 1200})
     pg.evaluate("""() => { let seed = 3; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
       StravaIO.fetchActivityStreams = async () => { const time=[], hr=[], vel=[]; let v = 2.5;
         for (let s = 0; s <= 3900; s++) { time.push(s); hr.push(150); v += (2.56 - v) * .08 + (rnd() - .5) * .35; vel.push(v); }
@@ -328,6 +336,12 @@ with sync_playwright() as p:
         let m = 0; for (let i = 1; i < d.length; i++) if (d[i].y != null && d[i-1].y != null)
           m = Math.max(m, Math.abs(d[i].y - d[i-1].y) * 60); return m; }""")
     check("the plotted pace is smooth — no jump over 5 s/km between points", jump < 5, True)
+    # His desktop screenshot: a 65 min run whose axis ended at «50 min» — Chart.js's own label
+    # thinning dropped the 60 on top of ours. Every round step up to the end must be labelled.
+    xs = pg.evaluate("""() => Chart.getChart(document.getElementById('hrGraphPace'))
+        .scales.x.ticks.filter(t => t.label).map(t => t.value)""")
+    check("⚠️ desktop: the axis labels every round step, up to 60 on a 65 min run",
+          (xs[-1], len(set(round(b - a, 6) for a, b in zip(xs, xs[1:])))), (60, 1))
     pg.close()
 
     # 402 px: the chart and its footer must fit the phone.
@@ -350,6 +364,13 @@ with sync_playwright() as p:
     check("402px: the time labels are evenly spaced round steps, never the raw end",
           len(set(round(b - a, 6) for a, b in zip(xl, xl[1:]))) == 1, True)
     check("402px: ...and few enough to fit", len(xl) <= 5, True)
+    check("402px: ...reaching the last round step before the end", xl[-1], 60)
+    # The STRUCTURAL check, because the symptom is not reproducible here: Chart.js's label thinning
+    # depends on real font metrics and never fires headless. On his phone it dropped the 60 because a
+    # tick at the axis end (65) sat 5 min away. So assert that end tick does not exist at all.
+    allx = pg.evaluate("""() => Chart.getChart(document.getElementById('hrGraphPace'))
+        .scales.x.ticks.map(t => t.value)""")
+    check("⚠️ 402px: no tick at the run's raw end for the 60 to be thinned against", 65 in allx, False)
     check("402px: nothing in the graph overflows its panel", pg.evaluate("""() => {
       const g = document.getElementById('hrGraph'), body = document.getElementById('detailBody');
       return g.getBoundingClientRect().right <= body.getBoundingClientRect().right + 1; }"""), True)
