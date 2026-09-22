@@ -8524,11 +8524,17 @@ const WEEK_CONTEXTS = {
 // nothing, and carries no Python port — nothing downstream reads its output, it is only drawn.
 const HR_PACE_KEY = 'lpl_hr_pace';   // view preference only, same category as FUEL_GEL_KEY
 
-// Configured zone bounds as numbers, or null when any zone is incomplete — bands drawn from a
-// half-filled editor would put a colour where no boundary was ever set.
+// Configured zone bounds as numbers, or null when a zone is genuinely incomplete.
+// ⚠️ Zone 1's FLOOR and zone 5's CEILING are routinely left open — nothing reads them, and his own
+// Sone 1 is stored as `min: null`. The first version demanded all ten numbers, so that one blank
+// floor switched every band off on his real data while the synthetic mockups (fully filled) looked
+// perfect. Open ends are 0 / Infinity here and get clipped to the axis when drawn.
 function hrZoneBounds() {
-  const z = (Store.data.settings?.zones || []).map(x => ({ min: +x?.min, max: +x?.max }));
-  return z.length === 5 && z.every(x => x.min > 0 && x.max > x.min) ? z : null;
+  const raw = Store.data.settings?.zones || [];
+  if (raw.length !== 5) return null;
+  const z = raw.map(x => ({ min: +x?.min > 0 ? +x.min : 0, max: +x?.max > 0 ? +x.max : Infinity }));
+  const ok = z.every((x, i) => (i === 0 || x.min > 0) && (i === 4 || Number.isFinite(x.max)) && x.max > x.min);
+  return ok ? z : null;
 }
 
 // Rolling mean over a TIME window, not a sample count: Strava thins long activities, so a fixed
@@ -8549,7 +8555,7 @@ function hrSmooth(t, v, halfSec) {
 // for outdoor runs only. null when there is no usable HR stream.
 // Smoothing is ±15 s applied TWICE on HR — calm enough that drift reads as drift, and checked
 // against a 6 × 800 m session so the rep peaks and recovery troughs survive, which is the one thing
-// an interval graph exists to show. ±45 s once on pace, which is far noisier at the source.
+// an interval graph exists to show. ±60 s twice on pace, which is far noisier at the source.
 // ≤ 600 points out: more is invisible at 700 px and only slows the draw.
 function hrGraphSeries(streams, { treadmill = false } = {}) {
   const time = streamArr(streams, 'time'), hrRaw = streamArr(streams, 'heartrate');
@@ -8563,7 +8569,9 @@ function hrGraphSeries(streams, { treadmill = false } = {}) {
     const moving = streamArr(streams, 'moving');
     // Below 0.8 m/s (≈ 21 min/km) you are stopped, not slow, and 1000/v would shoot off the axis.
     const raw = vel.map((v, i) => v > 0.8 && (!moving || moving[i] !== false) ? 1000 / v : null);
-    if (raw.some(p => p != null)) pace = hrSmooth(time, raw, 45);
+    // ±60 s applied twice. ±45 s once looked fine on synthetic data and jagged on his first real
+    // run — GPS pace at 1 Hz is far noisier than anything a fixture generates.
+    if (raw.some(p => p != null)) pace = hrSmooth(time, hrSmooth(time, raw, 60), 60);
   }
   const step = Math.max(1, Math.ceil(time.length / 600));
   const pick = a => a.filter((_, i) => i % step === 0 || i === a.length - 1);
@@ -8575,14 +8583,21 @@ function hrGraphSeries(streams, { treadmill = false } = {}) {
 // range clipped every hill in the mockup, and full min/max would let one GPS spike flatten the rest.
 function hrGraphRange(series, zones) {
   const hrs = series.hr.filter(h => h != null);
-  const hrLo = Math.floor((Math.min(...hrs, zones ? zones[0].min : Infinity) - 5) / 10) * 10;
-  const hrHi = Math.max(...hrs, zones ? zones[4].max : -Infinity) + 3;
+  // Open zone ends (0 / Infinity) must not stretch the axis — only a boundary someone SET counts.
+  const floor = zones && zones[0].min > 0 ? zones[0].min : Infinity;
+  const ceil  = zones && Number.isFinite(zones[4].max) ? zones[4].max : -Infinity;
+  const hrLo = Math.floor((Math.min(...hrs, floor) - 5) / 10) * 10;
+  // Rounded UP to a labelled 20: only round 20s get tick labels, so an axis ending at 163 left the
+  // top of the line with nothing to read it against (seen on his first real run).
+  const hrHi = Math.ceil((Math.max(...hrs, ceil) + 3) / 20) * 20;
   let paceLo = 0, paceHi = 0;
   if (series.pace) {
     const p = series.pace.filter(x => x != null).sort((a, b) => a - b);
     const q = f => p[Math.min(p.length - 1, Math.floor(f * (p.length - 1)))];
     const pad = Math.max(10, (q(.98) - q(.02)) * .12);
-    paceLo = q(.02) - pad; paceHi = q(.98) + pad;
+    // Snapped outward to whole 30 s, so the axis edges are labels you can read (6:00, 7:30) rather
+    // than the raw percentiles his first run printed (5:59, 7:02).
+    paceLo = Math.floor((q(.02) - pad) / 30) * 30; paceHi = Math.ceil((q(.98) + pad) / 30) * 30;
   }
   return { hrLo, hrHi, paceLo, paceHi };
 }
@@ -8751,20 +8766,30 @@ const DetailPanel = {
     const canPace = !!series.pace;
     let paceOn = false;
     try { paceOn = canPace && localStorage.getItem(HR_PACE_KEY) === '1'; } catch (_) {}
+    // The dashboard's own toggle vocabulary: a PAIR of year-pills with the active one filled, sitting
+    // above the chart. The first build had a lone unfilled chip under it, and on his real screen it
+    // read as a label, not a switch — the dashboard never uses a single pill for exactly that reason.
     el.innerHTML = `
+      ${canPace ? `<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:8px">
+        <span class="year-pill${paceOn ? '' : ' active'}" id="hrPaceOff" role="button">Kun puls</span>
+        <span class="year-pill${paceOn ? ' active' : ''}" id="hrPaceToggle" role="button">Med tempo</span>
+      </div>` : ''}
       <div style="position:relative;height:180px"><canvas id="hrGraphHr"></canvas></div>
-      ${paceOn ? '<div style="position:relative;height:62px;margin-top:2px"><canvas id="hrGraphPace"></canvas></div>' : ''}
+      ${paceOn ? '<div style="position:relative;height:96px;margin-top:4px"><canvas id="hrGraphPace"></canvas></div>' : ''}
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:10px;color:var(--muted);margin-top:8px">
-        ${canPace ? `<button type="button" class="tc-chip${paceOn ? ' tc-chip-on' : ''}" id="hrPaceToggle" style="font-size:11px;padding:3px 10px">${paceOn ? '✓ ' : ''}Tempo</button>` : ''}
         <span>${paceOn ? 'Puls (slag/min) · tempo (min/km) under' : 'Puls (slag/min)'}</span>
         <span style="margin-left:auto">${canPace ? 'Fra Strava · hentes når økta åpnes'
           : 'Tredemølle — tempo vises ikke, klokkas innendørstempo er upålitelig'}</span>
       </div>`;
-    const tg = document.getElementById('hrPaceToggle');
-    if (tg) tg.addEventListener('click', () => {
-      try { localStorage.setItem(HR_PACE_KEY, paceOn ? '0' : '1'); } catch (_) { /* toggles for this view only */ }
+    // Each pill SETS its state rather than flipping it, so clicking the one already lit is a no-op
+    // instead of a surprise.
+    const setPace = on => {
+      if (on === paceOn) return;
+      try { localStorage.setItem(HR_PACE_KEY, on ? '1' : '0'); } catch (_) { /* this view only */ }
       this._renderHrGraph(s, series);   // from the series in hand — never a second fetch
-    });
+    };
+    document.getElementById('hrPaceToggle')?.addEventListener('click', () => setPace(true));
+    document.getElementById('hrPaceOff')?.addEventListener('click', () => setPace(false));
 
     const css = getComputedStyle(document.documentElement);
     const grid = css.getPropertyValue('--border').trim(), muted = css.getPropertyValue('--muted').trim(),
@@ -8772,9 +8797,14 @@ const DetailPanel = {
     const zones = hrZoneBounds();
     const { hrLo: lo, hrHi: hi } = hrGraphRange(series, zones);
     const xmax = series.t[series.t.length - 1];
-    const step = xmax > 90 ? 20 : xmax > 40 ? 10 : 5;
+    // Step chosen from the WIDTH as well as the duration: at 402 px a 65 min run on a 10 min step
+    // printed «60 min» on top of «65 min», because Chart.js also labels the axis end. So only round
+    // multiples of the step are labelled, and the step grows until ~70 px fits each label.
+    const maxLabels = Math.max(3, Math.floor(el.clientWidth / 70));
+    const step = [5, 10, 15, 20, 30, 60].find(n => xmax / n <= maxLabels) || 60;
     const xAxis = show => ({ type: 'linear', min: 0, max: xmax, grid: { display: false }, display: show,
-      ticks: { color: muted, font: { size: 10 }, stepSize: step, callback: v => Math.round(v) + ' min' } });
+      ticks: { color: muted, font: { size: 10 }, stepSize: step,
+               callback: v => Math.abs(v % step) < 1e-6 ? Math.round(v) + ' min' : null } });
     // Pinned y-axis width so both charts share a left edge: a moment in the HR chart must sit
     // directly above the same moment in the pace strip, and Chart.js otherwise sizes each axis to
     // its own labels.
@@ -8785,7 +8815,10 @@ const DetailPanel = {
       if (!zones) return;
       const { ctx, chartArea: a, scales: { y } } = c;
       zones.forEach((z, i) => {
-        const top = y.getPixelForValue(Math.min(z.max, hi)), bot = y.getPixelForValue(Math.max(z.min, lo));
+        // Up to the NEXT zone's floor, not this zone's own max: his boundaries are gap-style (119 /
+        // 120), which would otherwise draw a 1 bpm hairline of bare background between every band.
+        const upper = i < 4 ? zones[i + 1].min : z.max;
+        const top = y.getPixelForValue(Math.min(upper, hi)), bot = y.getPixelForValue(Math.max(z.min, lo));
         if (bot <= top) return;
         ctx.fillStyle = ZONE_COLORS[i] + '22';
         ctx.fillRect(a.left, top, a.right - a.left, bot - top);
@@ -8815,7 +8848,10 @@ const DetailPanel = {
                              borderWidth: 1.3, pointRadius: 0, tension: .3, spanGaps: false }] },
         options: { ...base, scales: { x: xAxis(true),
           y: { reverse: true, min: paceLo / 60, max: paceHi / 60, grid: { color: grid }, ...yw,
-               ticks: { color: muted, font: { size: 10 }, maxTicksLimit: 3, callback: v => secsToMmSs(Math.round(v * 60)) } } } } }));
+               // 30 s steps on a normal run, whole minutes when the range is wide (a run with a
+               // walk in it), so the strip never carries more than about four labels.
+               ticks: { color: muted, font: { size: 10 }, stepSize: (paceHi - paceLo) > 150 ? 1 : 0.5,
+                        callback: v => secsToMmSs(Math.round(v * 60)) } } } } }));
     }
   },
 

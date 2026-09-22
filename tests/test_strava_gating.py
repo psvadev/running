@@ -173,12 +173,24 @@ with sync_playwright() as p:
     check("pace is OFF by default", pg.evaluate("() => !!document.getElementById('hrGraphPace')"), False)
     check("...with the toggle offered on an outdoor run",
           pg.evaluate("() => !!document.getElementById('hrPaceToggle')"), True)
+    # A lone unfilled pill read as a LABEL on his screen. The pair, with one lit, is what says switch.
+    check("⚠️ the toggle is a PAIR with the current state lit",
+          pg.evaluate("""() => [document.getElementById('hrPaceOff')?.classList.contains('active'),
+                                document.getElementById('hrPaceToggle')?.classList.contains('active')]"""),
+          [True, False])
+    check("...sitting ABOVE the chart, where the dashboard puts its toggles", pg.evaluate("""() =>
+        document.getElementById('hrPaceToggle').getBoundingClientRect().bottom
+        <= document.getElementById('hrGraphHr').getBoundingClientRect().top"""), True)
 
     pg.click("#hrPaceToggle")
     pg.wait_for_timeout(250)
     check("the toggle adds the pace strip", pg.evaluate("() => !!document.getElementById('hrGraphPace')"), True)
     check("...without a second fetch", pg.evaluate("() => window.__calls"), 1)
     check("...and remembers the choice", pg.evaluate("() => localStorage.getItem('lpl_hr_pace')"), "1")
+    pg.click("#hrPaceToggle")
+    pg.wait_for_timeout(200)
+    check("clicking the lit pill again is a no-op, not a flip back",
+          pg.evaluate("() => !!document.getElementById('hrGraphPace')"), True)
 
     # Chart.js keeps an instance alive after its canvas is removed from the page, so a panel that
     # replaces the body without destroy() leaks one chart per run opened.
@@ -243,6 +255,38 @@ with sync_playwright() as p:
     check("...until B's own answer arrives and draws", pg.evaluate(canvases), 1)
     pg.close()
 
+    # ⚠️ Zones as HE stores them, not as a tidy fixture would. The first build demanded all ten
+    # boundaries, his Sone 1 floor is `null`, and so the bands silently vanished on his real data
+    # while every fully-filled fixture here passed. Gap-style boundaries (119 / 120) are his too.
+    print("== zone bands from real-shaped settings ==")
+    pg, errs = fresh()
+    REAL = "[{min:null,max:119},{min:120,max:148},{min:149,max:163},{min:164,max:178},{min:179,max:193}]"
+    zb = lambda z: pg.evaluate(f"() => {{ Store.data.settings.zones = {z}; return hrZoneBounds(); }}")
+    check("⚠️ an open Sone 1 floor still gives bands", zb(REAL) is not None, True)
+    check("...as does an open Sone 5 ceiling",
+          zb("[{min:null,max:119},{min:120,max:148},{min:149,max:163},{min:164,max:178},{min:179,max:null}]") is not None, True)
+    check("a missing boundary in the MIDDLE is still incomplete",
+          zb("[{min:null,max:119},{min:120,max:null},{min:149,max:163},{min:164,max:178},{min:179,max:193}]"), None)
+    check("an unconfigured editor draws no bands", zb("[]"), None)
+    rng = pg.evaluate(f"""() => {{ Store.data.settings.zones = {REAL};
+      return hrGraphRange({{ hr: [72, 150, 161], pace: null }}, hrZoneBounds()); }}""")
+    check("an open floor does not drag the HR axis below the run", rng["hrLo"], 60)
+    check("the top is a labelled round 20, never a bare 163", rng["hrHi"] % 20, 0)
+    pg.close()
+
+    pg, errs = fresh()
+    pg.evaluate(f"() => {{ Store.data.settings.zones = {REAL}; }}")
+    pg.evaluate(STUB, "ok")
+    open_run(pg, "out")
+    # Read the pixels: a band is only real if the chart actually painted it.
+    tint = pg.evaluate("""() => {
+      const c = document.getElementById('hrGraphHr'), ch = Chart.getChart(c), ctx = c.getContext('2d');
+      const x = Math.round(ch.chartArea.left + 20), y = Math.round(ch.scales.y.getPixelForValue(135));
+      const [r, g, b] = ctx.getImageData(x * devicePixelRatio, y * devicePixelRatio, 1, 1).data;
+      return g > r && g > b; }""")
+    check("⚠️ ...and on screen the S2 band is actually painted behind the line", tint, True)
+    pg.close()
+
     # Pure helper: the smoothing must not eat an interval's peaks, which is what the graph is FOR.
     pg, errs = fresh()
     peak = pg.evaluate("""() => {
@@ -263,14 +307,49 @@ with sync_playwright() as p:
           pg.evaluate("() => hrGraphSeries({ time:{data:[0,1,2]}, heartrate:{data:[0,0,0]} })"), None)
     pg.close()
 
+    # ── The pace strip, after his first real run: squashed, jagged, and labelled with raw
+    # percentile edges (5:59, 7:02). Each of those is pinned here.
+    print("== the pace strip reads on real-shaped data ==")
+    pg, errs = fresh(pace="1")
+    pg.evaluate("""() => { let seed = 3; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      StravaIO.fetchActivityStreams = async () => { const time=[], hr=[], vel=[]; let v = 2.5;
+        for (let s = 0; s <= 3900; s++) { time.push(s); hr.push(150); v += (2.56 - v) * .08 + (rnd() - .5) * .35; vel.push(v); }
+        return { time:{data:time}, heartrate:{data:hr}, velocity_smooth:{data:vel} }; }; }""")
+    open_run(pg, "out", wait=600)
+    labels = pg.evaluate("""() => Chart.getChart(document.getElementById('hrGraphPace'))
+        .scales.y.ticks.map(t => t.label).filter(Boolean)""")
+    check("every pace label is a round 30 s", all(l.endswith(":00") or l.endswith(":30") for l in labels), True)
+    check("...and there are a readable few of them", 2 <= len(labels) <= 5, True)
+    check("the strip is tall enough to show a change as a change",
+          pg.evaluate("() => document.getElementById('hrGraphPace').parentElement.offsetHeight") >= 90, True)
+    # Noise at the SOURCE is ±0.35 m/s per second; what reaches the screen must be calm. Measured as
+    # the largest jump between neighbouring plotted points, in seconds per km.
+    jump = pg.evaluate("""() => { const d = Chart.getChart(document.getElementById('hrGraphPace')).data.datasets[0].data;
+        let m = 0; for (let i = 1; i < d.length; i++) if (d[i].y != null && d[i-1].y != null)
+          m = Math.max(m, Math.abs(d[i].y - d[i-1].y) * 60); return m; }""")
+    check("the plotted pace is smooth — no jump over 5 s/km between points", jump < 5, True)
+    pg.close()
+
     # 402 px: the chart and its footer must fit the phone.
     pg = b.new_page(viewport={"width": 402, "height": 900})
     pg.goto(APP); pg.evaluate(HR_SEED); pg.evaluate(TOKEN)
     pg.evaluate("() => localStorage.setItem('lpl_hr_pace', '1')")
     pg.goto(APP); pg.wait_for_timeout(500)
-    pg.evaluate(STUB, "ok")
+    # ⚠️ 65 min, NOT the 60 min stub: the collision only exists when the run's end is not a round
+    # multiple of the step. On 60 min this check passed with the label filter deleted (falsification,
+    # 2026-09-22) — his real run was 65 min.
+    pg.evaluate("""() => { StravaIO.fetchActivityStreams = async () => {
+        const time = [...Array(3901).keys()];
+        return { time:{data:time}, heartrate:{data:time.map(() => 150)}, velocity_smooth:{data:time.map(() => 2.5)} }; }; }""")
     open_run(pg, "out", wait=500)
     check("402px: the graph and pace strip draw", pg.evaluate(canvases), 2)
+    # Chart.js labels the axis END as well, so a 60-min multiple and a 60-min run end collided into
+    # «60 min65 min». Only round multiples of the step may be labelled.
+    xl = pg.evaluate("""() => Chart.getChart(document.getElementById('hrGraphPace'))
+        .scales.x.ticks.filter(t => t.label).map(t => t.value)""")
+    check("402px: the time labels are evenly spaced round steps, never the raw end",
+          len(set(round(b - a, 6) for a, b in zip(xl, xl[1:]))) == 1, True)
+    check("402px: ...and few enough to fit", len(xl) <= 5, True)
     check("402px: nothing in the graph overflows its panel", pg.evaluate("""() => {
       const g = document.getElementById('hrGraph'), body = document.getElementById('detailBody');
       return g.getBoundingClientRect().right <= body.getBoundingClientRect().right + 1; }"""), True)
