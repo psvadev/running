@@ -677,6 +677,22 @@ with sync_playwright() as b0:
           pg.evaluate("() => document.getElementById('fuTime').classList.contains('bad-input')"), True)
     check("...and the card asks again rather than answering",
           txt(pg, "#fuHero").startswith("Fyll inn"), True)
+    # ---- the card's own intro states the ladder, and states it from FUEL_BANDS
+    # It used to type «75 minutter» and «2 timer» into the prose, two floors below the hero, the chip
+    # and the weekly count — so a band edit left the paragraph asserting the old number in bold.
+    intro = txt(pg, "#fuIntro")
+    bands = pg.evaluate("""() => ({ lop: fuelFirstNeed('lop'), rolig: fuelFirstNeed('rolig') })""")
+    check("the intro names the race floor the bands give", f"{bands['lop']} minutter" in intro, True)
+    check("...and the easy one, in hours", f"{bands['rolig'] // 60} timer" in intro, True)
+    # The falsifier: move the easy ladder's first gram band and the sentence has to move with it.
+    moved = pg.evaluate("""() => { const old = FUEL_BANDS.rolig.map(b => ({ ...b }));
+      FUEL_BANDS.rolig[2].maxMin = 180; FUEL_BANDS.rolig[1].maxMin = 180;
+      FuelCalc.init();
+      const t = document.getElementById('fuIntro').textContent;
+      FUEL_BANDS.rolig.forEach((b, i) => Object.assign(b, old[i])); FuelCalc.init();
+      return t; }""")
+    check("...and it follows a band edit rather than going stale", "3 timer" in moved, True)
+
     # ---- the effort control on screen
     pg.click("#fuModes .tc-mode[data-mode='tid']")
     fill(pg, "#fuDist", "10")

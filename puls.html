@@ -1679,7 +1679,10 @@
        intact: this card still answers for a distance and a pace you have never run. -->
   <div class="card" style="margin-bottom:16px">
     <div class="card-title">Drivstoff</div>
-    <p class="tc-help">Når en økt blir lang nok, er spørsmålet bare <b>hvor mye karbohydrat</b> og <b>når</b>. Oppgi distanse og enten tempo eller tid, så regner kortet ut målet og fordeler gelene utover økta. Under <b>75 minutter</b> trengs det normalt ingenting — og på en <b>rolig</b> økt går den grensen ved <b>2 timer</b>.</p>
+    <!-- The two boundaries in the last sentence are WRITTEN BY FuelCalc.init() from FUEL_BANDS. The
+         markup carries today's numbers so the card reads correctly if the script never runs, but the
+         ladder is stated in one place: edit a band and this sentence follows. -->
+    <p class="tc-help" id="fuIntro">Når en økt blir lang nok, er spørsmålet bare <b>hvor mye karbohydrat</b> og <b>når</b>. Oppgi distanse og enten tempo eller tid, så regner kortet ut målet og fordeler gelene utover økta. Under <b>75 minutter</b> trengs det normalt ingenting — og på en <b>rolig</b> økt går den grensen ved <b>2 timer</b>.</p>
 
     <div class="tc-modes" id="fuModes">
       <button type="button" class="tc-mode tc-on" data-mode="tempo">Fra tempo</button>
@@ -8586,7 +8589,11 @@ function hrGraphSeries(streams, { treadmill = false } = {}) {
   }
   const step = Math.max(1, Math.ceil(time.length / 600));
   const pick = a => a.filter((_, i) => i % step === 0 || i === a.length - 1);
-  return { t: pick(time).map(s => s / 60), hr: pick(hr), pace: pace && pick(pace) };
+  // `paceOff` says WHY there is no pace line, because the caption's whole job is telling «nothing to
+  // show» apart from «something is broken». Without it an outdoor run whose velocity stream is
+  // missing was captioned as a treadmill run.
+  return { t: pick(time).map(s => s / 60), hr: pick(hr), pace: pace && pick(pace),
+           paceOff: pace ? null : treadmill ? 'treadmill' : 'none' };
 }
 
 // Axis ranges. HR spans the whole zone ladder when zones exist, so S5 is always there to see how
@@ -8792,7 +8799,8 @@ const DetailPanel = {
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:10px;color:var(--muted);margin-top:8px">
         <span>${paceOn ? 'Puls (slag/min) · tempo (min/km) under' : 'Puls (slag/min)'}</span>
         <span style="margin-left:auto">${canPace ? 'Fra Strava · hentes når økta åpnes'
-          : 'Tredemølle — tempo vises ikke, klokkas innendørstempo er upålitelig'}</span>
+          : series.paceOff === 'treadmill' ? 'Tredemølle — tempo vises ikke, klokkas innendørstempo er upålitelig'
+          : 'Strava har ikke tempodata for denne økta'}</span>
       </div>`;
     // Each pill SETS its state rather than flipping it, so clicking the one already lit is a no-op
     // instead of a surprise.
@@ -8808,7 +8816,7 @@ const DetailPanel = {
     const grid = css.getPropertyValue('--border').trim(), muted = css.getPropertyValue('--muted').trim(),
           text = css.getPropertyValue('--text').trim();
     const zones = hrZoneBounds();
-    const { hrLo: lo, hrHi: hi } = hrGraphRange(series, zones);
+    const { hrLo: lo, hrHi: hi, paceLo, paceHi } = hrGraphRange(series, zones);
     const xmax = series.t[series.t.length - 1];
     // Step chosen from the WIDTH as well as the duration: at 402 px a 65 min run on a 10 min step
     // printed «60 min» on top of «65 min», because Chart.js also labels the axis end. So only round
@@ -8857,7 +8865,6 @@ const DetailPanel = {
              ticks: { color: muted, font: { size: 10 }, stepSize: 10, callback: v => v % 20 === 0 ? v : null } } } },
       plugins: [bands] }));
     if (paceOn) {
-      const { paceLo, paceHi } = hrGraphRange(series, zones);
       this._hrCharts.push(new Chart(document.getElementById('hrGraphPace'), {
         type: 'line',
         // spanGaps:false — a stop is a GAP in the pace line, not a straight segment pretending you
@@ -11730,13 +11737,23 @@ const fuelFirstSay = effort => {
   const i = bands.findIndex(b => b.rate > 0 || b.optional);
   return i <= 0 ? 0 : bands[i - 1].maxMin;
 };
+// Where the card first asks for GRAMS. fuelFirstSay() opens one band earlier on the easy ladder,
+// where the answer is «valgfritt» — the chip nudges there, but «trengs» would be the wrong word.
+const fuelFirstNeed = effort => {
+  const bands = FUEL_BANDS[effort];
+  const i = bands.findIndex(b => b.rate > 0);
+  return i <= 0 ? 0 : bands[i - 1].maxMin;
+};
+const fuelMinsWord = m => m >= 120 && m % 60 === 0 ? `${m / 60} timer` : `${m} minutter`;
+
 const fuelWorthy = (p, today) =>
   p.date >= today && (p.estimatedSecs || 0) >= fuelFirstSay(fuelEffortOf(p.okttype)) * 60;
 
 const FuelCalc = {
   mode: 'tempo',
-
-  effort: 'rolig',        // nearly every run he opens this for is an easy one
+  // No `effort` here on purpose: the #fuEffort select IS the state (read() reads it, prefill() writes
+  // it), and a second copy could only ever disagree with it silently. Its default — rolig, because
+  // nearly every run he opens this card for is an easy one — is the first option in the markup.
 
   bandFor: (mins, effort) => FUEL_BANDS[effort].find(b => mins < b.maxMin),
 
@@ -11834,7 +11851,6 @@ const FuelCalc = {
       // asked. On the easy ladder it also points at the control, because that is the whole fix.
       const cut = p.band.maxMin >= 120 ? `${p.band.maxMin / 60} t` : `${p.band.maxMin} min`;
       const dur = fmtDur(Math.round(durSec));
-      hero.className = 'iv-hero iv-empty';
       // «Valgfritt» and «trengs ikke» are different claims and only one of them is true here. The
       // suggested amount is 0 either way; what changes is whether taking something would be odd.
       // innerHTML is safe for all three: every interpolation is a formatted NUMBER (a duration, a
@@ -11915,6 +11931,11 @@ const FuelCalc = {
       if (btn) this.setMode(btn.dataset.mode);
     });
     this.setMode('tempo');
+    const intro = document.getElementById('fuIntro');
+    if (intro) intro.innerHTML = 'Når en økt blir lang nok, er spørsmålet bare <b>hvor mye karbohydrat</b> '
+      + 'og <b>når</b>. Oppgi distanse og enten tempo eller tid, så regner kortet ut målet og fordeler '
+      + `gelene utover økta. Under <b>${fuelMinsWord(fuelFirstNeed('lop'))}</b> trengs det normalt ingenting `
+      + `— og på en <b>rolig</b> økt går den grensen ved <b>${fuelMinsWord(fuelFirstNeed('rolig'))}</b>.`;
   },
 };
 

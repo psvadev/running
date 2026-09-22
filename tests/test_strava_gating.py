@@ -213,6 +213,23 @@ with sync_playwright() as p:
     check("a treadmill run offers no pace toggle", pg.evaluate("() => !!document.getElementById('hrPaceToggle')"), False)
     check("...even with pace switched on", pg.evaluate("() => !!document.getElementById('hrGraphPace')"), False)
     check("...and says why", "innendørstempo" in (pg.evaluate(slot) or ""), True)
+    # ⚠️ The caption used to blame the treadmill for THREE different causes, because `!series.pace` is
+    # all it had: an indoor run, a missing velocity stream, and a run that never left walking speed.
+    # An OUTDOOR run whose stream Strava has no speed for was therefore told it was on a treadmill.
+    check("the series says WHY there is no pace, not just that there is none",
+          pg.evaluate("""() => { const t = [...Array(600).keys()], hr = t.map(() => 140);
+            const tm = hrGraphSeries({ time:{data:t}, heartrate:{data:hr} }, { treadmill: true });
+            const out = hrGraphSeries({ time:{data:t}, heartrate:{data:hr} });
+            return [tm.paceOff, out.paceOff]; }"""), ["treadmill", "none"])
+    pg.close()
+    # ...and on screen: same missing pace, different sentence.
+    pg, errs = fresh()
+    pg.evaluate("""() => { StravaIO.fetchActivityStreams = async () => { const t = [...Array(600).keys()];
+        return { time:{data:t}, heartrate:{data:t.map(() => 140)} }; }; }""")   # outdoor, no velocity
+    open_run(pg, "out")
+    cap = pg.evaluate(slot) or ""
+    check("an outdoor run with no speed data is not called a treadmill", "Tredemølle" in cap, False)
+    check("...it says Strava has no pace for it", "ikke tempodata" in cap, True)
     check("no HR-graph page errors", errs, [])
     pg.close()
 
