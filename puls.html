@@ -9927,7 +9927,9 @@ function renderDashboard() {
 
   // Records
   const recs = computeRecords(sessions);
-  const recCardHtml = r => `<div class="record-card"${r.tooltip ? ` title="${r.tooltip}"` : ''}><div class="record-label">${r.label}</div><div class="record-value"${r.color ? ` style="color:${r.color}"` : ''}>${r.value}</div><div class="record-sub">${r.sub}</div></div>`;
+  // `sid` makes a card open that run's detail panel — only the Pace row passes one (his call,
+  // 2026-09-22): each of those cards IS one run, and «which run was that?» is the question it raises.
+  const recCardHtml = r => `<div class="record-card"${r.tooltip ? ` title="${r.tooltip}"` : ''}${r.sid ? ` onclick="DetailPanel.openSession('${r.sid}')" style="cursor:pointer"` : ''}><div class="record-label">${r.label}</div><div class="record-value"${r.color ? ` style="color:${r.color}"` : ''}>${r.value}</div><div class="record-sub">${r.sub}${r.sid ? ' ›' : ''}</div></div>`;
   document.getElementById('recordsGrid').innerHTML = [
     { label:'Totalt distanse', value: recs.totalDist.toFixed(1)+' km', sub: `${sessions.length} økter` },
     { label:'Totalt tid', value: secsToHms(recs.totalTime), sub: '' },
@@ -9959,7 +9961,7 @@ function renderDashboard() {
   // filtered silently, because the previous version's problem was exactly an omission nobody could
   // tell from a decision.
   const PACE_CARD_SKIP = ['Steady'];
-  const paceCard = (label, s) => ({ label, value: s ? secsToMmSs(s.tempo)+' /km' : '–', sub: s ? fmtDate(s.dato) : '' });
+  const paceCard = (label, s) => ({ label, value: s ? secsToMmSs(s.tempo)+' /km' : '–', sub: s ? fmtDate(s.dato) : '', sid: s?.id });
   document.getElementById('paceRecordsGrid').innerHTML = [
     // "Raskeste økt", not "Beste totalt" (vague about what was totalled) and not "alle økter" —
     // this card excludes Avvik-flagged runs like every other quality record, so a label promising
@@ -9973,7 +9975,7 @@ function renderDashboard() {
     // custom type — so if one of those ever tops the row it says so rather than appearing unsourced.
     { ...paceCard('Raskeste økt', recs.bestePace),
       sub: recs.bestePace ? `${recs.bestePace.okttype || 'ukjent type'} · ${fmtDate(recs.bestePace.dato)}` : '' },
-    { label:'Beste snitt km/t', value: recs.bestKmh ? PaceConv.fmtKmh(recs.bestKmh.snittkmh)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '' },
+    { label:'Beste snitt km/t', value: recs.bestKmh ? PaceConv.fmtKmh(recs.bestKmh.snittkmh)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '', sid: recs.bestKmh?.id },
     ...CORE_OKTTYPER.filter(t => !PACE_CARD_SKIP.includes(t))
                     .map(t => paceCard(`Beste ${t}`, recs.bestPaceByType[t])),
   ].map(recCardHtml).join('');

@@ -492,6 +492,30 @@ with sync_playwright() as p:
     check('milestone crossed 9 days ago: still shown', milestone_shown(9), True)
     check('milestone crossed 12 days ago: gone', milestone_shown(12), False)
 
+    # ── Rekorder's Pace row opens the run it names (his call, 2026-09-22) ────────────────────────
+    # Two Easy runs so the card has to pick the FASTER one — a card opening "some Easy run" passes a
+    # one-run fixture. The other Rekorder cards stay plain; «Totalt distanse» is the control.
+    print("== a Pace record card opens its run ==")
+    d = dict(data, events=[], bestEffortsTop3={}, sessions=[
+        session(days_ago(20), 150, tempo=400, oktnavn='Treg easy'),
+        session(days_ago(10), 151, tempo=360, oktnavn='Rask easy'),
+    ])
+    pg.goto(APP)
+    pg.evaluate("d => localStorage.setItem('lpl_cache', JSON.stringify(d))", d)
+    pg.goto(APP)
+    pg.wait_for_timeout(500)
+    pg.evaluate("() => switchTab('dash')")
+    pg.wait_for_timeout(400)
+    card = lambda label: pg.locator('.record-card', has=pg.locator('.record-label', has_text=label)).first
+    check('the Easy card says it can be opened', '›' in card('Beste Easy').inner_text(), True)
+    check('an empty card (no Race) cannot', card('Beste Race').get_attribute('onclick'), None)
+    check('a totals card cannot', card('Totalt distanse').get_attribute('onclick'), None)
+    card('Beste Easy').click()
+    pg.wait_for_timeout(300)
+    check('clicking it opens the detail panel',
+          pg.evaluate("() => document.getElementById('detailModal').classList.contains('open')"), True)
+    check('...on the FASTER Easy run, not just an Easy run', 'Rask easy' in pg.inner_text('#detailModal'), True)
+
     if errs:
         print('  PAGE ERRORS:', errs)
         failed += 1
