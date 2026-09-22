@@ -240,17 +240,15 @@
   @media (max-width: 700px) { .pc-table { column-count:2; } }
 
   /* Verktøy — the calculators that share the pc-* input styling above */
-  /* appearance:none is load-bearing, not tidiness. WebKit renders a default-appearance select as a
-     NATIVE control and ignores the author's background and colour outright — so these three selects
-     computed to black-on-transparent there for as long as they have existed, which on the dark card
-     reads as a disabled field. Chromium and Firefox honoured the rule, which is why it went unseen
-     until one of them landed in a README screenshot (WebKit is what generates those, and is also
-     what every iPhone runs). The arrow has to be drawn back by hand once appearance is off.
-     ⚠️ The LITERAL FALLBACKS in the var() calls are load-bearing too, and are the actual fix: WebKit
-     does not inherit custom properties into a <select>, so --surface2 reads as EMPTY here while
-     resolving normally on the input right beside it. Without a fallback each var() collapses to its
-     initial value — transparent, and black text. The literals must track the :root tokens they
-     name; there is only one theme, so they cannot drift out from under a theme switch. */
+  /* For the PLAYWRIGHT WebKit build that renders the README screenshots and runs CI — NOT for iOS.
+     That build does not inherit custom properties into a <select>: --surface2 reads as EMPTY there
+     while resolving normally on the input beside it, so each var() collapsed to transparent/black and
+     the new Drivstoff select showed as a white box in tools.png. The literal FALLBACKS are what fix
+     it; appearance:none plus a drawn arrow makes the harness honour author colours at all.
+     ⚠️ Real iOS Safari does NOT have this bug — checked on his iPhone 2026-09-22: the log form's
+     selects, which have no fallbacks, render dark and correct. So this rule exists to keep the
+     screenshots and CI truthful, and the other ~23 selects deliberately stay as they are. The
+     literals must track the :root tokens they name; there is one theme, so they cannot drift. */
   .pc-field select { appearance:none; -webkit-appearance:none;
                      background-color:var(--surface2,#222536); border:1px solid var(--border,#2e3248);
                      color:var(--text,#e8eaf0);
