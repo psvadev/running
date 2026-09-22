@@ -120,6 +120,15 @@
     transition: border-color .15s;
   }
   .form-group input, .form-group select, .form-group textarea { width: 100%; }
+  /* iOS Safari draws a date input natively with its own minimum width and ignores width:100%, so the
+     Logg filter's «Fra dato» ran under «Til dato» on his iPhone (2026-09-22). Dropping the native
+     appearance lets it take the column's width. iOS-only via touch-callout: Firefox, his desktop
+     browser, keeps its own picker untouched. Not reproducible in the Playwright harness. */
+  @supports (-webkit-touch-callout: none) {
+    input[type=date] { -webkit-appearance: none; appearance: none; min-width: 0; }
+    /* min-height: an EMPTY date has no text, and without it the field collapses shorter than a select */
+    input[type=date]::-webkit-date-and-time-value { text-align: left; min-height: 1.25em; }
+  }
   .form-group input:focus, .form-group select:focus, .inp:focus { outline: none; border-color: var(--accent); }
   /* Out of range says so while you type, instead of waiting for a refused save. Pure `:invalid` —
      no JS, no input listener — because it is the SAME condition save() checks via checkValidity(),
