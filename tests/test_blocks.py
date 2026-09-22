@@ -324,9 +324,13 @@ with sync_playwright() as pw:
     pg.select_option("#newEvtType", "plan")
     pg.wait_for_timeout(200)
 
+    # focus(), NOT click(): a click waits for the element to be "stable" (an unchanged box across two
+    # animation frames) and that timed out after 30 s on a CI runner (2026-09-22, red on `77f86e8`),
+    # while the two identical calls before it had passed. Nothing here needs a pointer — the keystrokes
+    # are the point, because this is the WebKit comma case — so the wait was pure flake surface.
     def typed(sel, keys):
         pg.fill(sel, "")
-        pg.click(sel)
+        pg.focus(sel)
         pg.keyboard.type(keys)
         return pg.evaluate("""s => { const e = document.querySelector(s);
           return { value: e.value, valid: e.checkValidity(), num: e.valueAsNumber }; }""", sel)
