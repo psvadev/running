@@ -8800,18 +8800,15 @@ const DetailPanel = {
     // Step chosen from the WIDTH as well as the duration: at 402 px a 65 min run on a 10 min step
     // printed «60 min» on top of «65 min», because Chart.js also labels the axis end. So only round
     // multiples of the step are labelled, and the step grows until ~70 px fits each label.
-    // ⚠️ The TICK LIST is filtered, not just the labels. Chart.js always adds a tick at the axis end
-    // (65 on a 65 min run), 5 min from the last round step; its label-thinning then saw the two
-    // crowding and dropped the 60 — on his desktop AND his iPhone, the axis simply stopped at 40/50.
-    // Hiding the end tick's label was not enough, because the tick itself still took part in thinning.
-    // That thinning depends on real font metrics and never fires in the headless harness, so the fix
-    // removes the cause instead of trusting a test to watch Chart.js decide.
+    // ⚠️ includeBounds:false is what keeps the last round step. With it on, Chart.js adds a tick at the
+    // axis end — and when that end is "close" to the last round step (a width-dependent tolerance) it
+    // does not add one, it MOVES the 60 onto 64.2. A filter for round steps then deleted the moved
+    // tick, and his 64 min run's axis stopped at 50 (2026-09-22, after the first fix for the same
+    // symptom: that one was tested on exactly 65 min, where the snap never happens).
     const maxLabels = Math.min(8, Math.max(3, Math.floor(el.clientWidth / 80)));
     const step = [5, 10, 15, 20, 30, 60].find(n => xmax / n <= maxLabels) || 60;
-    const onStep = v => Math.abs(v % step) < 1e-6;
     const xAxis = show => ({ type: 'linear', min: 0, max: xmax, grid: { display: false }, display: show,
-      afterBuildTicks: a => { a.ticks = a.ticks.filter(t => onStep(t.value)); },
-      ticks: { color: muted, font: { size: 10 }, stepSize: step, autoSkip: false, maxRotation: 0,
+      ticks: { color: muted, font: { size: 10 }, stepSize: step, autoSkip: false, maxRotation: 0, includeBounds: false,
                callback: v => Math.round(v) + ' min' } });
     // Pinned y-axis width so both charts share a left edge: a moment in the HR chart must sit
     // directly above the same moment in the pace strip, and Chart.js otherwise sizes each axis to

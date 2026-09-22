@@ -321,7 +321,7 @@ with sync_playwright() as p:
     pg.set_viewport_size({"width": 1180, "height": 1200})
     pg.evaluate("""() => { let seed = 3; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
       StravaIO.fetchActivityStreams = async () => { const time=[], hr=[], vel=[]; let v = 2.5;
-        for (let s = 0; s <= 3900; s++) { time.push(s); hr.push(150); v += (2.56 - v) * .08 + (rnd() - .5) * .35; vel.push(v); }
+        for (let s = 0; s <= 3852; s++) { time.push(s); hr.push(150); v += (2.56 - v) * .08 + (rnd() - .5) * .35; vel.push(v); }
         return { time:{data:time}, heartrate:{data:hr}, velocity_smooth:{data:vel} }; }; }""")
     open_run(pg, "out", wait=600)
     labels = pg.evaluate("""() => Chart.getChart(document.getElementById('hrGraphPace'))
@@ -340,7 +340,7 @@ with sync_playwright() as p:
     # thinning dropped the 60 on top of ours. Every round step up to the end must be labelled.
     xs = pg.evaluate("""() => Chart.getChart(document.getElementById('hrGraphPace'))
         .scales.x.ticks.filter(t => t.label).map(t => t.value)""")
-    check("⚠️ desktop: the axis labels every round step, up to 60 on a 65 min run",
+    check("⚠️ desktop: the axis labels every round step, up to 60 on his 64 min run",
           (xs[-1], len(set(round(b - a, 6) for a, b in zip(xs, xs[1:])))), (60, 1))
     pg.close()
 
@@ -349,11 +349,11 @@ with sync_playwright() as p:
     pg.goto(APP); pg.evaluate(HR_SEED); pg.evaluate(TOKEN)
     pg.evaluate("() => localStorage.setItem('lpl_hr_pace', '1')")
     pg.goto(APP); pg.wait_for_timeout(500)
-    # ⚠️ 65 min, NOT the 60 min stub: the collision only exists when the run's end is not a round
-    # multiple of the step. On 60 min this check passed with the label filter deleted (falsification,
-    # 2026-09-22) — his real run was 65 min.
+    # ⚠️ 64.2 min, HIS run (zones 1:26 + 28:39 + 34:08). Neither 60 nor 65 exposes the bug: on 60 there
+    # is no end to collide with, and on exactly 65 Chart.js's snap tolerance keeps the 60. Between
+    # ~60.5 and ~64.6 at this width, includeBounds MOVES the 60 onto the end (second fix, 2026-09-22).
     pg.evaluate("""() => { StravaIO.fetchActivityStreams = async () => {
-        const time = [...Array(3901).keys()];
+        const time = [...Array(3853).keys()];
         return { time:{data:time}, heartrate:{data:time.map(() => 150)}, velocity_smooth:{data:time.map(() => 2.5)} }; }; }""")
     open_run(pg, "out", wait=500)
     check("402px: the graph and pace strip draw", pg.evaluate(canvases), 2)
@@ -367,10 +367,11 @@ with sync_playwright() as p:
     check("402px: ...reaching the last round step before the end", xl[-1], 60)
     # The STRUCTURAL check, because the symptom is not reproducible here: Chart.js's label thinning
     # depends on real font metrics and never fires headless. On his phone it dropped the 60 because a
-    # tick at the axis end (65) sat 5 min away. So assert that end tick does not exist at all.
+    # tick at the axis end sat 5 min away. So assert every tick is a round step and none is the end.
     allx = pg.evaluate("""() => Chart.getChart(document.getElementById('hrGraphPace'))
         .scales.x.ticks.map(t => t.value)""")
-    check("⚠️ 402px: no tick at the run's raw end for the 60 to be thinned against", 65 in allx, False)
+    check("⚠️ 402px: every tick is a round step — no tick at the run's raw end",
+          all(abs(v - round(v / 10) * 10) < 1e-6 for v in allx), True)
     check("402px: nothing in the graph overflows its panel", pg.evaluate("""() => {
       const g = document.getElementById('hrGraph'), body = document.getElementById('detailBody');
       return g.getBoundingClientRect().right <= body.getBoundingClientRect().right + 1; }"""), True)
