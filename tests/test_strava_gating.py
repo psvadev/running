@@ -95,6 +95,185 @@ with sync_playwright() as p:
     pg.wait_for_timeout(400)
     check("page does not scroll sideways", pg.evaluate(
         "() => document.body.scrollWidth <= document.documentElement.clientWidth + 1"), True)
+    pg.close()
+
+    # ── HR graph in the session detail (2026-09-22) ─────────────────────────────────────────
+    # Fetched when a run is OPENED, never stored — his call. So the failure states are the whole
+    # feature's surface: not connected, no link, offline, rate-limited, no HR. He will almost never
+    # see any of them, which is exactly why they are asserted here rather than trusted.
+    print("== HR graph: fetched on open, never stored ==")
+    ZONES = "[{min:98,max:117},{min:117,max:137},{min:137,max:156},{min:156,max:176},{min:176,max:195}]"
+    HR_SEED = """() => localStorage.setItem('lpl_cache', JSON.stringify({ sessions: [
+      {id:'out', dato:'2026-09-19', uke:'2026-38', oktnavn:'Long Run', okttype:'Long', treningsplan:'Runna',
+       løpetype:'utendors', distanse:17, varighet:7440, soner:[420,2460,4080,480,0], stravaId:'111'},
+      {id:'tm',  dato:'2026-09-16', uke:'2026-38', oktnavn:'6 x 800 m', okttype:'Intervaller', treningsplan:'Runna',
+       løpetype:'treadmill', distanse:7.2, varighet:3000, soner:[360,900,780,660,300], stravaId:'222'},
+      {id:'man', dato:'2026-09-12', uke:'2026-37', oktnavn:'Tur', okttype:'Easy', treningsplan:'Egentrening',
+       løpetype:'utendors', distanse:5, varighet:1800, soner:[0,1800,0,0,0]}],
+      shoes:[], goals:{}, events:[], plannedSessions:[], settings:{ maxHR:195, zones:""" + ZONES + """ },
+      lastUpdated:'' }))"""
+    TOKEN = """() => localStorage.setItem('pulsStravaToken', JSON.stringify(
+        { refresh_token:'x', access_token:'y', expires_at: Date.now()/1000 + 9999 }))"""
+    # 1 Hz synthetic stream, with a 90 s stop at 40 min so the pace gap is testable.
+    STUB = """(mode) => {
+      const mk = () => { const time=[], hr=[], vel=[], moving=[];
+        for (let s = 0; s <= 3600; s++) { const stop = s >= 2400 && s < 2490;
+          time.push(s); hr.push(130 + Math.round(10 * Math.sin(s / 300))); vel.push(stop ? 0 : 2.3); moving.push(!stop); }
+        return { time:{data:time}, heartrate:{data:hr}, velocity_smooth:{data:vel}, moving:{data:moving} }; };
+      window.__calls = 0; window.__holds = [];
+      StravaIO.fetchActivityStreams = async (id) => { window.__calls++;
+        if (mode === 'hold') await new Promise(r => { window.__holds.push(r); });
+        if (mode === '429') return { error: 429 };
+        if (mode === 'offline') return null;
+        if (mode === 'nohr') { const d = mk(); delete d.heartrate; return d; }
+        return mk(); };
+    }"""
+
+    def fresh(token=True, pace=None):
+        pg = b.new_page(viewport={"width": 900, "height": 1200})
+        errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.goto(APP)
+        pg.evaluate(HR_SEED)
+        if token:
+            pg.evaluate(TOKEN)
+        if pace is not None:
+            pg.evaluate(f"() => localStorage.setItem('lpl_hr_pace', '{pace}')")
+        pg.goto(APP)
+        pg.wait_for_timeout(500)
+        return pg, errs
+
+    def open_run(pg, sid, wait=400):
+        pg.evaluate(f"() => DetailPanel.openSession('{sid}')")
+        pg.wait_for_timeout(wait)
+
+    slot = "() => { const e = document.getElementById('hrGraph'); return e ? e.innerText.trim() : null; }"
+    canvases = "() => document.querySelectorAll('#hrGraph canvas').length"
+
+    pg, errs = fresh(token=False)
+    pg.evaluate(STUB, "ok")
+    open_run(pg, "out")
+    check("not connected: says so in text, rather than an empty space",
+          "koble til Strava" in pg.inner_text("#detailBody"), True)
+    check("...and asks Strava for nothing", pg.evaluate("() => window.__calls"), 0)
+    pg.close()
+
+    pg, errs = fresh()
+    pg.evaluate(STUB, "ok")
+    open_run(pg, "man")
+    check("a run with no Strava link gets no graph at all", pg.evaluate(slot), None)
+    check("...and no fetch", pg.evaluate("() => window.__calls"), 0)
+
+    before = pg.evaluate("() => JSON.stringify(Store.data)")
+    open_run(pg, "out")
+    check("a linked run draws the graph", pg.evaluate(canvases), 1)
+    check("...from exactly one fetch", pg.evaluate("() => window.__calls"), 1)
+    check("⚠️ ...and writes NOTHING to the store — fetched, never kept",
+          pg.evaluate("() => JSON.stringify(Store.data)"), before)
+    check("pace is OFF by default", pg.evaluate("() => !!document.getElementById('hrGraphPace')"), False)
+    check("...with the toggle offered on an outdoor run",
+          pg.evaluate("() => !!document.getElementById('hrPaceToggle')"), True)
+
+    pg.click("#hrPaceToggle")
+    pg.wait_for_timeout(250)
+    check("the toggle adds the pace strip", pg.evaluate("() => !!document.getElementById('hrGraphPace')"), True)
+    check("...without a second fetch", pg.evaluate("() => window.__calls"), 1)
+    check("...and remembers the choice", pg.evaluate("() => localStorage.getItem('lpl_hr_pace')"), "1")
+
+    # Chart.js keeps an instance alive after its canvas is removed from the page, so a panel that
+    # replaces the body without destroy() leaks one chart per run opened.
+    live_hr = """() => Object.values(Chart.instances || {})
+        .filter(c => (c.canvas?.id || '').startsWith('hrGraph')).length"""
+    check("two HR charts are live while the graph is shown", pg.evaluate(live_hr), 2)
+    open_run(pg, "man")
+    check("...and none once the panel shows another run", pg.evaluate(live_hr), 0)
+    open_run(pg, "out")
+    check("reopening the run in the same visit re-uses what was fetched",
+          pg.evaluate("() => window.__calls"), 1)
+    check("...and opens with pace on, as left", pg.evaluate("() => !!document.getElementById('hrGraphPace')"), True)
+    # A stop is a GAP, not a straight line drawn through the stop at the average of either side.
+    check("a stop leaves a gap in the pace series", pg.evaluate("""() => {
+        const s = hrGraphSeries({ time:{data:[...Array(600).keys()]}, heartrate:{data:Array(600).fill(140)},
+          velocity_smooth:{data:[...Array(600)].map((_, i) => i >= 300 && i < 360 ? 0 : 2.5)} });
+        return s.pace.some(p => p == null) && s.pace.some(p => p != null); }"""), True)
+
+    open_run(pg, "tm")
+    check("a treadmill run offers no pace toggle", pg.evaluate("() => !!document.getElementById('hrPaceToggle')"), False)
+    check("...even with pace switched on", pg.evaluate("() => !!document.getElementById('hrGraphPace')"), False)
+    check("...and says why", "innendørstempo" in (pg.evaluate(slot) or ""), True)
+    check("no HR-graph page errors", errs, [])
+    pg.close()
+
+    # Each failure must NAME itself. "Nothing drawn" means five different things here.
+    for mode, want in [("offline", "er du på nett"), ("429", "for mange forespørsler"),
+                       ("nohr", "ingen pulsdata")]:
+        pg, errs = fresh()
+        pg.evaluate(STUB, mode)
+        open_run(pg, "out")
+        check(f"{mode}: says so in one line", want in (pg.evaluate(slot) or ""), True)
+        check(f"{mode}: ...draws no chart", pg.evaluate(canvases), 0)
+        pg.close()
+
+    # Retry semantics: a network failure is worth another try; "no HR" is not going to change.
+    pg, errs = fresh()
+    pg.evaluate(STUB, "offline")
+    open_run(pg, "out")
+    open_run(pg, "man")
+    open_run(pg, "out")
+    check("an offline failure is retried on the next open", pg.evaluate("() => window.__calls"), 2)
+    pg.close()
+
+    # ⚠️ The race. Open A, then B before A's fetch returns: A's answer must not land in B's panel.
+    pg, errs = fresh()
+    pg.evaluate(STUB, "hold")
+    open_run(pg, "out", wait=150)
+    open_run(pg, "tm", wait=150)
+    # Release A's fetch ONLY — one resolver per call. A single shared resolver would be overwritten
+    # by B's and release B instead, which then draws its own graph and proves nothing (this test's
+    # first draft did exactly that). And the slot's id is B's regardless, so the proof is that no
+    # chart appeared in it.
+    pg.evaluate("() => window.__holds[0]()")
+    pg.wait_for_timeout(300)
+    check("⚠️ a slow fetch for one run never draws into another run's panel",
+          pg.evaluate(canvases), 0)
+    check("...and B's own slot is left loading, not overwritten by A",
+          "Henter puls" in (pg.evaluate(slot) or ""), True)
+    pg.evaluate("() => window.__holds[1]()")
+    pg.wait_for_timeout(300)
+    check("...until B's own answer arrives and draws", pg.evaluate(canvases), 1)
+    pg.close()
+
+    # Pure helper: the smoothing must not eat an interval's peaks, which is what the graph is FOR.
+    pg, errs = fresh()
+    peak = pg.evaluate("""() => {
+      const time = [], hr = [];
+      for (let s = 0; s < 1800; s++) { time.push(s); hr.push(s % 360 < 220 ? 175 : 130); }
+      const out = hrGraphSeries({ time:{data:time}, heartrate:{data:hr} });
+      return { max: Math.max(...out.hr), min: Math.min(...out.hr), n: out.t.length }; }""")
+    check("smoothing keeps an interval's peaks near their real height", peak["max"] > 170, True)
+    check("...and its recovery troughs near theirs", peak["min"] < 135, True)
+    check("a long stream is thinned to at most ~600 points",
+          pg.evaluate("""() => hrGraphSeries({ time:{data:[...Array(14400).keys()]},
+              heartrate:{data:Array(14400).fill(140)} }).t.length <= 601"""), True)
+    check("a dropped strap (0 bpm) is a gap, never a plunge to zero",
+          pg.evaluate("""() => { const h = Array(600).fill(140); for (let i = 200; i < 260; i++) h[i] = 0;
+              return Math.min(...hrGraphSeries({ time:{data:[...Array(600).keys()]}, heartrate:{data:h} })
+                .hr.filter(x => x != null)) > 130; }"""), True)
+    check("a stream with no heart rate at all is null, not an empty chart",
+          pg.evaluate("() => hrGraphSeries({ time:{data:[0,1,2]}, heartrate:{data:[0,0,0]} })"), None)
+    pg.close()
+
+    # 402 px: the chart and its footer must fit the phone.
+    pg = b.new_page(viewport={"width": 402, "height": 900})
+    pg.goto(APP); pg.evaluate(HR_SEED); pg.evaluate(TOKEN)
+    pg.evaluate("() => localStorage.setItem('lpl_hr_pace', '1')")
+    pg.goto(APP); pg.wait_for_timeout(500)
+    pg.evaluate(STUB, "ok")
+    open_run(pg, "out", wait=500)
+    check("402px: the graph and pace strip draw", pg.evaluate(canvases), 2)
+    check("402px: nothing in the graph overflows its panel", pg.evaluate("""() => {
+      const g = document.getElementById('hrGraph'), body = document.getElementById('detailBody');
+      return g.getBoundingClientRect().right <= body.getBoundingClientRect().right + 1; }"""), True)
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
