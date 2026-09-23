@@ -233,6 +233,57 @@ with sync_playwright() as p:
     check("no HR-graph page errors", errs, [])
     pg.close()
 
+    # ── Høyde behind the pace line (2026-09-23) ─────────────────────────────────────────────────
+    # It answers «why did the pace give way / the HR climb here», so it rides WITH pace, in the same
+    # strip rather than a third one. Outdoor only, and only when the run has real terrain: GPS
+    # altitude drifts ~10 m over an hour on its own, so a flat run's silhouette would be noise drawn
+    # as a hill. The mockup he picked (A of three, 2026-09-23) is what these pin.
+    print("== høyde rides with the pace strip ==")
+    pg, errs = fresh(pace="1")
+    shape = pg.evaluate("""() => {
+      const t = [...Array(1800).keys()], hr = t.map(() => 150), vel = t.map(() => 2.5);
+      const hill = t.map(s => 200 + 60 * Math.sin(s / 1800 * Math.PI * 2));   // a 120 m climb and back
+      const flat = t.map((s, i) => 200 + (i % 7) * 0.6);                      // 4 m of GPS wobble
+      const mk = (alt, o) => hrGraphSeries({ time:{data:t}, heartrate:{data:hr},
+        velocity_smooth:{data:vel}, altitude:{data:alt} }, o || {});
+      const r = hrGraphRange(mk(hill), hrZoneBounds());
+      return { hilly: !!mk(hill).elev, flat: !!mk(flat).elev, tm: !!mk(hill, { treadmill: true }).elev,
+               none: !!hrGraphSeries({ time:{data:t}, heartrate:{data:hr}, velocity_smooth:{data:vel} }).elev,
+               range: [r.elevLo, r.elevHi] }; }""")
+    check("a real climb gives an elevation series", shape["hilly"], True)
+    check("⚠️ a flat run does not — 4 m of GPS wobble is not a hill", shape["flat"], False)
+    check("a treadmill's altitude is never drawn", shape["tm"], False)
+    check("...nor is a run whose stream carries no altitude", shape["none"], False)
+    # Snapped to readable 20s and NEVER forced to 0 — a run at 300 m would be a line along the top.
+    check("the metre axis is snapped to 20s around the run", shape["range"], [120, 280])
+    # On screen: one strip, the hill behind the line, and a caption that says what is down there.
+    pg.evaluate("""() => { StravaIO.fetchActivityStreams = async () => { const t = [...Array(1800).keys()];
+        return { time:{data:t}, heartrate:{data:t.map(() => 150)}, velocity_smooth:{data:t.map(() => 2.5)},
+                 altitude:{data:t.map(s => 200 + 60 * Math.sin(s / 1800 * Math.PI * 2))} }; }; }""")
+    open_run(pg, "out", wait=600)
+    check("no third canvas — the hill shares the pace strip", pg.evaluate(canvases), 2)
+    ds = pg.evaluate("""() => { const c = Chart.getChart(document.getElementById('hrGraphPace'));
+        const a = c.chartArea, m = c.getDatasetMeta(1);
+        // Where the pace line is actually PLOTTED, which is the check that matters: see below.
+        const inside = m.data.filter(p => p.y != null)
+          .every(p => p.y >= a.top - 1 && p.y <= a.bottom + 1);
+        return { n: c.data.datasets.length, fill: !!c.data.datasets[0].fill,
+                 border: c.data.datasets[0].borderWidth, axis: c.data.datasets[0].yAxisID,
+                 paceAxis: c.data.datasets[1].yAxisID, paceInside: inside,
+                 labels: c.scales.y1.ticks.map(t => t.label) }; }""")
+    check("the strip carries the hill and the pace, hill first", (ds["n"], ds["axis"]), (2, "y1"))
+    check("...the hill is a fill with no outline", (ds["fill"], ds["border"]), (True, 0))
+    check("...read against its own metre axis", all(l.endswith(" m") for l in ds["labels"]), True)
+    # ⚠️ THE ONE THAT CAUGHT A REAL BUG, and only because it asks where the line LANDED. A dataset
+    # that names no yAxisID takes the FIRST y scale in the options — which became the metre axis the
+    # moment it was added, so the pace line was plotted at 8.95 on a 40–220 m scale and clipped out
+    # of the strip. Every structural check above passed with the line invisible (2026-09-23).
+    check("⚠️ the pace line is measured against the pace axis", ds["paceAxis"], "y")
+    check("⚠️ ...so every plotted pace point lands inside the strip", ds["paceInside"], True)
+    check("the caption names høyde", "høyde (m)" in (pg.evaluate(slot) or ""), True)
+    check("no page errors with the hill drawn", errs, [])
+    pg.close()
+
     # Each failure must NAME itself. "Nothing drawn" means five different things here.
     for mode, want in [("offline", "er du på nett"), ("429", "for mange forespørsler"),
                        ("nohr", "ingen pulsdata")]:
