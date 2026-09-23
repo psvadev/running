@@ -492,6 +492,56 @@ with sync_playwright() as p:
     check('milestone crossed 9 days ago: still shown', milestone_shown(9), True)
     check('milestone crossed 12 days ago: gone', milestone_shown(12), False)
 
+    # ── Årsoppsummering: the finished year against the one before, first WEEK of January ─────────
+    # Its own frozen clock, because this suite's FAKE_TODAY is August — the insight must be SILENT
+    # then (checked on the normal page below) and visible on a January one.
+    print("== the year recap shows in early January, and only then ==")
+
+    def january(day, sess, freeze_year=2027, month=1):
+        pg2 = b.new_page(viewport={'width': 1280, 'height': 900})
+        pg2.add_init_script(FREEZE.replace(
+            f"new R({FAKE_TODAY[0]}, {FAKE_TODAY[1] - 1}, {FAKE_TODAY[2]}, 12, 0, 0)",
+            f"new R({freeze_year}, {month - 1}, {day}, 12, 0, 0)"))
+        d = dict(data, sessions=sess, events=[], bestEffortsTop3={})
+        pg2.goto(APP)
+        pg2.evaluate("d => localStorage.setItem('lpl_cache', JSON.stringify(d))", d)
+        pg2.goto(APP)
+        pg2.wait_for_timeout(500)
+        pg2.evaluate("() => switchTab('dash')")
+        pg2.wait_for_timeout(400)
+        out = " ".join(pg2.inner_text('#insightCard').split())
+        pg2.close()
+        return out
+
+    # 2026: 12 runs x 10 km = 120 km. 2025: 8 x 10 = 80 km, starting in JANUARY, so no partial note.
+    y26 = [session(f'2026-{m:02d}-05', 150, okttype='Steady', distanse=10.0) for m in range(1, 13)]
+    y25 = [session(f'2025-{m:02d}-05', 150, okttype='Steady', distanse=10.0) for m in range(1, 9)]
+    jan5 = january(5, y26 + y25)
+    check('the recap names the finished year and its distance', '2026: 120 km' in jan5, True)
+    check('...the difference against the year before', '+40 km mot 2025' in jan5, True)
+    check('...and how many runs each held', '12 mot 8 økter' in jan5, True)
+    check('a full previous year gets no partial note', 'talte fra' in jan5, False)
+    # ⚠️ HIS OWN SHAPE: the log starts 29.09.2025, so the first January would otherwise announce a
+    # first full year against a quarter of one as if it were growth.
+    late = [session('2025-09-29', 150, okttype='Steady', distanse=10.0),
+            session('2025-11-15', 150, okttype='Steady', distanse=10.0)]
+    partial = january(5, y26 + late)
+    check('⚠️ a part-year baseline says so', '2025 talte fra 29.09' in partial, True)
+    check('...and still prints both totals',
+          ('2026: 120 km' in partial, '+100 km' in partial), (True, True))
+    # Both edges of the window, and the two silences.
+    check('day 7 is still inside the window', '2026: 120 km' in january(7, y26 + y25), True)
+    check('day 8 is not', '2026: 120 km' in january(8, y26 + y25), False)
+    check('nothing to compare against stays silent', 'mot 2025' in january(5, y26), False)
+    # ⚠️ The MONTH gate, which nothing else can see: every other date in this suite is the 12th, so a
+    # generator that had dropped «January» and kept «day <= 7» passed everything (falsification,
+    # 2026-09-23). The 5th of a month that is not January is the case that catches it.
+    # ⚠️ 2027, not 2026: in August 2026 the finished year would be 2025 against an EMPTY 2024, so the
+    # card is silent for the wrong reason and the mutation survives (falsification, twice).
+    check('⚠️ the 5th of August says nothing about last year',
+          'mot 2025' in january(5, y26 + y25, freeze_year=2027, month=8), False)
+    check('an empty finished year stays silent', 'mot 2024' in january(5, y25, freeze_year=2026), False)
+
     # ── Rekorder's Pace row opens the run it names (his call, 2026-09-22) ────────────────────────
     # Two Easy runs so the card has to pick the FASTER one — a card opening "some Easy run" passes a
     # one-run fixture. The other Rekorder cards stay plain; «Totalt distanse» is the control.

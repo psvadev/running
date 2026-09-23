@@ -7418,6 +7418,34 @@ function renderInsights(sessions) {
     }
   }
 
+  // Årsoppsummering — the first WEEK of January, and only then (7 days, his call over 14). The finished year against the
+  // one before it: the one comparison Årsmål cannot make, because that card resets on 1 January and
+  // knows nothing about last year. Distance and the number of runs, deliberately nothing else —
+  // an average pace across a year is decided by what KIND of running it held (a year with more
+  // intervals and races is faster without anyone being fitter), and total climbing tracks the
+  // indoor/outdoor share more than the legs. Formkurve and Prognose answer «am I fitter»; the
+  // Årssammenligning card holds the full per-year table. This is the headline, for the two weeks
+  // when it is news. His call, 2026-09-23.
+  if (today.slice(5, 7) === '01' && +today.slice(8, 10) <= 7) {
+    const done = +today.slice(0, 4) - 1, prev = done - 1;
+    const yr = y => {
+      const rows = sessions.filter(s => (s.dato || '').slice(0, 4) === String(y));
+      return { km: rows.reduce((sum, s) => sum + (s.distanse || 0), 0), n: rows.length,
+               from: rows.length ? rows.reduce((a, s) => s.dato < a ? s.dato : a, rows[0].dato) : null };
+    };
+    const a = yr(done), b = yr(prev);
+    if (a.n && b.n) {
+      const dKm = a.km - b.km;
+      // ⚠️ A year the log did not cover from January is NOT a year to read growth from: his own data
+      // starts 29.09.2025, so January 2027 would otherwise announce «+750 km» for a first full year
+      // against a quarter of one. The totals stay true; the note stops the false story.
+      const partial = b.from > `${prev}-01-31` ? ` · ${prev} talte fra ${fmtDate(b.from).slice(0, 5)}` : '';
+      candidates.push({ icon:'📅', val:`${done}: ${a.km.toFixed(0)} km`,
+        sub: `${dKm >= 0 ? '+' : '−'}${Math.abs(dKm).toFixed(0)} km mot ${prev} · ${a.n} mot ${b.n} økter${partial}`,
+        priority: 5 });
+    }
+  }
+
   // Shoe approaching retirement. Thresholds come from `shoeWear` — the SAME function the Sko card's
   // bar uses, so this fires exactly when that bar turns red and never on its own schedule.
   // Deliberately gated on the red band only: yellow starts at 75 %, which can be months of running,
