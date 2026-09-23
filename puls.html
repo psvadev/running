@@ -617,6 +617,10 @@
   .dp-session-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer; }
   .dp-session-row:hover { background:rgba(255,255,255,.04); border-radius:4px; padding-left:4px; }
   .dp-section-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:14px 0 8px; }
+  /* Names the chart directly under it. Quieter than `.dp-section-label` on purpose: two charts with
+     one shared caption underneath made you carry the units down the panel and back (his note,
+     2026-09-23), but a chart label is not a section heading either. */
+  .hr-axis-label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:10px 0 4px; }
 
   /* ── Weekly summary table ── */
   .weekly-table td, .weekly-table th { padding: 8px 14px; }
@@ -8821,12 +8825,11 @@ const DetailPanel = {
         <span class="year-pill${paceOn ? '' : ' active'}" id="hrPaceOff" role="button">Kun puls</span>
         <span class="year-pill${paceOn ? ' active' : ''}" id="hrPaceToggle" role="button">Med tempo</span>
       </div>` : ''}
+      <div class="hr-axis-label">Puls (slag/min)</div>
       <div style="position:relative;height:180px"><canvas id="hrGraphHr"></canvas></div>
-      ${paceOn ? `<div style="position:relative;height:${series.elev ? 110 : 96}px;margin-top:4px"><canvas id="hrGraphPace"></canvas></div>` : ''}
+      ${paceOn ? `<div class="hr-axis-label">Tempo (min/km)${series.elev ? ' · høyde (m)' : ''}</div>
+      <div style="position:relative;height:${series.elev ? 110 : 96}px"><canvas id="hrGraphPace"></canvas></div>` : ''}
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:10px;color:var(--muted);margin-top:8px">
-        <span>${!paceOn ? 'Puls (slag/min)'
-          : series.elev ? 'Puls (slag/min) · tempo (min/km) og høyde (m) under'
-          : 'Puls (slag/min) · tempo (min/km) under'}</span>
         <span style="margin-left:auto">${canPace ? 'Fra Strava · hentes når økta åpnes'
           : series.paceOff === 'treadmill' ? 'Tredemølle — tempo vises ikke, klokkas innendørstempo er upålitelig'
           : 'Strava har ikke tempodata for denne økta'}</span>

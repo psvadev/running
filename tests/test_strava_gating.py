@@ -280,7 +280,12 @@ with sync_playwright() as p:
     # of the strip. Every structural check above passed with the line invisible (2026-09-23).
     check("⚠️ the pace line is measured against the pace axis", ds["paceAxis"], "y")
     check("⚠️ ...so every plotted pace point lands inside the strip", ds["paceInside"], True)
-    check("the caption names høyde", "høyde (m)" in (pg.evaluate(slot) or ""), True)
+    # Each chart is named where you look at it, rather than by one caption under both (2026-09-23).
+    labels = pg.evaluate("""() => [...document.querySelectorAll('#hrGraph .hr-axis-label')]
+        .map(e => e.textContent.trim())""")
+    check("each chart carries its own label", len(labels), 2)
+    check("...the first names the HR chart", labels[0], "Puls (slag/min)")
+    check("...the second names pace AND høyde", labels[1], "Tempo (min/km) · høyde (m)")
     check("no page errors with the hill drawn", errs, [])
     pg.close()
 
