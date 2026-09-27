@@ -512,6 +512,29 @@
   .rk-prow.rk-empty .rk-v { color: var(--muted); font-weight: 400; }
   @media (max-width: 1100px) { .rk-pace { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(var(--rk-r2, 4), auto); } }
 
+  /* Distanse-PR, Prognose and Tidsmål: one table each, sharing these columns (his pick, mockup A,
+     2026-09-27). 🏃 Ute and ⚙️ Inne are named ONCE as column heads instead of on every cell, and
+     each venue is a right-aligned time column plus a muted info column beside it (date, pace, or
+     PR/prognose), so the times line up down the table and every distance is one line. Capped so a
+     distance and its times read as one block rather than across the whole card.
+     Rows and venue groups are `display: contents` on desktop, so their cells sit straight in the
+     grid; on a phone each venue group becomes one right-aligned block with the info under the time.
+     The info cell's padding-top puts its 11px text on the 13px time's baseline. The info columns
+     may shrink to nothing (minmax 0): between the phone layout and ~720px there is less room than
+     the mockup's fixed minimums added up to, and a wrapped date beats a table spilling off the card. */
+  .dx { display: grid; grid-template-columns: 168px 84px minmax(0, 1fr) 84px minmax(0, 1fr);
+        max-width: 700px; font-size: 13px; }
+  .dx-r, .dx-v { display: contents; }
+  .dx-c { padding: 6px 0; border-top: 1px solid rgba(46,50,72,.6); }
+  .dx-v .dx-c { padding-left: 14px; }
+  .dx-h .dx-c { border-top: none; padding-top: 0; padding-bottom: 5px; font-size: 11px; color: var(--muted); }
+  .dx-d { font-weight: 600; }
+  .dx-t { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dx-h .dx-t { font-weight: 400; }
+  .dx-e { color: var(--muted); font-weight: 400; }
+  .dx-m { padding-top: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .dx-goal { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
   @media (max-width: 600px) {
     html { overflow-x: hidden; }
     header { padding: 0 12px; gap: 8px; }
@@ -590,31 +613,18 @@
     .rk-groups, .rk-pace { grid-template-columns: 1fr; }
     .rk-pace { grid-auto-flow: row; grid-template-rows: none; }
     .rk-big { font-size: 30px; }
+    /* Distance tables: three columns, each venue one block with its info under the time, and the
+       🎯 goal under the distance it belongs to. */
+    .dx { grid-template-columns: 1fr auto auto; }
+    .dx-v { display: block; text-align: right; padding: 6px 0 6px 18px; border-top: 1px solid rgba(46,50,72,.6); }
+    .dx-h .dx-v { border-top: none; padding-top: 0; padding-bottom: 5px; }
+    .dx-v .dx-c { padding: 0; border-top: none; }
+    .dx-m { margin-top: 1px; }
+    .dx-goal { display: block; margin: 1px 0 0; }
     /* Let the date/type columns shrink so the ✏️/✕ buttons stay inside the card */
     .event-row { gap: 8px; padding: 10px; }
     .event-row .er-date { min-width: 0; }
     .event-row .er-type { min-width: 0; }
-  }
-
-  /* ── Records ── */
-  /* Shared row layout for Distanse-PR and Prognose — one compact line per distance on
-     desktop, stacked on mobile. (Named top3-* from the retired Topp 3 list it began as.) */
-  .top3-list { display: flex; flex-direction: column; gap: 6px; }
-  .top3-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 13px; }
-  .top3-row .t3-label { min-width: 90px; font-weight: 600; }
-  .top3-row .t3-effort { color: var(--muted); }
-  .top3-row .t3-effort.t3-first { color: var(--text); }
-  .top3-row .t3-date { font-size: 11px; color: var(--muted); }
-  /* Fixed venue column so Ute/Inne line up down both lists */
-  .top3-row .t3-venue { min-width: 200px; }
-  .top3-row .t3-venue.t3-empty { color: var(--muted); }
-  /* Mobile: stack each distance (label on its own line, medals below). Placed after
-     the base rules above so these equal-specificity overrides win on source order. */
-  @media (max-width: 600px) {
-    .top3-list { gap: 14px; }
-    .top3-row { flex-direction: column; flex-wrap: nowrap; gap: 3px; }
-    .top3-row .t3-label { min-width: 0; margin-bottom: 1px; }
-    .top3-row .t3-venue { min-width: 0; }
   }
 
   /* ── Table ── */
@@ -10157,15 +10167,24 @@ function renderDashboard() {
   // always a click away in Strava, so mirroring it here was pure duplication.
   const distPRs = computeDistancePRs(Store.data.sessions);
   const prRows = distPRs.filter(r => r.ute || r.inne);
-  // ONE emitter for all three venue tables on this card (Distanse-PR, Prognose, Mål). They sit
-  // adjacent and share a column layout, so a bare gap in one reads as a rendering fault rather than
-  // a deliberate omission — this makes the empty dash and the class list agree by construction
-  // instead of by three comments claiming they do. `sub` is a callback so it only runs on a live
-  // entry, which is what lets the call sites drop their own "is there an entry" guards. `dim` omits
-  // t3-first: on a Mål row the 🎯 goal is the subject and the measurements beside it are context.
-  const venueCell = (icon, entry, sub, dim) => !entry
-    ? `<span class="t3-effort t3-venue t3-empty">${icon} –</span>`
-    : `<span class="t3-effort t3-venue${dim ? '' : ' t3-first'}">${icon} <b>${secsToHms(entry.t)}</b> <span class="t3-date">${sub(entry)}</span></span>`;
+  // ONE emitter for all three venue tables on this card (Distanse-PR, Prognose, Tidsmål). They sit
+  // adjacent and share their columns, so a bare gap in one reads as a rendering fault rather than
+  // a deliberate omission — this makes the empty dash, the column heads and the class list agree by
+  // construction instead of by three comments claiming they do. `sub` is a callback so it only runs
+  // on a live entry, which is what lets the call sites drop their own "is there an entry" guards.
+  // A venue is two cells: the time, and what the time is (a date, a pace, PR or prognose).
+  const venueCell = (entry, sub) => !entry
+    ? '<div class="dx-v"><div class="dx-c dx-t dx-e">–</div><div class="dx-c dx-m"></div></div>'
+    : `<div class="dx-v"><div class="dx-c dx-t">${secsToHms(entry.t)}</div><div class="dx-c dx-m">${sub(entry)}</div></div>`;
+  // 🏃 Ute and ⚙️ Inne are named here and nowhere else: every row below puts Ute first.
+  const venueTable = rows => `<div class="dx">
+      <div class="dx-r dx-h"><div class="dx-c"></div>
+        <div class="dx-v"><div class="dx-c dx-t">🏃 Ute</div><div class="dx-c dx-m"></div></div>
+        <div class="dx-v"><div class="dx-c dx-t">⚙️ Inne</div><div class="dx-c dx-m"></div></div>
+      </div>
+      ${rows.map(([label, ute, inne]) => `
+        <div class="dx-r"><div class="dx-c dx-d">${label}</div>${ute}${inne}</div>`).join('')}
+    </div>`;
   // Say how exact the indoor number is: a derived split covers the distance exactly (date alone,
   // same as the Ute segment column), a whole run only approximately (so show its real distance).
   const inneSourceLabel = e => e.source === 'split' ? fmtDate(e.d)
@@ -10173,27 +10192,17 @@ function renderDashboard() {
 
   document.getElementById('distPRList').innerHTML = !prRows.length
     ? '<div class="muted-sm">Ingen distanse-PR ennå — synkroniser fra Strava under Innstillinger. Tredemølle-tider kommer av seg selv fra analyserte økter.</div>'
-    : `<div class="top3-list">
-        ${prRows.map(r => `
-          <div class="top3-row">
-            <span class="t3-label">${r.label}</span>
-            ${venueCell('🏃', r.ute, e => `(${fmtDate(e.d)})`)}
-            ${venueCell('⚙️', r.inne, e => `(${inneSourceLabel(e)})`)}
-          </div>`).join('')}
-      </div>`;
+    : venueTable(prRows.map(r => [r.label,
+        venueCell(r.ute, e => fmtDate(e.d)),
+        venueCell(r.inne, inneSourceLabel)]));
 
-  // Prognose: same row layout as Distanse-PR, two venue columns projected independently.
+  // Prognose: same table as Distanse-PR, two venue columns projected independently.
   const prognose = computePerfCurve(Store.data.sessions, distPRs);
   document.getElementById('prognoseSection').style.display = prognose.length ? '' : 'none';
 
-  document.getElementById('prognoseList').innerHTML = `<div class="top3-list">
-      ${prognose.map(r => `
-        <div class="top3-row">
-          <span class="t3-label">${r.label}</span>
-          ${venueCell('🏃', r.ute, e => `${secsToMmSs(e.pace)} /km`)}
-          ${venueCell('⚙️', r.inne, e => `${secsToMmSs(e.pace)} /km`)}
-        </div>`).join('')}
-    </div>`;
+  const paceSub = e => `${secsToMmSs(e.pace)} /km`;
+  document.getElementById('prognoseList').innerHTML = venueTable(prognose.map(r => [r.label,
+    venueCell(r.ute, paceSub), venueCell(r.inne, paceSub)]));
 
   // Anchors once per section, not per row: in winter this is what makes a months-old outdoor
   // anchor obvious next to a current indoor one, without repeating the same text every line.
@@ -10249,24 +10258,19 @@ function renderDashboard() {
     if (progEntry) return { t: progEntry.t, kind: 'prognose' };
     return prEntry ? { t: prEntry.t, kind: 'PR' } : null;
   };
-  document.getElementById('goalTimeList').innerHTML = `<div class="top3-list">
-      ${goalRows.map(d => {
-        const pr = distPRs.find(r => r.key === d.key) || {};
-        // computePerfCurve's rows carry label and km but no key, so match on label — unique, and it
-        // needs no change to a pure function that a Python port has to be kept in step with.
-        const pg = prognose.find(r => r.label === d.label) || {};
-        // secsToHms, not secsToHmsShort: an unpadded h:mm:ss is ambiguous at the short end — "3:45"
-        // could be 3 min 45 s or 3 h 45 min — and the two sections directly above pad for the same
-        // reason. The whole card renders one way.
-        return `
-          <div class="top3-row">
-            <span class="t3-label">${d.label}</span>
-            <span class="t3-effort t3-venue t3-first">🎯 <b>${secsToHms(goalTimes[d.key])}</b></span>
-            ${venueCell('🏃', bestFor(pr.ute, pg.ute), e => e.kind, true)}
-            ${venueCell('⚙️', bestFor(pr.inne, pg.inne), e => e.kind, true)}
-          </div>`;
-      }).join('')}
-    </div>`;
+  document.getElementById('goalTimeList').innerHTML = venueTable(goalRows.map(d => {
+    const pr = distPRs.find(r => r.key === d.key) || {};
+    // computePerfCurve's rows carry label and km but no key, so match on label — unique, and it
+    // needs no change to a pure function that a Python port has to be kept in step with.
+    const pg = prognose.find(r => r.label === d.label) || {};
+    // The 🎯 goal sits beside its distance, so the two venue columns keep the same place as in the
+    // tables above. secsToHms, not secsToHmsShort: an unpadded h:mm:ss is ambiguous at the short
+    // end — "3:45" could be 3 min 45 s or 3 h 45 min — and the sections above pad for the same
+    // reason. The whole card renders one way.
+    return [`${d.label}<span class="dx-goal">🎯 ${secsToHms(goalTimes[d.key])}</span>`,
+      venueCell(bestFor(pr.ute, pg.ute), e => e.kind),
+      venueCell(bestFor(pr.inne, pg.inne), e => e.kind)];
+  }));
 
   renderFormkurve();
 

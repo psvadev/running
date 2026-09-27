@@ -109,12 +109,76 @@ EMPTY = """() => {
     settings: { zones: [] }, lastUpdated: '' }));
 }"""
 
-# r.children, not querySelectorAll('span'): the goal cell wraps a <b> and each venue cell wraps a
-# nested .t3-date, so a flat span query would not line up with the four columns.
-ROWS = """() => [...document.querySelectorAll('#goalTimeList .top3-row')].map(r => {
-  const cell = i => r.children[i].textContent.trim().replace(/\\s+/g, ' ');
-  return { label: cell(0), goal: cell(1), ute: cell(2), inne: cell(3) };
+# Since 2026-09-27 the three sections are tables (his pick, mockup A): 🏃 Ute and ⚙️ Inne are named
+# ONCE, as column heads, and a row is [distance (+ 🎯 goal), Ute venue, Inne venue], each venue being
+# two cells — the time and what it is. So which venue a figure belongs to is its POSITION, and the
+# header check below is what ties position to venue. r.children, not a flat cell query: the venue
+# groups are what keep a time and its info together.
+ROWS = """() => [...document.querySelectorAll('#goalTimeList .dx-r:not(.dx-h)')].map(r => {
+  const txt = el => el.textContent.trim().replace(/\\s+/g, ' ');
+  const venue = v => [...v.children].map(txt).filter(Boolean).join(' ');
+  const d = r.children[0], goal = d.querySelector('.dx-goal');
+  return { label: d.firstChild.textContent.trim(), goal: goal ? txt(goal) : '',
+           ute: venue(r.children[1]), inne: venue(r.children[2]) };
 })"""
+
+# The column heads of all three tables, in order.
+HEADS = """() => ['distPRList', 'prognoseList', 'goalTimeList'].map(id =>
+  [...document.querySelectorAll(`#${id} .dx-h .dx-v`)].map(v => v.textContent.trim()))"""
+
+# Where things actually LAND, not which classes they carry (reference-test-gate #26). A cell always
+# fills its column, so the TEXT's box is measured — only that shows where inside the column a time
+# sits. `infos` are the venue cells that have something beside the time; an empty venue has none.
+LAYOUT = """() => {
+  const ink = n => { const r = document.createRange(); r.selectNodeContents(n); return r.getBoundingClientRect(); };
+  const tables = [...document.querySelectorAll('#distPRList .dx, #prognoseList .dx, #goalTimeList .dx')];
+  const pairs = [], goals = [];
+  for (const row of document.querySelectorAll('.dx .dx-r:not(.dx-h)')) {
+    for (const v of [...row.children].slice(1)) {
+      const [t, m] = v.children;
+      pairs.push({ cell: t.getBoundingClientRect(), t: ink(t), m: m.textContent.trim() ? ink(m) : null });
+    }
+    const g = row.querySelector('.dx-goal');
+    if (g) {
+      const r = document.createRange(); r.selectNode(row.children[0].firstChild);
+      goals.push({ label: r.getBoundingClientRect(), goal: ink(g) });
+    }
+  }
+  const infos = pairs.filter(p => p.m);
+  const card = tables[0].closest('.card').getBoundingClientRect();
+  return {
+    tables: tables.length, times: pairs.length, infos: infos.length, goals: goals.length,
+    flush:      pairs.every(p => Math.abs(p.cell.right - p.t.right) < 1),
+    beside:     infos.every(p => p.m.left >= p.t.right && p.m.top < p.t.bottom && p.m.bottom > p.t.top),
+    under:      infos.every(p => p.m.top >= p.t.bottom - 1),
+    rightPair:  infos.every(p => Math.abs(p.m.right - p.t.right) < 1),
+    goalBeside: goals.every(g => g.goal.left > g.label.right && g.goal.top < g.label.bottom),
+    goalUnder:  goals.every(g => g.goal.top >= g.label.bottom - 1),
+    widest: Math.max(...tables.map(t => t.getBoundingClientRect().width)),
+    card: card.width,
+    fits: tables.every(t => t.getBoundingClientRect().right <= card.right + 0.5 && t.scrollWidth <= t.clientWidth),
+  };
+}"""
+
+# Above the phone breakpoint, "fits inside the card" proves nothing: the dashboard grid is one 1fr
+# column there, and a 1fr track grows to its widest item's MIN-CONTENT — so a table that cannot
+# shrink stretches the card (and the page) instead of spilling out of it, and still "fits". Measured
+# 2026-09-27: the mockup's fixed column minimums (656 px) widened the card to 694 px in a 640 px
+# window, with the table sitting neatly inside. So compare the tables' own min-content width with
+# the room the card really has: the grid container's width (it does not grow with its items) less
+# the card's padding and border.
+MINFIT = """() => {
+  const grid = document.querySelector('#panel-dash .dash-grid');
+  const card = document.getElementById('distPRList').closest('.card'), cs = getComputedStyle(card);
+  const avail = grid.clientWidth - (card.offsetWidth - card.clientWidth)
+              - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const widths = [...document.querySelectorAll('.dx')].map(t => {
+    const was = t.style.width; t.style.width = 'min-content';
+    const w = t.getBoundingClientRect().width; t.style.width = was;
+    return Math.round(w);
+  });
+  return { n: widths.length, widest: Math.max(...widths), avail: Math.round(avail) };
+}"""
 
 
 def boot(pg, seed, tab):
@@ -149,25 +213,32 @@ with sync_playwright() as pw:
 
     by = {r['label']: r for r in rows}
 
+    # Position is venue now — so first pin which column is which, in all three tables at once.
+    check("every table names its columns once: Ute, then Inne",
+          pg.evaluate(HEADS), [['🏃 Ute', '⚙️ Inne']] * 3)
+    check("...and no row repeats a venue icon",
+          pg.evaluate("() => [...document.querySelectorAll('.dx-r:not(.dx-h)')].some(r => /🏃|⚙️/.test(r.textContent))"),
+          False)
+
     # ⚠️ THE REGRESSION THIS SECTION EXISTS FOR (reported live 2026-08-19).
     # The first version collapsed both venues to whichever was FASTER, so a row with a time in each
     # column printed only one of them. On his real data that hid 🏃 2:40:28 behind ⚙️ 2:13:08 and made
     # a sub-2:00 half look 14 minutes away when outdoors it was 41. Both columns, always.
     check("both venues shown when both have a PR — 15 km",
-          (by['15 km']['ute'], by['15 km']['inne']), ('🏃 1:30:00 PR', '⚙️ 1:26:40 PR'))
+          (by['15 km']['ute'], by['15 km']['inne']), ('1:30:00 PR', '1:26:40 PR'))
     check("...and 5 km, where Ute is the faster one",
-          (by['5 km']['ute'], by['5 km']['inne']), ('🏃 0:26:01 PR', '⚙️ 0:28:20 PR'))
+          (by['5 km']['ute'], by['5 km']['inne']), ('0:26:01 PR', '0:28:20 PR'))
 
     # One number per venue: the fastest thing that venue has, LABELLED with which kind it is. A
     # prognose only ever renders when it beats the measured time, so "fastest" and "prognose if one
     # exists" are the same rule — but the label is what makes the row readable.
     # Both empty directions, so neither column can quietly borrow from the other.
-    check("empty Ute is dashed, not filled from Inne", by['1 km']['ute'], '🏃 –')
-    check("...while Inne still carries its own PR", by['1 km']['inne'], '⚙️ 0:05:20 PR')
-    check("empty Inne is dashed, not filled from Ute", by['Maraton']['inne'], '⚙️ –')
+    check("empty Ute is dashed, not filled from Inne", by['1 km']['ute'], '–')
+    check("...while Inne still carries its own PR", by['1 km']['inne'], '0:05:20 PR')
+    check("empty Inne is dashed, not filled from Ute", by['Maraton']['inne'], '–')
     check("...while Ute still carries its own projection",
           by['Maraton']['ute'].endswith('prognose'), True)
-    check("Inne PR beside an Ute prognose — 10 km", by['10 km']['inne'], '⚙️ 1:01:40 PR')
+    check("Inne PR beside an Ute prognose — 10 km", by['10 km']['inne'], '1:01:40 PR')
     check("...with the projection in the Ute column", by['10 km']['ute'].endswith('prognose'), True)
     check("no PR in either venue → both columns say prognose",
           (by['Halvmaraton']['ute'].endswith('prognose'),
@@ -187,13 +258,51 @@ with sync_playwright() as pw:
     # twice — which is exactly the shape of the bug.
     check("...and the two are genuinely different numbers", prog['ute'] != prog['inne'], True)
 
+    # ── 1b. The tables' layout, desktop and phone (mockup A, 2026-09-27) ───────────────────
+    # Same page, same fixture: it has empty venues in both columns, so a dash is among the times
+    # measured — tabular digits make every real time the same width, and only a narrower dash
+    # shows whether the column is right-aligned or merely full.
+    print("== the three tables: one line per distance on desktop, stacked on a phone ==")
+    lay = pg.evaluate(LAYOUT)
+    check("control: all three tables rendered, with times, infos and goals to measure",
+          (lay['tables'], lay['times'] >= 20, lay['infos'] >= 15, lay['goals']), (3, True, True, 6))
+    check("every time sits flush right in its column", lay['flush'], True)
+    check("...with what it is (date, pace, PR/prognose) beside it on the same line", lay['beside'], True)
+    check("the 🎯 goal sits beside its distance", lay['goalBeside'], True)
+    # A distance and its times read as one block, not across a 1200 px card.
+    check("the tables are capped, not stretched across the card",
+          (lay['widest'] <= 700, lay['card'] > 900), (True, True))
+
+    pg.set_viewport_size({"width": 402, "height": 900})
+    pg.wait_for_timeout(250)
+    lay = pg.evaluate(LAYOUT)
+    check("402 px — control: the same cells are measured", (lay['times'] >= 20, lay['infos'] >= 15), (True, True))
+    check("402 px — the info moves UNDER its time", lay['under'], True)
+    check("402 px — ...and both keep to the right edge of the column", (lay['flush'], lay['rightPair']), (True, True))
+    check("402 px — the 🎯 goal moves under its distance", lay['goalUnder'], True)
+    check("402 px — every table fits inside the card", lay['fits'], True)
+    # A narrow desktop window, above the phone breakpoint: the card has ~560 px, less than the
+    # mockup's fixed column minimums added up to (656 px). The info columns may shrink and wrap
+    # instead — this is the one place the build departs from the mockup, so it is pinned. See
+    # MINFIT for why this cannot be a "fits inside the card" check.
+    pg.set_viewport_size({"width": 640, "height": 900})
+    pg.wait_for_timeout(250)
+    check("640 px — still the desktop layout (info beside the time)", pg.evaluate(LAYOUT)['beside'], True)
+    mf = pg.evaluate(MINFIT)
+    check("640 px — control: three tables measured, with a real width to fit in",
+          (mf['n'], mf['avail'] > 400), (3, True))
+    check("640 px — the tables can shrink to the card, so they never widen it",
+          mf['widest'] <= mf['avail'], True)
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.wait_for_timeout(150)
+
     # ── 2. No data yet: a goal still renders, with nothing beside it ────────────────────────
     print("== a goal set before there is anything to compare it to ==")
     boot(pg, BARE, 'dash')
     rows = pg.evaluate(ROWS)
     check("the row is there", [r['label'] for r in rows], ['5 km'])
     check("...with its goal", rows[0]['goal'], '🎯 0:25:00')
-    check("...and both venue columns dashed", (rows[0]['ute'], rows[0]['inne']), ('🏃 –', '⚙️ –'))
+    check("...and both venue columns dashed", (rows[0]['ute'], rows[0]['inne']), ('–', '–'))
     check("Distanse-PR itself has nothing to show", pg.locator('#distPRList').inner_text().startswith('Ingen'), True)
     check("...and there is no prognose either", pg.locator('#prognoseSection').is_visible(), False)
 
@@ -316,13 +425,15 @@ with sync_playwright() as pw:
     print("== 402 px ==")
     pg.set_viewport_size({"width": 402, "height": 900})
     pg.wait_for_timeout(200)
+    # The stacking itself is measured in section 1b, on the fixture that has something in every
+    # column. This is the edited state: two goals, nothing to compare them with.
     over = pg.evaluate("""() => {
       const el = document.getElementById('goalTimeSection');
-      return { wide: el.scrollWidth > document.documentElement.clientWidth,
-               stacked: getComputedStyle(document.querySelector('#goalTimeList .top3-row')).flexDirection };
+      return { rows: el.querySelectorAll('.dx-r:not(.dx-h)').length,
+               wide: el.scrollWidth > document.documentElement.clientWidth };
     }""")
+    check("control: the edited goals are on screen", over['rows'], 2)
     check("nothing overflows the viewport", over['wide'], False)
-    check("rows stack like their neighbours", over['stacked'], 'column')
 
     # ── 8. Årsmål past the goal: clamp the bar, never the number (2026-09-11) ──────────────
     #
