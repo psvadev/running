@@ -475,6 +475,9 @@
   .rk-num { font-variant-numeric: tabular-nums; }
   .rk-hero { padding: 2px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
   .rk-big { font-size: 34px; font-weight: 700; letter-spacing: -.5px; line-height: 1.05; }
+  /* «totalt» on the number's own line: the sentence under it reads on from the number, but the
+     number alone did not say what it was (his note, 2026-09-27). Quiet, so the number still leads. */
+  .rk-big .rk-tot { font-size: 15px; font-weight: 500; letter-spacing: 0; color: var(--muted); margin-left: 6px; }
   .rk-say { font-size: 14px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
   .rk-say b { color: var(--text); font-weight: 600; }
   .rk-groups { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 28px; }
@@ -483,7 +486,13 @@
   .rk-l { color: var(--muted); font-size: 13px; }
   .rk-v { font-size: 15px; font-weight: 600; text-align: right; white-space: nowrap; }
   .rk-s { grid-column: 1 / -1; font-size: 11px; color: var(--muted); margin-top: 1px; }
-  .rk-pace { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 20px; }
+  /* Filled DOWN each column, not across (his call, 2026-09-27): «Raskeste økt» and «Beste snitt
+     km/t» are the two records over every run, so they pair in the first column, and the økttyper
+     keep their order Easy → Race reading across. Same direction as the three lists above.
+     The row counts are set by the render (--rk-r4/--rk-r2), so a longer list grows a row rather
+     than spilling into implicit columns off the edge. */
+  .rk-pace { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 20px;
+             grid-auto-flow: column; grid-template-rows: repeat(var(--rk-r4, 2), auto); }
   .rk-prow { display: grid; grid-template-columns: 1fr auto 14px; align-items: center; column-gap: 10px;
              padding: 8px; margin: 0 -8px; border-top: 1px solid rgba(46,50,72,.6); border-radius: 6px; cursor: pointer; }
   .rk-prow .rk-l { color: var(--text); }
@@ -493,7 +502,7 @@
   .rk-prow.rk-empty { cursor: default; }
   .rk-prow.rk-empty:hover { background: none; }
   .rk-prow.rk-empty .rk-v { color: var(--muted); font-weight: 400; }
-  @media (max-width: 1100px) { .rk-pace { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 1100px) { .rk-pace { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(var(--rk-r2, 4), auto); } }
 
   @media (max-width: 600px) {
     html { overflow-x: hidden; }
@@ -571,6 +580,7 @@
     .shoe-bar-row { grid-template-columns: 110px 1fr 44px; }
     .zone-grid { grid-template-columns: repeat(3, 1fr); }
     .rk-groups, .rk-pace { grid-template-columns: 1fr; }
+    .rk-pace { grid-auto-flow: row; grid-template-rows: none; }
     .rk-big { font-size: 30px; }
     /* Let the date/type columns shrink so the ✏️/✕ buttons stay inside the card */
     .event-row { gap: 8px; padding: 10px; }
@@ -10055,7 +10065,7 @@ function renderDashboard() {
       : cs === 1 ? 'løpt denne uken' : '',
   ].filter(Boolean).join(', og ');
   const hero = n
-    ? `<div class="rk-hero"><div class="rk-big rk-num">${recs.totalDist.toFixed(1)} km</div>`
+    ? `<div class="rk-hero"><div class="rk-big rk-num">${recs.totalDist.toFixed(1)} km<span class="rk-tot">totalt</span></div>`
       + `<div class="rk-say">løpt på <b class="rk-num">${hoursMins(recs.totalTime)}</b> over `
       + `<b class="rk-num">${n} ${n === 1 ? 'økt' : 'økter'}</b>.`
       + (line2 ? `<br>${line2.replace(/^([a-zæøå])/, c => c.toUpperCase())}.` : '') + `</div></div>`
@@ -10108,7 +10118,7 @@ function renderDashboard() {
       + `<div><div class="rk-l">${r.label}</div><div class="rk-s">${r.sub}</div></div>`
       + `<span class="rk-v rk-num">${r.value}</span><span class="rk-go">›</span></div>`
     : `<div class="rk-prow rk-empty"><div class="rk-l">${r.label}</div><span class="rk-v rk-num">${r.value}</span><span class="rk-go"></span></div>`;
-  document.getElementById('paceRecordsGrid').innerHTML = [
+  const paceRows = [
     // "Raskeste økt", not "Beste totalt" (vague about what was totalled) and not "alle økter" —
     // this card excludes Avvik-flagged runs like every other quality record, so a label promising
     // *alle* would be the one card overstating its own scope.
@@ -10124,7 +10134,11 @@ function renderDashboard() {
     { label:'Beste snitt km/t', value: recs.bestKmh ? PaceConv.fmtKmh(recs.bestKmh.snittkmh)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '', sid: recs.bestKmh?.id },
     ...CORE_OKTTYPER.filter(t => !PACE_CARD_SKIP.includes(t))
                     .map(t => paceCard(`Beste ${t}`, recs.bestPaceByType[t])),
-  ].map(paceRow).join('');
+  ];
+  const paceEl = document.getElementById('paceRecordsGrid');
+  paceEl.style.setProperty('--rk-r4', Math.ceil(paceRows.length / 4));
+  paceEl.style.setProperty('--rk-r2', Math.ceil(paceRows.length / 2));
+  paceEl.innerHTML = paceRows.map(paceRow).join('');
 
   // Distanse-PR: one row per distance, Ute (Strava best effort) beside Inne (treadmill).
   // Two populations, never merged — see DATA.md "Belt vs GPS". The outdoor runners-up

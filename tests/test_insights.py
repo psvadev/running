@@ -601,6 +601,30 @@ with sync_playwright() as p:
     check('...and its explanation', pg.evaluate("""() => { const r = [...document.querySelectorAll('#recordsGrid .rk-row')]
         .find(e => e.querySelector('.rk-l').textContent === 'Beste aerob eff.');
         return (r && r.getAttribute('title') || '').includes('Aerob effektivitet'); }"""), True)
+    # His two notes on the live card (2026-09-27): the big number says what it is, and the Pace grid
+    # fills DOWN each column so the two all-runs records pair up while the types keep their order.
+    check('the headline number says it is the total',
+          pg.evaluate("() => document.querySelector('#recordsGrid .rk-big').textContent.trim()").endswith('totalt'), True)
+    POS = """() => Object.fromEntries([...document.querySelectorAll('#paceRecordsGrid .rk-prow')].map(r => {
+        const b = r.getBoundingClientRect(); return [r.querySelector('.rk-l').textContent, [Math.round(b.x), Math.round(b.y)]]; }))"""
+    at = pg.evaluate(POS)
+    check('⚠️ desktop: «Beste snitt km/t» sits under «Raskeste økt», not beside it',
+          (at['Beste snitt km/t'][0] == at['Raskeste økt'][0], at['Beste snitt km/t'][1] > at['Raskeste økt'][1]), (True, True))
+    check('...and the types still read across in order, Easy first',
+          (at['Beste Easy'][1] == at['Raskeste økt'][1], at['Beste Easy'][0] > at['Raskeste økt'][0],
+           at['Beste Tempo'][0] > at['Beste Easy'][0], at['Beste Test'][0] > at['Beste Tempo'][0]), (True, True, True, True))
+    check('...and all eight fit in the four columns (no spill into a fifth)',
+          len({x for x, _ in at.values()}), 4)
+    pg.set_viewport_size({'width': 900, 'height': 900}); pg.wait_for_timeout(200)
+    at = pg.evaluate(POS)
+    check('two columns: the pair still stacks in the first',
+          (at['Beste snitt km/t'][0] == at['Raskeste økt'][0], at['Beste snitt km/t'][1] > at['Raskeste økt'][1]), (True, True))
+    pg.set_viewport_size({'width': 402, 'height': 900}); pg.wait_for_timeout(200)
+    order = pg.evaluate("""() => [...document.querySelectorAll('#paceRecordsGrid .rk-prow')]
+        .sort((a, b) => a.getBoundingClientRect().y - b.getBoundingClientRect().y).map(r => r.querySelector('.rk-l').textContent)""")
+    check('phone: one list, in the same order as always', order,
+          ['Raskeste økt', 'Beste snitt km/t', 'Beste Easy', 'Beste Long', 'Beste Tempo', 'Beste Intervaller', 'Beste Test', 'Beste Race'])
+    pg.set_viewport_size({'width': 1280, 'height': 900}); pg.wait_for_timeout(200)
     check('blue is not spent on plain values any more',
           pg.evaluate("""() => getComputedStyle(document.querySelector('#recordsGrid .rk-row .rk-v')).color"""),
           pg.evaluate("() => getComputedStyle(document.body).color"))
