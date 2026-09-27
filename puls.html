@@ -683,6 +683,10 @@
   td { padding: 9px 12px; border-top: 1px solid var(--border); white-space: nowrap; }
   tr:hover td { background: var(--surface2); }
   #logTable tbody tr { cursor: pointer; }  /* click a row → read-only detail panel */
+  /* The number columns, right-aligned with tabular digits (his call, 2026-09-27): values of different
+     widths line up by their last digit, so a column reads straight down — 10.02 under 5.61, 172 under
+     98. Headers follow their column. Dato and Uke stay left, with the text columns. */
+  #logTable .num { text-align: right; font-variant-numeric: tabular-nums; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
   .badge-easy { background: #1a3a2a; color: var(--green); }
   .badge-steady { background: #1e2e4a; color: #7aa8f0; }
@@ -1462,15 +1466,15 @@
           <th data-col="okttype">Type <span class="sort-indicator">↕</span></th>
           <th data-col="oktnavn">Navn</th>
           <th data-col="treningsplan">Plan <span class="sort-indicator">↕</span></th>
-          <th data-col="distanse">Dist (km) <span class="sort-indicator">↕</span></th>
-          <th data-col="malDistanse">Mål km</th>
-          <th data-col="varighet">Varighet <span class="sort-indicator">↕</span></th>
-          <th data-col="tempo">Tempo <span class="sort-indicator">↕</span></th>
-          <th data-col="gjsnittspuls">♥ Snitt <span class="sort-indicator">↕</span></th>
-          <th data-col="toppuls">♥ Topp <span class="sort-indicator">↕</span></th>
+          <th class="num" data-col="distanse">Dist (km) <span class="sort-indicator">↕</span></th>
+          <th class="num" data-col="malDistanse">Mål km</th>
+          <th class="num" data-col="varighet">Varighet <span class="sort-indicator">↕</span></th>
+          <th class="num" data-col="tempo">Tempo <span class="sort-indicator">↕</span></th>
+          <th class="num" data-col="gjsnittspuls">♥ Snitt <span class="sort-indicator">↕</span></th>
+          <th class="num" data-col="toppuls">♥ Topp <span class="sort-indicator">↕</span></th>
           <th data-col="sko">Sko</th>
-          <th data-col="hoydeMeter">Høyde</th>
-          <th data-col="rpe">RPE</th>
+          <th class="num" data-col="hoydeMeter">Høyde</th>
+          <th class="num" data-col="rpe">RPE</th>
           <th></th>
         </tr>
       </thead>
@@ -6746,15 +6750,15 @@ const Log = {
         <td>${badge}${venueBadge}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.oktnavn||'')}${trophy}${s.beskrivelse ? ` <span title="${escapeHtml(s.beskrivelse)}" style="cursor:default">📋</span>` : ''}${s.notater ? ` <span title="${escapeHtml(s.notater)}" style="cursor:default">📝</span>` : ''}</td>
         <td style="color:var(--muted);font-size:11px">${escapeHtml(s.treningsplan||'')}</td>
-        <td>${fmtDist(s.distanse)}</td>
-        <td>${malCell(s)}</td>
-        <td>${secsToHms(s.varighet)}</td>
-        <td>${s.tempo ? secsToMmSs(s.tempo) : ''}</td>
-        <td>${s.gjsnittspuls||''}</td>
-        <td>${s.toppuls||''}</td>
+        <td class="num">${fmtDist(s.distanse)}</td>
+        <td class="num">${malCell(s)}</td>
+        <td class="num">${secsToHms(s.varighet)}</td>
+        <td class="num">${s.tempo ? secsToMmSs(s.tempo) : ''}</td>
+        <td class="num">${s.gjsnittspuls||''}</td>
+        <td class="num">${s.toppuls||''}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.sko||'')}</td>
-        <td>${(s.løpetype || 'utendors') !== 'treadmill' && s.hoydeMeter ? s.hoydeMeter+'m' : ''}</td>
-        <td>${s.rpe ? `<span style="font-weight:600;color:${rpeColor(s.rpe)}">${s.rpe}</span>` : ''}</td>
+        <td class="num">${(s.løpetype || 'utendors') !== 'treadmill' && s.hoydeMeter ? s.hoydeMeter+'m' : ''}</td>
+        <td class="num">${s.rpe ? `<span style="font-weight:600;color:${rpeColor(s.rpe)}">${s.rpe}</span>` : ''}</td>
         <td>
           <button class="btn-icon btn-sm" onclick="Form.editSession('${s.id}')" title="Rediger">✏️</button>
           <button class="btn-icon btn-sm" onclick="Log.delete('${s.id}')" title="Slett" style="color:var(--danger)">🗑️</button>

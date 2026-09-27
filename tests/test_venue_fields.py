@@ -440,8 +440,9 @@ with sync_playwright() as p:
         okttype:'Easy', treningsplan:'Runna', varighet:1800, distanse:5, tempo:360,
         soner:[0,0,0,0,0], ['l\\u00f8petype']: venue }, extra);
       localStorage.setItem('lpl_cache', JSON.stringify({
-        sessions: [run('ute', '2026-09-25', 'utendors', { hoydeMeter: 57 }),
-                   run('belte', '2026-09-24', 'treadmill', { stigning: 1 }),
+        sessions: [run('ute', '2026-09-25', 'utendors', { hoydeMeter: 57, distanse: 10.02, gjsnittspuls: 172,
+                                                          toppuls: 181, rpe: 6, malDistanse: 10 }),
+                   run('belte', '2026-09-24', 'treadmill', { stigning: 1, gjsnittspuls: 98 }),
                    // An older row carrying BOTH: the venue decides, not whichever field happens to be set.
                    run('begge', '2026-09-23', 'treadmill', { stigning: 1, hoydeMeter: 40 })],
         shoes:[], goals:{}, events:[], settings:{zones:[]}, lastUpdated:'' }));
@@ -459,6 +460,36 @@ with sync_playwright() as p:
     check("an outdoor run shows its climb in metres", cells['ute'], '57m')
     check("a treadmill run's HØYDE is blank — no incline %", cells['belte'], '')
     check("...and a row carrying both is blank too: the venue decides", cells['begge'], '')
+
+    # ── The number columns, right-aligned with tabular digits (his call, 2026-09-27) ────────────
+    # Measured where each value's TEXT ends against its cell's right padding edge — a cell always
+    # fills its column, so only the text shows the alignment. A text column is the control.
+    print("== Logg number columns line up on the right ==")
+    align = pg.evaluate("""() => {
+      const ink = n => { const g = document.createRange(); g.selectNodeContents(n); return g.getBoundingClientRect(); };
+      const pad = (c, side) => parseFloat(getComputedStyle(c)['padding' + side]);
+      const heads = [...document.querySelectorAll('#logTable thead th')];
+      const num = heads.map((th, i) => th.classList.contains('num') ? i : -1).filter(i => i >= 0);
+      const rows = [...document.querySelectorAll('#logBody tr')];
+      const flushRight = c => Math.abs(c.getBoundingClientRect().right - pad(c, 'Right') - ink(c).right) < 1.5;
+      const filled = rows.flatMap(r => num.map(i => r.children[i])).filter(c => c.textContent.trim());
+      const name = heads.findIndex(th => th.dataset.col === 'oktnavn');
+      return { cols: num.map(i => heads[i].dataset.col), filled: filled.length,
+               cellsRight: filled.every(flushRight), headsRight: num.every(i => flushRight(heads[i])),
+               namesLeft: rows.map(r => r.children[name]).every(c =>
+                 Math.abs(ink(c).left - c.getBoundingClientRect().left - pad(c, 'Left')) < 1.5),
+               tabular: getComputedStyle(filled[0]).fontVariantNumeric };
+    }""")
+    check("control: exactly the number columns are marked, with values to measure",
+          (align['cols'], align['filled'] >= 12),
+          (['distanse', 'malDistanse', 'varighet', 'tempo', 'gjsnittspuls', 'toppuls', 'hoydeMeter', 'rpe'], True))
+    check("every value ends at its cell's right edge", align['cellsRight'], True)
+    check("...and so does every number column's header", align['headsRight'], True)
+    check("the name column stays left-aligned", align['namesLeft'], True)
+    # Config, on purpose: many UI fonts already draw digits tabular, so no measurement here could
+    # tell the property's absence apart.
+    check("digits are tabular", 'tabular-nums' in align['tabular'], True)
+
     pg.evaluate("() => DetailPanel.openSession('belte')")
     pg.wait_for_timeout(300)
     check("the incline is still in the run's detail view",
