@@ -10909,9 +10909,13 @@ const StravaImport = {
   },
 
   _render() {
+    // The date part only, like every stored date: start_date_local is the wall-clock time WHERE the
+    // run happened, and its trailing 'Z' is not true — parsed whole, the device's offset moved it, so
+    // in Japan (+9) every run after 15:00 was listed under the next day (Oslo: after 22–23:00). Picking
+    // does not change the form's date, so a wrong day here is how a run got filed under the wrong day.
     document.getElementById('stravaActivityList').innerHTML = this.activities.map((a, i) => `
       <div class="dp-session-row" onclick="StravaImport.select(${i})">
-        <span style="min-width:80px;color:var(--muted)">${fmtDate(a.start_date_local)}</span>
+        <span style="min-width:80px;color:var(--muted)">${fmtDate((a.start_date_local || '').slice(0, 10))}</span>
         <span style="flex:1">${escapeHtml(a.name)}</span>
         <span style="min-width:60px;text-align:right">${(a.distance/1000).toFixed(1)} km</span>
       </div>`).join('');

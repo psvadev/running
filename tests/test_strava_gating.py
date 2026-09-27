@@ -448,6 +448,34 @@ with sync_playwright() as p:
     check("402px: nothing in the graph overflows its panel", pg.evaluate("""() => {
       const g = document.getElementById('hrGraph'), body = document.getElementById('detailBody');
       return g.getBoundingClientRect().right <= body.getBoundingClientRect().right + 1; }"""), True)
+
+    # ── The picker dates a run where it was run (2026-09-27) ──────────────────────────────────────
+    # Strava's start_date_local is the wall-clock time WHERE the run happened, written with a 'Z' it
+    # does not mean. Every stored date takes its first ten characters; the picker's date column parsed
+    # the whole string as UTC and let the device's offset move it — in Japan (+9), where he runs later
+    # this year, every run after 15:00 showed the NEXT day (Oslo: after 22–23:00). Picking never
+    # changes the form's date, so that is how a run gets filed under the wrong day: logged the next
+    # morning, yesterday's afternoon run looks like today's. Checked on Tokyo AND Oslo time.
+    print("== the Strava picker dates a run where it was run ==")
+    PICK = """() => {
+      StravaImport.activities = [
+        { id: 1, name: 'Morgen',      start_date_local: '2026-11-20T07:00:00Z', distance: 6000 },
+        { id: 2, name: 'Ettermiddag', start_date_local: '2026-11-20T15:30:00Z', distance: 8000 },
+        { id: 3, name: 'Kveld',       start_date_local: '2026-11-20T23:30:00Z', distance: 5000 }];
+      StravaImport._render();
+      return [...document.querySelectorAll('#stravaActivityList .dp-session-row')]
+        .map(r => r.firstElementChild.textContent.trim()); }"""
+    for tz, offset in (("Asia/Tokyo", -540), ("Europe/Oslo", -60)):
+        ctx = b.new_context(timezone_id=tz)
+        tp = ctx.new_page()
+        tp.goto(APP)
+        tp.wait_for_timeout(300)
+        # Control: the page really runs on that clock — otherwise both passes quietly test one zone.
+        check(f"{tz}: control — the page's clock is {tz}",
+              tp.evaluate("() => new Date(2026, 10, 20, 12).getTimezoneOffset()"), offset)
+        check(f"{tz}: a morning, an afternoon and a late-evening run all read 20.11.2026",
+              tp.evaluate(PICK), ['20.11.2026'] * 3)
+        ctx.close()
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
