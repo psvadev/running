@@ -668,6 +668,21 @@
   .dp-stat { display:flex; flex-direction:column; min-width:80px; }
   .dp-stat .dpv { font-size:18px; font-weight:600; color:var(--text); }
   .dp-stat .dpl { font-size:11px; color:var(--muted); margin-top:2px; }
+  /* A run's detail panel (his pick, mockup A, 2026-09-27): the three numbers that describe the run
+     lead, larger, and what kind of run it was is one line under the title (#detailMeta). The gap is
+     the stat row's own 20px, not the mockup's 28px — at 402px the three values of a half marathon
+     only stay on one line with it. */
+  .dp-lead { padding-bottom:14px; border-bottom:1px solid var(--border); margin-bottom:6px; }
+  .dp-lead .dpv { font-size:24px; font-weight:700; letter-spacing:-.3px; font-variant-numeric:tabular-nums; }
+  .dp-meta { font-size:12px; color:var(--muted); margin-top:4px; line-height:1.6; }
+  /* The label/value rows under it. `white-space:pre-wrap` on the value: Øktbeskrivelse and Notater
+     are multi-line free text (Runna pushes a whole structured workout — warmup, a repeat block,
+     cooldown), and HTML would otherwise collapse every newline into a space. Harmless on the
+     single-line rows. `flex:1;min-width:0` lets long lines wrap instead of overflowing the row,
+     which a flex item's default `min-width:auto` would allow. */
+  .dp-kv { display:flex; gap:12px; padding:5px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .dp-kv .dp-key { min-width:130px; flex:0 0 auto; color:var(--muted); }
+  .dp-kv .dp-val { flex:1; min-width:0; white-space:pre-wrap; }
   .dp-session-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer; }
   .dp-session-row:hover { background:rgba(255,255,255,.04); border-radius:4px; padding-left:4px; }
   .dp-section-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:14px 0 8px; }
@@ -1969,8 +1984,11 @@
 <!-- ══════════════ DETAIL PANEL ══════════════ -->
 <div class="modal-backdrop" id="detailModal">
   <div class="modal" style="max-width:800px">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--border)">
-      <h2 id="detailTitle" style="font-size:15px;font-weight:600"></h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <div style="min-width:0">
+        <h2 id="detailTitle" style="font-size:15px;font-weight:600"></h2>
+        <div class="dp-meta" id="detailMeta" hidden></div>
+      </div>
       <button class="btn-secondary btn-sm" id="btnDetailClose">✕</button>
     </div>
     <div class="modal-body" id="detailBody" style="padding-top:14px"></div>
@@ -8739,12 +8757,17 @@ function hrGraphRange(series, zones) {
 }
 
 const DetailPanel = {
-  open(title, html, flagUrl) {
+  open(title, html, flagUrl, meta) {
     const t = document.getElementById('detailTitle');
     // Optional leading flag (country panel) — inline with the title so it doesn't sit on its
     // own line. Falls back to plain textContent (safe) when no flag is passed.
     if (flagUrl) t.innerHTML = `<img src="${flagUrl}" alt="" style="height:1em;border-radius:2px;vertical-align:-2px;margin-right:8px">${escapeHtml(title)}`;
     else t.textContent = title;
+    // Optional line under the title (markup, already escaped by the caller). Only a run's panel has
+    // one; every other panel passes none, which clears the last run's.
+    const m = document.getElementById('detailMeta');
+    m.innerHTML = meta || '';
+    m.hidden = !meta;
     // Every panel replaces the body, so every panel frees the HR charts — Chart.js holds its
     // instances past the canvas being removed, and opening block after block would leak them.
     this._hrCharts.forEach(c => c.destroy());
@@ -8812,13 +8835,23 @@ const DetailPanel = {
     const s = Store.data.sessions.find(x => x.id === id);
     if (!s) return;
     const zones = (s.soner||[]).map((v,i)=>v>0?`<span style="color:${ZONE_COLORS[i]};font-size:11px">S${i+1} ${secsToHms(v)}</span>`:null).filter(Boolean).join('  ');
+    // His pick of three mockups (A, 2026-09-27): what kind of run it was is ONE line under the title,
+    // and the three numbers that describe it lead the panel. Everything else is the list it always
+    // was, minus what moved up. The weekday is parsed exactly as fmtDate parses the date beside it,
+    // so the two always name the same day.
+    const weekday = new Date(s.dato).toLocaleDateString('nb-NO', { weekday: 'long' });
+    const meta = [`${weekday} ${fmtDate(s.dato)}`,
+      typeBadge(s.okttype) + (s.treningsplan ? ` ${escapeHtml(s.treningsplan)}` : ''),
+      s.løpetype === 'treadmill' ? 'Tredemølle' : 'Utendørs'].join(' · ');
+    // Each only when it has a value, like every row below.
+    const lead = [
+      s.distanse && [s.distanse + ' km', 'distanse'],
+      s.varighet && [secsToHms(s.varighet), 'tid'],
+      s.tempo    && [secsToMmSs(s.tempo) + ' /km', 'tempo'],
+    ].filter(Boolean);
+    const leadHtml = !lead.length ? '' : `<div class="dp-stat-row dp-lead">${lead.map(([v, l]) =>
+      `<div class="dp-stat"><div class="dpv">${escapeHtml(v)}</div><div class="dpl">${l}</div></div>`).join('')}</div>`;
     const rows = [
-      ['Dato',           fmtDate(s.dato)],
-      ['Type',           typeBadge(s.okttype) + (s.treningsplan ? ` <span style="color:var(--muted)">· ${escapeHtml(s.treningsplan)}</span>` : ''), true],
-      ['Type løp',       s.løpetype === 'treadmill' ? 'Tredemølle' : 'Utendørs'],
-      ['Distanse',       s.distanse ? s.distanse+' km' : null],
-      ['Tid',            s.varighet ? secsToHms(s.varighet) : null],
-      ['Tempo',          s.tempo    ? secsToMmSs(s.tempo)+' /km' : null],
       ['Snitt km/t',     s.snittkmh ? s.snittkmh+' km/t' : null],
       ['HR snitt / topp',(s.gjsnittspuls||s.toppuls) ? [s.gjsnittspuls, s.toppuls].filter(Boolean).join(' / ') : null],
       ['Kalorier',       s.kalorier ? s.kalorier+' kcal' : null],
@@ -8836,17 +8869,13 @@ const DetailPanel = {
       ['Øktbeskrivelse', s.beskrivelse || null],
       ['Notater',        s.notater || null],
     ].filter(([,v]) => v);
-    // `white-space:pre-wrap` on the value: Øktbeskrivelse and Notater are multi-line free text
-    // (Runna pushes a whole structured workout — warmup, a repeat block, cooldown), and HTML would
-    // otherwise collapse every newline into a space and run it together as one paragraph. Harmless
-    // on the single-line rows. `flex:1;min-width:0` lets long lines wrap instead of overflowing the
-    // row, which a flex item's default `min-width:auto` would allow.
-    const table = rows.map(([l,v,raw]) => `<div style="display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="min-width:130px;flex:0 0 auto;color:var(--muted)">${l}</span><span style="flex:1;min-width:0;white-space:pre-wrap">${raw ? v : escapeHtml(v)}</span></div>`).join('');
+    // .dp-kv says why the value keeps its line breaks (Øktbeskrivelse, Notater).
+    const table = rows.map(([l,v,raw]) => `<div class="dp-kv"><span class="dp-key">${l}</span><span class="dp-val">${raw ? v : escapeHtml(v)}</span></div>`).join('');
     const hrGraph = this._hrGraphHtml(s);
-    this.open(s.oktnavn || fmtDate(s.dato), table
+    this.open(s.oktnavn || fmtDate(s.dato), leadHtml + table
       + (zones ? `<div class="dp-section-label">Pulssoner</div><div style="display:flex;gap:12px;flex-wrap:wrap">${zones}</div>`
                : (hrGraph ? '<div class="dp-section-label">Puls</div>' : ''))
-      + hrGraph + this.stravaAnalysisSectionHtml(s));
+      + hrGraph + this.stravaAnalysisSectionHtml(s), null, meta);
     this._loadHrGraph(s);
   },
 

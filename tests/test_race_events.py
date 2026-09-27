@@ -1455,6 +1455,90 @@ with sync_playwright() as b0:
     check("no page errors in the consistency pass", perr, [])
     pg.close()
 
+    # ── A run's detail header (his pick, mockup A, 2026-09-27) ───────────────────────────────────
+    # What kind of run it was is ONE line under the title, and distanse / tid / tempo lead the panel;
+    # the list below is what it always was, minus the six rows that moved up. What would fail
+    # silently: another panel inheriting the last run's line (the header is shared by every panel),
+    # the hand-typed plan name reaching a NEW innerHTML sink raw, a sparse run growing empty tiles,
+    # and a row lost on the way.
+    print("== a run's detail header ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    perr = []
+    pg.on("pageerror", lambda e: perr.append(str(e)))
+    pg.goto(APP)
+    pg.evaluate("""() => localStorage.setItem('lpl_cache', JSON.stringify({
+      sessions: [
+        { id:'full', dato:'2026-08-05', uke:'2026-32', oktnavn:'Runna Intervaller', okttype:'Intervaller',
+          treningsplan:'Runna', løpetype:'treadmill', distanse:6.92, varighet:2387, tempo:345, snittkmh:10.44,
+          gjsnittspuls:158, toppuls:173, stigning:1, sko:'Nike Pegasus 41', rpe:8, soner:[334,861,620,477,95] },
+        { id:'bare', dato:'2026-08-09', uke:'2026-32', oktnavn:'Tur', okttype:'Easy', løpetype:'utendors',
+          varighet:1800, soner:[0,0,0,0,0] },
+        { id:'long', dato:'2026-08-16', uke:'2026-33', oktnavn:'Langtur', okttype:'Long', løpetype:'utendors',
+          treningsplan:'Halvmaraton sub 2 – vinterblokken med bakker', distanse:21.14, varighet:7199, tempo:341,
+          soner:[0,0,0,0,0] },
+        { id:'xss', dato:'2026-08-10', uke:'2026-33', oktnavn:'x', okttype:'Easy', løpetype:'utendors',
+          treningsplan:'<img src=x onerror="window.__xss=1">', distanse:5, varighet:1800, tempo:360,
+          soner:[0,0,0,0,0] }],
+      shoes: [], goals: {}, events: [], plannedSessions: [], settings: { zones: [] }, lastUpdated: '' }))""")
+    pg.goto(APP)
+    pg.wait_for_timeout(500)
+    HEAD = """(id) => {
+      if (id) DetailPanel.openSession(id);
+      const txt = el => el.textContent.trim().replace(/\\s+/g, ' ');
+      const m = document.getElementById('detailMeta');
+      return { title: txt(document.getElementById('detailTitle')), meta: m.hidden ? null : txt(m),
+               lead: [...document.querySelectorAll('#detailBody .dp-lead .dp-stat')]
+                       .map(s => [txt(s.querySelector('.dpv')), txt(s.querySelector('.dpl'))]),
+               rows: [...document.querySelectorAll('#detailBody .dp-kv .dp-key')].map(txt) };
+    }"""
+    full = pg.evaluate(HEAD, 'full')
+    check("the title is still the run's name", full['title'], 'Runna Intervaller')
+    check("one line under it: weekday and date · type and plan · venue",
+          full['meta'], 'onsdag 05.08.2026 · Intervaller Runna · Tredemølle')
+    check("distance, time and pace lead the panel",
+          full['lead'], [['6.92 km', 'distanse'], ['0:39:47', 'tid'], ['5:45 /km', 'tempo']])
+    # Exactly the six rows that moved up are gone — the rest in their old order, nothing else lost.
+    check("...and the list keeps every other row, in its old order",
+          full['rows'], ['Snitt km/t', 'HR snitt / topp', 'Stigning', 'Sko', 'RPE'])
+    bare = pg.evaluate(HEAD, 'bare')
+    check("a run with only a time leads with only the time", bare['lead'], [['0:30:00', 'tid']])
+    check("...and with no plan, the plan is simply left out", bare['meta'], 'søndag 09.08.2026 · Easy · Utendørs')
+    # The header belongs to every panel. A week opened after a run must not keep the run's line.
+    pg.evaluate("() => DetailPanel.openWeek('2026-32', Store.data.sessions)")
+    pg.wait_for_timeout(200)
+    week = pg.evaluate(HEAD, None)
+    check("control: the week panel opened", week['title'].startswith('Uke 32'), True)
+    check("...and it carries no meta line over from the run before it", week['meta'], None)
+    # The plan name is typed by hand, and it moved from a list row into a new innerHTML sink.
+    pg.evaluate(HEAD, 'xss')
+    pg.wait_for_timeout(200)
+    check("⚠️ a hand-typed plan name in the meta line is text, not markup",
+          (pg.evaluate("() => window.__xss || 0"),
+           pg.evaluate("() => document.querySelectorAll('#detailMeta img').length")), (0, 0))
+    check("...while it really is there, escaped",
+          '&lt;img' in pg.evaluate("() => document.getElementById('detailMeta').innerHTML"), True)
+    # 402 px. Not "the three numbers stay on one line": that depends on font widths, and CI's Linux
+    # WebKit fonts are not his iPhone's. What must hold everywhere is that the header and the numbers
+    # stay inside the panel — and a plan name this long has to wrap to do that.
+    pg.set_viewport_size({"width": 402, "height": 900})
+    pg.wait_for_timeout(250)
+    # ⚠️ The TEXT is measured, not the meta line's box: a line that refuses to wrap spills out of its
+    # own box without widening it, so a box check passed with `white-space:nowrap` (falsification,
+    # 2026-09-27) — the same box-versus-ink trap as the distance tables' checks in test_goals.
+    geo = pg.evaluate("""() => { DetailPanel.openSession('long');
+      const r = el => el.getBoundingClientRect();
+      const ink = el => { const g = document.createRange(); g.selectNodeContents(el); return g.getBoundingClientRect(); };
+      const body = document.getElementById('detailBody'), meta = document.getElementById('detailMeta');
+      const btn = document.getElementById('btnDetailClose');
+      return { lead: document.querySelectorAll('#detailBody .dp-lead .dp-stat').length,
+               wraps: r(meta).height > 30,
+               fits: body.scrollWidth <= body.clientWidth && ink(meta).right <= r(btn).left
+                     && r(btn).right <= r(body).right + 1 }; }""")
+    check("402 px — control: a long run with a long plan name is open", (geo['lead'], geo['wraps']), (3, True))
+    check("402 px — the meta line wraps short of the ✕, and nothing leaves the panel", geo['fits'], True)
+    check("no page errors in the detail header", perr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
