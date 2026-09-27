@@ -81,6 +81,22 @@
      exactly how it first rendered, while a test asserting the order passed anyway because it read
      DOM order instead of x-position. */
   .tab-more-btn { order: 8; }
+  /* 601–1000px — e.g. a laptop window at half screen (his 14" at 150 % is 768px). The full names need
+     959px in Firefox and 976px in WebKit, so the strip ran past the right edge and the last tabs were
+     only reachable by scrolling the whole page sideways. The phone bar's short names instead (his pick
+     of three mockups, 2026-09-27): Legg til · Oversikt · Logg · Løpeatlas · Plan · Verktøy ·
+     Innstillinger. Below 720px the spacing tightens as well; below ~625px not even that fits without
+     abbreviating, so the strip may wrap to a second row rather than ever run off the edge. */
+  @media (min-width: 601px) and (max-width: 1000px) {
+    .tab .t-lbl { display: none; }
+    .tab .t-short { display: inline; }
+    .tab { padding: 12px 11px; }
+    .tabs { padding: 0 10px; flex-wrap: wrap; }
+  }
+  @media (min-width: 601px) and (max-width: 720px) {
+    .tab { padding: 12px 6px; }
+    .tabs { padding: 0 4px; }
+  }
 
   /* ── Main layout ── */
   .panel { display: none; padding: 24px 20px; }

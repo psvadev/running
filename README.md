@@ -236,7 +236,7 @@ Uten Drive-synk:
 
 Én enkelt `.html`-fil — ingen byggesteg, ingen rammeverk, ingen installasjon.
 
-Fanelinjen er **responsiv, men det er én linje** — ikke to navigasjoner: på skjermer under 600 px flytter den seg ned som en fast bunnlinje med seks felter (Legg til · Oversikt · Logg · Plan · Verktøy · Mer), der Løpeatlas og Innstillinger ligger bak **Mer**. Den gamle sidelengs rullende stripen er borte; faner utenfor høyre kant var mulige å nå, men umulige å oppdage. En egen mobilmeny ville vært en *andre* kilde til sannhet for hvilken fane som er aktiv, så den samme `.tabs`-en blir stylet om.
+Fanelinjen er **responsiv, men det er én linje** — ikke to navigasjoner: på skjermer under 600 px flytter den seg ned som en fast bunnlinje med seks felter (Legg til · Oversikt · Logg · Plan · Verktøy · Mer), der Løpeatlas og Innstillinger ligger bak **Mer**. Mellom 601 og 1000 px — et laptopvindu på halv skjerm, for eksempel — viser den vanlige linjen bunnlinjens korte navn, så ingen fane havner utenfor høyre kant. Den gamle sidelengs rullende stripen er borte; faner utenfor høyre kant var mulige å nå, men umulige å oppdage. En egen mobilmeny ville vært en *andre* kilde til sannhet for hvilken fane som er aktiv, så den samme `.tabs`-en blir stylet om.
 
 - [Chart.js 4.4.0](https://www.chartjs.org/) — grafer, lastet fra jsDelivr med en fastlåst versjon og en **Subresource Integrity**-hash, slik at nettleseren avviser filen hvis CDN-en noen gang serverer noe annet (hashen peker på `chart.umd.js`, den ekte pakkede filen som serveres byte-identisk med den uforanderlige npm-tarballen — *ikke* jsDelivrs genererte `.min.js`, som de uttrykkelig advarer mot å hashe)
 - File System Access API — lesing og skriving av lokal fil (Edge/Chrome)

@@ -82,6 +82,45 @@ with sync_playwright() as p:
     check("no desktop page errors", derr, [])
     pg.close()
 
+    # ── Narrow desktop windows, 601–1000 px (2026-09-27) ─────────────────────────────────────────
+    # The full names need ~960–976 px, so below that the strip ran past the right edge — a laptop
+    # window at half screen (his is 768 px) had to scroll the whole page sideways to reach Verktøy and
+    # Innstillinger. His pick of three mockups: the phone bar's short names, tighter below 720 px, and
+    # as a last resort below ~625 px a second row — never past the edge. Measured with GEOMETRY: every
+    # tab's right edge inside the window, not "the short label is display:inline".
+    print("== narrow desktop windows ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    nerr = []
+    pg.on("pageerror", lambda e: nerr.append(str(e)))
+    pg.goto(APP)
+    pg.wait_for_timeout(300)
+    STRIP = """() => {
+      const tabs = [...document.querySelectorAll('.tab')].filter(t => t.offsetParent);
+      const r = t => t.getBoundingClientRect();
+      const label = t => [...t.querySelectorAll('.t-lbl, .t-short')].find(s => getComputedStyle(s).display !== 'none');
+      return { names: tabs.slice().sort((a, b) => r(a).top - r(b).top || r(a).x - r(b).x).map(t => label(t).textContent),
+               inside: tabs.every(t => r(t).right <= innerWidth + 0.5),
+               rows: new Set(tabs.map(t => Math.round(r(t).top))).size };
+    }"""
+    SHORT = ["Legg til", "Oversikt", "Logg", "Løpeatlas", "Plan", "Verktøy", "Innstillinger"]
+    FULL = ["Legg til økt", "Oversikt", "Treningslogg", "Løpeatlas", "Planlegging", "Verktøy", "Innstillinger"]
+    for width, names, rows in ((1001, FULL, 1), (1000, SHORT, 1), (768, SHORT, 1), (640, SHORT, 1)):
+        pg.set_viewport_size({"width": width, "height": 900})
+        pg.wait_for_timeout(150)
+        s = pg.evaluate(STRIP)
+        check(f"{width} px: {'full' if names is FULL else 'short'} names, in their order, on {rows} row",
+              (s['names'], s['rows']), (names, rows))
+        check(f"{width} px: every tab inside the window", s['inside'], True)
+    # Below ~625 px not even the tightest spacing fits. The CONTROL shows this width really is past
+    # that point (the strip wrapped); what must hold is that nothing runs off the edge.
+    pg.set_viewport_size({"width": 610, "height": 900})
+    pg.wait_for_timeout(150)
+    s = pg.evaluate(STRIP)
+    check("610 px — control: the strip had to wrap to a second row", s['rows'], 2)
+    check("610 px: ...and every tab is still inside the window", s['inside'], True)
+    check("no page errors in narrow windows", nerr, [])
+    pg.close()
+
     # ── Phone: the bar, the sheet, and every close path ──────────────────────────────────────────
     print("== phone 402px ==")
     pg = b.new_page(viewport={"width": 402, "height": 844})

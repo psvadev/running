@@ -236,7 +236,7 @@ Without Drive sync:
 
 Single `.html` file — no build step, no framework, no install.
 
-The tab strip is **responsive but singular** — not two navigations: below 600 px it moves to a fixed bottom bar of six slots (Legg til · Oversikt · Logg · Plan · Verktøy · Mer), with Løpeatlas and Innstillinger behind **Mer**. The old horizontally-scrolling strip is gone; tabs past the right edge were reachable but undiscoverable. A separate mobile menu would be a *second* source of truth for which tab is active, so the same `.tabs` element is restyled instead.
+The tab strip is **responsive but singular** — not two navigations: below 600 px it moves to a fixed bottom bar of six slots (Legg til · Oversikt · Logg · Plan · Verktøy · Mer), with Løpeatlas and Innstillinger behind **Mer**. Between 601 and 1000 px — a laptop window at half screen, say — the ordinary strip shows the bottom bar's short names, so no tab ends up past the right edge. The old horizontally-scrolling strip is gone; tabs past the right edge were reachable but undiscoverable. A separate mobile menu would be a *second* source of truth for which tab is active, so the same `.tabs` element is restyled instead.
 
 - [Chart.js 4.4.0](https://www.chartjs.org/) — charts, loaded from jsDelivr with a pinned version and a **Subresource Integrity** hash, so the browser refuses the file if the CDN ever serves anything else (the hash targets `chart.umd.js`, the real packaged file served byte-identical to the immutable npm tarball — *not* jsDelivr's generated `.min.js`, which they explicitly warn against hashing)
 - File System Access API — local file read/write (Edge/Chrome)
