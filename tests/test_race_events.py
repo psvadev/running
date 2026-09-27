@@ -1197,7 +1197,9 @@ with sync_playwright() as b0:
     pg.evaluate("() => switchTab('dash')")
     pg.wait_for_timeout(500)
     saw_comparison = False
-    for sel in ['#weeklyTable tbody tr', '.record-card', '#blocksCard [data-block]']:
+    # '.rk-prow[role=button]', not the old '.record-card': the Rekorder redesign (2026-09-27) would
+    # otherwise have left this walk clicking NOTHING in Rekorder, silently narrowing the sweep.
+    for sel in ['#weeklyTable tbody tr', '.rk-prow[role=button]', '#blocksCard [data-block]']:
         loc = pg.locator(sel)
         for i in range(min(loc.count(), 4)):
             loc.nth(i).click()

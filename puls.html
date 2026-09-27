@@ -465,6 +465,36 @@
   #scrollTopBtn.visible { opacity:1; pointer-events:auto; }
   #scrollTopBtn:hover { background:var(--accent); color:#fff; }
 
+  /* ── Rekorder ─────────────────────────────────────────────────────────────────────────────────
+     A headline, three short lists and tappable Pace rows, instead of 24 identical tiles that gave
+     every record the same weight (his pick of three mockups, 2026-09-27). Every record is still
+     here. Blue is RESERVED for what you can tap — the Pace rows — plus the two values whose colour
+     is information (aerob eff. band, streak length); every other value is plain text.
+     ⚠️ Deliberately ABOVE the phone @media block: the old `.records-grid` base rule sat after it,
+     so its phone override lost on source order and never applied. */
+  .rk-num { font-variant-numeric: tabular-nums; }
+  .rk-hero { padding: 2px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .rk-big { font-size: 34px; font-weight: 700; letter-spacing: -.5px; line-height: 1.05; }
+  .rk-say { font-size: 14px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .rk-say b { color: var(--text); font-weight: 600; }
+  .rk-groups { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 28px; }
+  .rk-group h4 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .rk-row { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 7px 0; border-top: 1px solid rgba(46,50,72,.6); }
+  .rk-l { color: var(--muted); font-size: 13px; }
+  .rk-v { font-size: 15px; font-weight: 600; text-align: right; white-space: nowrap; }
+  .rk-s { grid-column: 1 / -1; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .rk-pace { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 20px; }
+  .rk-prow { display: grid; grid-template-columns: 1fr auto 14px; align-items: center; column-gap: 10px;
+             padding: 8px; margin: 0 -8px; border-top: 1px solid rgba(46,50,72,.6); border-radius: 6px; cursor: pointer; }
+  .rk-prow .rk-l { color: var(--text); }
+  .rk-prow:hover, .rk-prow:focus-visible { background: var(--surface2); outline: none; }
+  .rk-prow:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+  .rk-go { color: var(--accent); font-size: 16px; text-align: right; }
+  .rk-prow.rk-empty { cursor: default; }
+  .rk-prow.rk-empty:hover { background: none; }
+  .rk-prow.rk-empty .rk-v { color: var(--muted); font-weight: 400; }
+  @media (max-width: 1100px) { .rk-pace { grid-template-columns: repeat(2, 1fr); } }
+
   @media (max-width: 600px) {
     html { overflow-x: hidden; }
     header { padding: 0 12px; gap: 8px; }
@@ -540,7 +570,8 @@
     #logTable th:nth-child(6),  #logTable td:nth-child(6) { display: none; }
     .shoe-bar-row { grid-template-columns: 110px 1fr 44px; }
     .zone-grid { grid-template-columns: repeat(3, 1fr); }
-    .records-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+    .rk-groups, .rk-pace { grid-template-columns: 1fr; }
+    .rk-big { font-size: 30px; }
     /* Let the date/type columns shrink so the ✏️/✕ buttons stay inside the card */
     .event-row { gap: 8px; padding: 10px; }
     .event-row .er-date { min-width: 0; }
@@ -548,11 +579,6 @@
   }
 
   /* ── Records ── */
-  .records-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-  .record-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
-  .record-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
-  .record-value { font-size: 22px; font-weight: 700; color: var(--accent); }
-  .record-sub { font-size: 11px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* Shared row layout for Distanse-PR and Prognose — one compact line per distance on
      desktop, stacked on mobile. (Named top3-* from the retired Topp 3 list it began as.) */
   .top3-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1036,9 +1062,9 @@
     </div>
     <div class="card span2">
       <div class="card-title">Rekorder</div>
-      <div class="records-grid" id="recordsGrid"></div>
+      <div id="recordsGrid"></div>
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px">Pace</div>
-      <div class="records-grid" id="paceRecordsGrid"></div>
+      <div class="rk-pace" id="paceRecordsGrid"></div>
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 4px">Distanse-PR</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px">🏃 Ute = beste innsats fra Strava (også inne i lengre løp) · ⚙️ Inne = tredemølle</div>
       <div id="distPRList"></div>
@@ -10008,29 +10034,58 @@ function renderDashboard() {
       </div>`;
   }
 
-  // Records
+  // Records — a headline, then three short lists (his pick of three mockups, 2026-09-27). Every
+  // record the 24 tiles held is still here: four of them read better as the headline sentence than
+  // as tiles, and grouping says what KIND of record a line is before you read it.
   const recs = computeRecords(sessions);
-  // `sid` makes a card open that run's detail panel — only the Pace row passes one (his call,
-  // 2026-09-22): each of those cards IS one run, and «which run was that?» is the question it raises.
-  const recCardHtml = r => `<div class="record-card"${r.tooltip ? ` title="${r.tooltip}"` : ''}${r.sid ? ` onclick="DetailPanel.openSession('${r.sid}')" style="cursor:pointer"` : ''}><div class="record-label">${r.label}</div><div class="record-value"${r.color ? ` style="color:${r.color}"` : ''}>${r.value}</div><div class="record-sub">${r.sub}${r.sid ? ' ›' : ''}</div></div>`;
-  document.getElementById('recordsGrid').innerHTML = [
-    { label:'Totalt distanse', value: recs.totalDist.toFixed(1)+' km', sub: `${sessions.length} økter` },
-    { label:'Totalt tid', value: secsToHms(recs.totalTime), sub: '' },
-    { label:'Snitt km/uke', value: recs.snittKmUke ? recs.snittKmUke+' km' : '–', sub: 'alle kalenderuker' },
-    { label:'Lengste økt (distanse)', value: recs.longestDist ? fmtDist(recs.longestDist.distanse)+' km' : '–', sub: recs.longestDist ? fmtDate(recs.longestDist.dato) : '' },
-    { label:'Lengste økt (tid)', value: recs.longestTime ? secsToHms(recs.longestTime.varighet) : '–', sub: recs.longestTime ? fmtDate(recs.longestTime.dato) : '' },
-    { label:'Beste uke', value: recs.besteUke ? recs.besteUkeKm.toFixed(1)+' km' : '–', sub: recs.besteUke ? fmtWeekLabel(recs.besteUke) : '' },
-    { label:'Beste måned', value: recs.besteMåned ? recs.besteMånedKm.toFixed(1)+' km' : '–', sub: recs.besteMåned ? (['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'][+recs.besteMåned.slice(5,7)-1]+' '+recs.besteMåned.slice(0,4)) : '' },
-    { label:'Beste 4-ukersperiode', value: recs.beste4Blokk ? recs.beste4Blokk.toFixed(1)+' km' : '–', sub: 'Rullerende 4 uker' },
-    { label:'Mest høydemeter', value: recs.bestHoyde ? recs.bestHoyde.hoydeMeter+' m' : '–', sub: recs.bestHoyde ? `${fmtDist(recs.bestHoyde.distanse)} km · ${fmtDate(recs.bestHoyde.dato)}` : '' },
-    { label:'Totalt høydemeter', value: recs.totalHoyde ? recs.totalHoyde+' m' : '–', sub: recs.totalHoyde ? `${(recs.totalHoyde/8849).toFixed(2)}× Everest` : '' },
-    { label:'Utendørs km', value: recs.totalOutdoorKm ? recs.totalOutdoorKm+' km' : '–', sub: recs.totalDist ? `${Math.round(recs.totalOutdoorKm/recs.totalDist*100)}% av totalt` : '' },
-    { label:'Innendørs km', value: recs.totalIndoorKm ? recs.totalIndoorKm+' km' : '–', sub: recs.totalDist ? `${Math.round(recs.totalIndoorKm/recs.totalDist*100)}% av totalt` : '' },
-    { label:'Beste aerob eff.', value: recs.bestAerobEff ? recs.bestAerobEff.ae.toFixed(2) : '–', sub: recs.bestAerobEff ? `${PaceConv.fmtKmh(+recs.bestAerobEff.kmh)} km/t · ${recs.bestAerobEff.gjsnittspuls} bpm · ${fmtDate(recs.bestAerobEff.dato)}` : '', color: recs.bestAerobEff ? (recs.bestAerobEff.ae >= 7 ? '#6c8fff' : recs.bestAerobEff.ae >= 5.5 ? 'var(--green)' : recs.bestAerobEff.ae >= 4 ? 'rgba(240,192,80,.9)' : '#f87171') : null, tooltip: 'Aerob effektivitet = fart ÷ puls × 100\nLav: < 4.0 · Moderat: 4.0–5.5 · God: 5.5–7.0 · Høy: > 7.0' },
-    { label:'Lavest gj.snittspuls', value: recs.lavPuls ? recs.lavPuls.gjsnittspuls+' bpm' : '–', sub: recs.lavPuls ? `${fmtDist(recs.lavPuls.distanse)} km · ${fmtDate(recs.lavPuls.dato)}` : '' },
-    { label:'Lengste streak', value: recs.longestStreak ? `${recs.longestStreak} uker` : '–', sub: recs.longestStreak===1 ? '1 uke på rad' : recs.longestStreak > 1 ? 'på rad' : '' },
-    { label:'Nåværende streak', value: recs.currentStreak ? `${recs.currentStreak} uker` : '–', sub: recs.currentStreak > 1 ? 'på rad nå' : recs.currentStreak === 1 ? 'denne uken' : '', color: recs.currentStreak >= 6 ? '#6c8fff' : recs.currentStreak >= 3 ? 'var(--green)' : recs.currentStreak >= 1 ? 'rgba(240,192,80,.9)' : null },
-  ].map(recCardHtml).join('');
+  // «85 t 19 min» reads in a sentence where «85:18:56» does not. Rounded on TOTAL minutes, so an
+  // hour never prints as «60 min».
+  const hoursMins = secs => { const tm = Math.round(secs / 60), h = Math.floor(tm / 60);
+                              return h ? `${h} t ${tm % 60} min` : `${tm} min`; };
+  // The two colours that are INFORMATION, not decoration — kept from the tiles on purpose.
+  const cs = recs.currentStreak;
+  const streakCol = cs >= 6 ? '#6c8fff' : cs >= 3 ? 'var(--green)' : cs >= 1 ? 'rgba(240,192,80,.9)' : null;
+  const ae = recs.bestAerobEff;
+  const aeCol = ae ? (ae.ae >= 7 ? '#6c8fff' : ae.ae >= 5.5 ? 'var(--green)' : ae.ae >= 4 ? 'rgba(240,192,80,.9)' : '#f87171') : null;
+  const n = sessions.length;
+  // «per kalenderuke» carries what the tile's «alle kalenderuker» said: weeks with no running count.
+  const line2 = [
+    recs.snittKmUke ? `<b class="rk-num">${recs.snittKmUke} km</b> per kalenderuke i snitt` : '',
+    cs > 1 ? `<b class="rk-num"${streakCol ? ` style="color:${streakCol}"` : ''}>${cs} uker</b> på rad nå`
+      : cs === 1 ? 'løpt denne uken' : '',
+  ].filter(Boolean).join(', og ');
+  const hero = n
+    ? `<div class="rk-hero"><div class="rk-big rk-num">${recs.totalDist.toFixed(1)} km</div>`
+      + `<div class="rk-say">løpt på <b class="rk-num">${hoursMins(recs.totalTime)}</b> over `
+      + `<b class="rk-num">${n} ${n === 1 ? 'økt' : 'økter'}</b>.`
+      + (line2 ? `<br>${line2.replace(/^([a-zæøå])/, c => c.toUpperCase())}.` : '') + `</div></div>`
+    : `<div class="rk-hero"><div class="rk-say">Ingen økter matcher filteret.</div></div>`;
+  const row = (label, value, sub, extra = {}) =>
+    `<div class="rk-row"${extra.tooltip ? ` title="${extra.tooltip}"` : ''}><span class="rk-l">${label}</span>`
+    + `<span class="rk-v rk-num"${extra.color ? ` style="color:${extra.color}"` : ''}>${value}</span>`
+    + (sub ? `<span class="rk-s">${sub}</span>` : '') + `</div>`;
+  const MND = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+  document.getElementById('recordsGrid').innerHTML = hero + `<div class="rk-groups">
+    <div class="rk-group"><h4>Enkeltøkter</h4>${[
+      row('Lengste økt (distanse)', recs.longestDist ? fmtDist(recs.longestDist.distanse)+' km' : '–', recs.longestDist ? fmtDate(recs.longestDist.dato) : ''),
+      row('Lengste økt (tid)', recs.longestTime ? secsToHms(recs.longestTime.varighet) : '–', recs.longestTime ? fmtDate(recs.longestTime.dato) : ''),
+      row('Mest høydemeter', recs.bestHoyde ? recs.bestHoyde.hoydeMeter+' m' : '–', recs.bestHoyde ? `${fmtDist(recs.bestHoyde.distanse)} km · ${fmtDate(recs.bestHoyde.dato)}` : ''),
+      row('Beste aerob eff.', ae ? ae.ae.toFixed(2) : '–', ae ? `${PaceConv.fmtKmh(+ae.kmh)} km/t · ${ae.gjsnittspuls} bpm · ${fmtDate(ae.dato)}` : '',
+          { color: aeCol, tooltip: 'Aerob effektivitet = fart ÷ puls × 100\nLav: < 4.0 · Moderat: 4.0–5.5 · God: 5.5–7.0 · Høy: > 7.0' }),
+      row('Lavest gj.snittspuls', recs.lavPuls ? recs.lavPuls.gjsnittspuls+' bpm' : '–', recs.lavPuls ? `${fmtDist(recs.lavPuls.distanse)} km · ${fmtDate(recs.lavPuls.dato)}` : ''),
+    ].join('')}</div>
+    <div class="rk-group"><h4>Perioder</h4>${[
+      row('Beste uke', recs.besteUke ? recs.besteUkeKm.toFixed(1)+' km' : '–', recs.besteUke ? fmtWeekLabel(recs.besteUke) : ''),
+      row('Beste måned', recs.besteMåned ? recs.besteMånedKm.toFixed(1)+' km' : '–', recs.besteMåned ? `${MND[+recs.besteMåned.slice(5,7)-1]} ${recs.besteMåned.slice(0,4)}` : ''),
+      row('Beste 4-ukersperiode', recs.beste4Blokk ? recs.beste4Blokk.toFixed(1)+' km' : '–', 'Rullerende 4 uker'),
+      row('Lengste streak', recs.longestStreak ? `${recs.longestStreak} ${recs.longestStreak === 1 ? 'uke' : 'uker'}` : '–', recs.longestStreak ? 'på rad' : ''),
+    ].join('')}</div>
+    <div class="rk-group"><h4>Fordeling</h4>${[
+      row('Utendørs km', recs.totalOutdoorKm ? recs.totalOutdoorKm+' km' : '–', recs.totalDist ? `${Math.round(recs.totalOutdoorKm/recs.totalDist*100)}% av totalt` : ''),
+      row('Innendørs km', recs.totalIndoorKm ? recs.totalIndoorKm+' km' : '–', recs.totalDist ? `${Math.round(recs.totalIndoorKm/recs.totalDist*100)}% av totalt` : ''),
+      row('Totalt høydemeter', recs.totalHoyde ? recs.totalHoyde+' m' : '–', recs.totalHoyde ? `${(recs.totalHoyde/8849).toFixed(2)}× Everest` : ''),
+    ].join('')}</div>
+  </div>`;
 
   // Labels carry no "pace": the section heading above already says Pace, so repeating it on every
   // card was redundant — and the repetition was hiding a collision. "Beste tempo" (best pace of any
@@ -10045,6 +10100,14 @@ function renderDashboard() {
   // tell from a decision.
   const PACE_CARD_SKIP = ['Steady'];
   const paceCard = (label, s) => ({ label, value: s ? secsToMmSs(s.tempo)+' /km' : '–', sub: s ? fmtDate(s.dato) : '', sid: s?.id });
+  // A row with a run behind it opens that run (his call, 2026-09-22) — keyboard too, since a row is
+  // not a button by nature. An empty row is not a control, so it gets neither the › nor the hover.
+  const paceRow = r => r.sid
+    ? `<div class="rk-prow" role="button" tabindex="0" onclick="DetailPanel.openSession('${r.sid}')"`
+      + ` onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}">`
+      + `<div><div class="rk-l">${r.label}</div><div class="rk-s">${r.sub}</div></div>`
+      + `<span class="rk-v rk-num">${r.value}</span><span class="rk-go">›</span></div>`
+    : `<div class="rk-prow rk-empty"><div class="rk-l">${r.label}</div><span class="rk-v rk-num">${r.value}</span><span class="rk-go"></span></div>`;
   document.getElementById('paceRecordsGrid').innerHTML = [
     // "Raskeste økt", not "Beste totalt" (vague about what was totalled) and not "alle økter" —
     // this card excludes Avvik-flagged runs like every other quality record, so a label promising
@@ -10057,11 +10120,11 @@ function renderDashboard() {
     // later). It also covers the two categories that have no card of their own: Steady, and any
     // custom type — so if one of those ever tops the row it says so rather than appearing unsourced.
     { ...paceCard('Raskeste økt', recs.bestePace),
-      sub: recs.bestePace ? `${recs.bestePace.okttype || 'ukjent type'} · ${fmtDate(recs.bestePace.dato)}` : '' },
+      sub: recs.bestePace ? `${escapeHtml(recs.bestePace.okttype || 'ukjent type')} · ${fmtDate(recs.bestePace.dato)}` : '' },
     { label:'Beste snitt km/t', value: recs.bestKmh ? PaceConv.fmtKmh(recs.bestKmh.snittkmh)+' km/t' : '–', sub: recs.bestKmh ? fmtDate(recs.bestKmh.dato) : '', sid: recs.bestKmh?.id },
     ...CORE_OKTTYPER.filter(t => !PACE_CARD_SKIP.includes(t))
                     .map(t => paceCard(`Beste ${t}`, recs.bestPaceByType[t])),
-  ].map(recCardHtml).join('');
+  ].map(paceRow).join('');
 
   // Distanse-PR: one row per distance, Ute (Strava best effort) beside Inne (treadmill).
   // Two populations, never merged — see DATA.md "Belt vs GPS". The outdoor runners-up

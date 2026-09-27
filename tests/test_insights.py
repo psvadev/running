@@ -556,15 +556,54 @@ with sync_playwright() as p:
     pg.wait_for_timeout(500)
     pg.evaluate("() => switchTab('dash')")
     pg.wait_for_timeout(400)
-    card = lambda label: pg.locator('.record-card', has=pg.locator('.record-label', has_text=label)).first
-    check('the Easy card says it can be opened', '›' in card('Beste Easy').inner_text(), True)
-    check('an empty card (no Race) cannot', card('Beste Race').get_attribute('onclick'), None)
-    check('a totals card cannot', card('Totalt distanse').get_attribute('onclick'), None)
-    card('Beste Easy').click()
+    # Rows since the Rekorder redesign (2026-09-27): a Pace row is `.rk-prow`, a record in the three
+    # lists above it is `.rk-row` and is never a control.
+    prow = lambda label: pg.locator('.rk-prow', has=pg.locator('.rk-l', has_text=label)).first
+    check('the Easy row says it can be opened', '›' in prow('Beste Easy').inner_text(), True)
+    check('an empty row (no Race) cannot', prow('Beste Race').get_attribute('onclick'), None)
+    check('...and is not announced as a button either', prow('Beste Race').get_attribute('role'), None)
+    lrow = pg.locator('.rk-row', has=pg.locator('.rk-l', has_text='Lengste økt (distanse)')).first
+    check('a record in the lists above cannot', lrow.get_attribute('onclick'), None)
+    prow('Beste Easy').click()
     pg.wait_for_timeout(300)
     check('clicking it opens the detail panel',
           pg.evaluate("() => document.getElementById('detailModal').classList.contains('open')"), True)
     check('...on the FASTER Easy run, not just an Easy run', 'Rask easy' in pg.inner_text('#detailModal'), True)
+    # A row is not a button by nature, so the keyboard path is its own claim.
+    pg.evaluate("() => document.getElementById('detailModal').classList.remove('open')")
+    prow('Beste Easy').focus()
+    pg.keyboard.press('Enter')
+    pg.wait_for_timeout(300)
+    check('Enter on a focused row opens it too',
+          pg.evaluate("() => document.getElementById('detailModal').classList.contains('open')"), True)
+    pg.evaluate("() => document.getElementById('detailModal').classList.remove('open')")
+
+    # ── The redesign kept every record (his question: «same cards?» — yes) ─────────────────────
+    # 24 tiles became a headline, three lists and the Pace rows. Twelve records are list rows, eight
+    # are Pace rows, and the four folded into the headline are asserted by what they SAY.
+    print("== every record survives the Rekorder redesign ==")
+    rows = pg.evaluate("() => [...document.querySelectorAll('#recordsGrid .rk-row .rk-l')].map(e => e.textContent)")
+    check('the twelve list records are all there', sorted(rows), sorted([
+        'Lengste økt (distanse)', 'Lengste økt (tid)', 'Mest høydemeter', 'Beste aerob eff.',
+        'Lavest gj.snittspuls', 'Beste uke', 'Beste måned', 'Beste 4-ukersperiode', 'Lengste streak',
+        'Utendørs km', 'Innendørs km', 'Totalt høydemeter']))
+    check('...and the eight Pace rows', pg.evaluate("() => document.querySelectorAll('#paceRecordsGrid .rk-prow').length"), 8)
+    hero = " ".join(pg.inner_text('#recordsGrid .rk-hero').split())
+    check('the headline carries total distance, time and the run count',
+          ('12.0 km' in hero, 'løpt på' in hero, '2 økter' in hero), (True, True, True))
+    check('...and the weekly average, saying weeks without runs count',
+          'per kalenderuke i snitt' in hero, True)
+    # The two colours that are information, not decoration, must survive the plain-text redesign.
+    ae_colour = pg.evaluate("""() => { const r = [...document.querySelectorAll('#recordsGrid .rk-row')]
+        .find(e => e.querySelector('.rk-l').textContent === 'Beste aerob eff.');
+        return r && r.querySelector('.rk-v').getAttribute('style'); }""")
+    check('⚠️ aerob eff. keeps its band colour', bool(ae_colour and 'color' in ae_colour), True)
+    check('...and its explanation', pg.evaluate("""() => { const r = [...document.querySelectorAll('#recordsGrid .rk-row')]
+        .find(e => e.querySelector('.rk-l').textContent === 'Beste aerob eff.');
+        return (r && r.getAttribute('title') || '').includes('Aerob effektivitet'); }"""), True)
+    check('blue is not spent on plain values any more',
+          pg.evaluate("""() => getComputedStyle(document.querySelector('#recordsGrid .rk-row .rk-v')).color"""),
+          pg.evaluate("() => getComputedStyle(document.body).color"))
 
     if errs:
         print('  PAGE ERRORS:', errs)
