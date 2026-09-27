@@ -261,6 +261,65 @@ with sync_playwright() as pw:
         .map(s => Math.round(document.querySelector(s).getBoundingClientRect().height))""")
     check(f"the same height as the År pills ({heights[0]} vs {heights[1]} px)", heights[0] == heights[1], True)
 
+    # ── Phones: the filter bar is one line that opens (his pick B, 2026-09-27) ─────────────────────
+    # The full bar took ~210 px of the first screen. Closed, only the summary shows, naming what
+    # changes the numbers as pills. What would fail silently: a pill missing because its handler never
+    # told the summary (the unit path does NOT re-render the dashboard), an inline-styled child showing
+    # through the collapse, and a hand-typed plan name reaching innerHTML raw.
+    print("== phone: the filter bar is one line that opens ==")
+    PLAN = '<i>Min plan</i>'
+    SUMSEED = """(plan) => {
+      const run = (id, dato, uke, p) => ({ id, dato, uke, oktnavn:'Tur', okttype:'Easy', treningsplan:p,
+        løpetype:'utendors', distanse:8, varighet:2880, tempo:360, soner:[0,10,20,0,0] });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [run('a','2026-08-03','2026-32','Runna'), run('b','2026-08-10','2026-33', plan)],
+        customPlans: [plan], shoes:[], shoeDefaults:{}, goals:{}, events:[], plannedSessions:[],
+        settings:{zones:[]}, lastUpdated:'' }));
+    }"""
+    SUM = """() => { const bar = document.getElementById('dashFilterBar'), s = document.getElementById('dfSummary');
+      return { visible: [...bar.children].filter(c => c.getBoundingClientRect().height > 0).map(c => c.id || c.tagName),
+               height: Math.round(bar.getBoundingClientRect().height),
+               pills: [...s.querySelectorAll('.df-sum-v .year-pill')].map(p => p.textContent),
+               text: s.querySelector('.df-sum-v').textContent.trim(),
+               expanded: s.getAttribute('aria-expanded'),
+               raw: s.querySelectorAll('.df-sum-v i').length }; }"""
+    pg3 = b.new_page(viewport={"width": 402, "height": 900})
+    pg3.on("pageerror", lambda e: errs.append(str(e)))
+    pg3.goto(APP); pg3.evaluate(SUMSEED, PLAN); pg3.goto(APP)
+    pg3.wait_for_timeout(600)
+    pg3.evaluate("() => switchTab('dash')")
+    pg3.wait_for_timeout(600)
+    s = pg3.evaluate(SUM)
+    check("402 px: closed, only the summary line shows", s['visible'], ['dfSummary'])
+    check(f"...one line, not the full bar ({s['height']} px)", s['height'] < 60, True)
+    check("...and with nothing set it says so", (s['text'], s['pills']), ('Alle økter, alle år', []))
+    pg3.click('#dfSummary')
+    pg3.wait_for_timeout(200)
+    s = pg3.evaluate(SUM)
+    check("a tap opens the full bar", (s['expanded'], len(s['visible']) > 5), ('true', True))
+    pg3.click('#dfVenuePills [data-venue="utendors"]')
+    pg3.wait_for_timeout(300)
+    pg3.select_option('#dfPlan', PLAN)
+    pg3.wait_for_timeout(300)
+    pg3.click('#dfUnitPills [data-unit="kmh"]')
+    pg3.wait_for_timeout(300)
+    s = pg3.evaluate(SUM)
+    check("every filter set — and km/t, which re-renders nothing — is a pill", s['pills'], [PLAN, '🏃 Ute', 'km/t'])
+    check("⚠️ a hand-typed plan name is text, not markup", s['raw'], 0)
+    pg3.click('#dfSummary')
+    pg3.wait_for_timeout(200)
+    check("a second tap closes it again", pg3.evaluate(SUM)['visible'], ['dfSummary'])
+    pg3.click('#dfSummary')
+    pg3.click('#btnDashReset')
+    pg3.wait_for_timeout(600)
+    check("Nullstill empties the summary", pg3.evaluate(SUM)['text'], 'Alle økter, alle år')
+    pg3.set_viewport_size({"width": 1280, "height": 900})
+    pg3.wait_for_timeout(300)
+    check("desktop: no summary line, the full bar as before",
+          (pg3.evaluate("() => getComputedStyle(document.getElementById('dfSummary')).display"),
+           pg3.locator('#dfType').is_visible()), ('none', True))
+    pg3.close()
+
     # ── Narrow desktop windows (2026-09-27) ────────────────────────────────────────────────────────
     # A grid item's minimum width is its content's. Sko oversikt beside Ukentlig oversikt — the only
     # half-width pair; the table alone needs ~555 px — needs 835 px of grid side by side. Two columns

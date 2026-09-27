@@ -186,6 +186,8 @@
   .year-pill { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface2); color: var(--muted); transition: all .15s; user-select: none; }
   .year-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
   .df-pills { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
+  /* The phone's one-line summary of this bar — shown only inside the phone block below. */
+  .df-summary { display: none; }
 
   /* Insight cards */
   #insightContent { display:flex; flex-wrap:wrap; gap:10px; }
@@ -635,6 +637,18 @@
     /* Not sticky on mobile: the bar wraps to ~5 rows here, so pinning it would
        eat a quarter of the viewport for the whole scroll. Scroll-to-top covers it. */
     .dash-filter-bar { position: static; padding: 10px 12px; gap: 8px; }
+    /* One line until tapped (his pick B): «Filter», the active filters as pills — or «Alle økter,
+       alle år» — and Endre ▾. The pills WRAP rather than clip, so no active filter is ever hidden.
+       !important because two of the bar's children carry an inline display:flex. */
+    .df-summary { display: flex; align-items: center; gap: 8px; width: 100%; padding: 2px 0;
+                  background: none; border: none; border-radius: 0; color: var(--text); text-align: left; }
+    .df-summary .df-sum-k { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .df-summary .df-sum-v { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+    .df-summary .df-sum-v .year-pill { padding: 2px 9px; font-size: 11px; cursor: inherit; }
+    .df-summary .df-sum-none { font-size: 13px; color: var(--muted); }
+    .df-summary .df-sum-c { font-size: 12px; color: var(--accent); white-space: nowrap; }
+    .dash-filter-bar:not(.df-open) > :not(.df-summary) { display: none !important; }
+    .dash-filter-bar.df-open > .df-summary { padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .cs-stat { min-width: 0; flex: 1 1 75px; }
     .form-grid-4 { grid-template-columns: repeat(2, 1fr); }
     /* Additionally hide Navn and Plan at mobile (already hiding others above) */
@@ -1073,6 +1087,13 @@
 <!-- ══════════════ TAB 2: DASHBOARD ══════════════ -->
 <div class="panel" id="panel-dash">
   <div class="dash-filter-bar" id="dashFilterBar">
+    <!-- Phones only (his pick B of two mockups, 2026-09-27): the full bar took ~210px of the first
+         screen, so there it is one line naming what is filtered, and a tap opens the rest. -->
+    <button type="button" class="df-summary" id="dfSummary" aria-expanded="false">
+      <span class="df-sum-k">Filter</span>
+      <span class="df-sum-v" id="dfSummaryValue"></span>
+      <span class="df-sum-c" id="dfSummaryCue">Endre ▾</span>
+    </button>
     <div class="form-group" style="min-width:130px">
       <label>Økt-type</label>
       <select id="dfType" style="padding:6px 8px;font-size:12px">
@@ -6895,6 +6916,23 @@ function setPills(groupId, key, value) {
   });
 }
 
+// The phone's one-line summary of the filter bar (his pick B, 2026-09-27): what changes the numbers
+// — years, type, plan, venue — and the unit they read in, as pills; nothing set says so. Hendelser
+// is left out on purpose: it draws markers and changes no number. Plan and type names can be typed
+// by hand, hence the escaping.
+function renderFilterSummary() {
+  const el = document.getElementById('dfSummaryValue');
+  if (!el) return;
+  const parts = [...[...DashFilter.years].sort()];   // empty = every year
+  if (DashFilter.type) parts.push(DashFilter.type);
+  if (DashFilter.plan) parts.push(DashFilter.plan);
+  if (DashFilter.løpetype) parts.push(DashFilter.løpetype === 'treadmill' ? '⚙️ Inne' : '🏃 Ute');
+  if (paceUnit === 'kmh') parts.push('km/t');
+  el.innerHTML = parts.length
+    ? parts.map(p => `<span class="year-pill active">${escapeHtml(p)}</span>`).join('')
+    : '<span class="df-sum-none">Alle økter, alle år</span>';
+}
+
 const YEAR_COLORS = ['#6c8fff','#4caf87','#f0c060','#ff6c8f','#c07af0','#5bc8f5','#f09060'];
 
 function buildYearPills(allSessions) {
@@ -10090,6 +10128,7 @@ function renderDashboard() {
   if (dashFilterBar) dashFilterBar.style.display = '';
   if (dashGrid) dashGrid.style.display = '';
   buildYearPills(allSessions);
+  renderFilterSummary();
   // Before the filter is applied, and given allSessions — see renderWeekNow's note on why.
   renderWeekNow(allSessions);
   const sessions = DashFilter.get(allSessions);
@@ -13680,6 +13719,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const s = DashFilter.get(Store.data.sessions);
     renderPaceWeekChart(s);
     renderWeekNow(Store.data.sessions);   // its snitt-tempo tile honours the unit too
+    renderFilterSummary();                // no full re-render here, so the summary is told directly
+  });
+  // Phones: the one-line summary opens and closes the full bar. Closed on every load, like every
+  // other dashboard control starts from its default.
+  document.getElementById('dfSummary').addEventListener('click', () => {
+    const open = document.getElementById('dashFilterBar').classList.toggle('df-open');
+    document.getElementById('dfSummary').setAttribute('aria-expanded', String(open));
+    document.getElementById('dfSummaryCue').textContent = open ? 'Skjul ▴' : 'Endre ▾';
   });
 
   [['zoneToggleWeek','week'],['zoneToggleMaaned','month']].forEach(([id, val]) => {
