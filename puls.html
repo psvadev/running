@@ -6710,6 +6710,10 @@ const Log = {
       const venueBadge = (s.løpetype || 'utendors') === 'treadmill'
         ? `<span class="badge badge-indoor" title="Tredemølle">⚙️</span>`
         : `<span class="badge badge-outdoor" title="Utendørs">🏃</span>`;
+      // HØYDE is outdoor climb in metres only (his call, 2026-09-27). It used to fall back to the
+      // treadmill incline, so one column mixed % and m — and the incline is ~1 % on nearly every belt
+      // run. The incline stays in the run's detail view, the form and the export. Checked by venue,
+      // not only by the field, so an older row carrying both cannot put metres on a treadmill run.
       return `<tr onclick="Log.rowClick(event, '${s.id}')"${s.utenforAnalyse ? ' style="opacity:.55" title="Avvik — holdt utenfor analyse"' : ''}>
         <td><input type="checkbox" class="log-row-chk" data-id="${s.id}"></td>
         <td>${fmtDate(s.dato)}</td>
@@ -6724,7 +6728,7 @@ const Log = {
         <td>${s.gjsnittspuls||''}</td>
         <td>${s.toppuls||''}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.sko||'')}</td>
-        <td>${s.hoydeMeter ? s.hoydeMeter+'m' : s.stigning ? s.stigning+'%' : ''}</td>
+        <td>${(s.løpetype || 'utendors') !== 'treadmill' && s.hoydeMeter ? s.hoydeMeter+'m' : ''}</td>
         <td>${s.rpe ? `<span style="font-weight:600;color:${rpeColor(s.rpe)}">${s.rpe}</span>` : ''}</td>
         <td>
           <button class="btn-icon btn-sm" onclick="Form.editSession('${s.id}')" title="Rediger">✏️</button>

@@ -426,6 +426,50 @@ with sync_playwright() as p:
     check("no comma page errors", cerr, [])
     pg.close()
 
+    # ── Logg's HØYDE column: outdoor metres only (his call, 2026-09-27) ─────────────────────────
+    # It used to fall back to the treadmill incline, so one column mixed % and m — and the incline is
+    # ~1 % on nearly every belt run. Treadmill rows are blank now. The incline must still be in the
+    # run's detail view and the export: "out of this column" must not quietly become "gone".
+    print("== Logg HØYDE: outdoor metres only ==")
+    pg = b.new_page(viewport={"width": 1700, "height": 900})   # above 1600 px every column is shown
+    herr = []
+    pg.on("pageerror", lambda e: herr.append(str(e)))
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      const run = (id, dato, venue, extra) => Object.assign({ id, dato, uke:'2026-39', oktnavn:id,
+        okttype:'Easy', treningsplan:'Runna', varighet:1800, distanse:5, tempo:360,
+        soner:[0,0,0,0,0], ['l\\u00f8petype']: venue }, extra);
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [run('ute', '2026-09-25', 'utendors', { hoydeMeter: 57 }),
+                   run('belte', '2026-09-24', 'treadmill', { stigning: 1 }),
+                   // An older row carrying BOTH: the venue decides, not whichever field happens to be set.
+                   run('begge', '2026-09-23', 'treadmill', { stigning: 1, hoydeMeter: 40 })],
+        shoes:[], goals:{}, events:[], settings:{zones:[]}, lastUpdated:'' }));
+    }""")
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('log')")
+    pg.wait_for_timeout(400)
+    # Keyed by the row's checkbox id, not the name cell: a 5 km belt run can hold the indoor 5 km
+    # record, and then the name cell carries a 🏆 as well.
+    cells = pg.evaluate("""() => {
+      const col = [...document.querySelectorAll('#logTable thead th')].findIndex(th => th.dataset.col === 'hoydeMeter');
+      return Object.fromEntries([...document.querySelectorAll('#logBody tr')].map(r =>
+        [r.querySelector('.log-row-chk').dataset.id, r.children[col].textContent.trim()])); }""")
+    check("control: the column is there and all three runs are listed", sorted(cells), ['begge', 'belte', 'ute'])
+    check("an outdoor run shows its climb in metres", cells['ute'], '57m')
+    check("a treadmill run's HØYDE is blank — no incline %", cells['belte'], '')
+    check("...and a row carrying both is blank too: the venue decides", cells['begge'], '')
+    pg.evaluate("() => DetailPanel.openSession('belte')")
+    pg.wait_for_timeout(300)
+    check("the incline is still in the run's detail view",
+          pg.evaluate("""() => [...document.querySelectorAll('#detailBody .dp-kv')]
+              .map(r => [...r.children].map(c => c.textContent.trim()).join(' ')).includes('Stigning 1%')"""), True)
+    check("...and in the export",
+          pg.evaluate("""() => String(TSV_COLS.find(c => c[0] === 'Stigning (%)')[1](
+              Store.data.sessions.find(s => s.id === 'belte')))"""), '1')
+    check("no page errors in the log", herr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
