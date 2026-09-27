@@ -443,7 +443,23 @@
   /* ── Dashboard grid ── */
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .dash-grid .span2 { grid-column: span 2; }
-  @media (max-width: 768px) { .dash-grid { grid-template-columns: 1fr; } .dash-grid .span2 { grid-column: span 1; } }
+  /* A grid item's minimum width is its content's (all measured 2026-09-27):
+     - Sko oversikt beside Ukentlig oversikt — the only half-width pair; the table alone needs ~555px —
+       needs 835px of grid side by side. Two columns used to start at 769px, so up to ~875px both
+       columns overflowed, every card grew wider than the window (835px on an 800px window) and every
+       chart redrew at that width and held it. So the grid stays ONE column until the pair fits (880px).
+     - In one column every card's content sets the column's minimum, and a canvas holds its card at the
+       width it was drawn: narrowing a window from two columns to one left every card at the old width
+       (860px on 800). min-width:0 lets them shrink so the charts redraw to fit. Not needed in two
+       columns, where a card spanning both is not measured for the column widths — and NOT wanted
+       there: on the pair it makes the halves equal and pushes the table's columns behind a scroll
+       while Sko oversikt has room to spare.
+     `overflow:hidden` is deliberately NOT used: it would clip Chart.js's tooltips at the card edge. */
+  @media (max-width: 880px) {
+    .dash-grid { grid-template-columns: 1fr; }
+    .dash-grid .span2 { grid-column: span 1; }
+    .dash-grid > * { min-width: 0; }
+  }
   /* ≤1600px — hide least useful columns only; keeps Varighet, Mål km, ♥ Topp, RPE, Høyde */
   @media (max-width: 1600px) {
     #logTable th:nth-child(3),  #logTable td:nth-child(3),
@@ -602,7 +618,6 @@
     /* Not sticky on mobile: the bar wraps to ~5 rows here, so pinning it would
        eat a quarter of the viewport for the whole scroll. Scroll-to-top covers it. */
     .dash-filter-bar { position: static; padding: 10px 12px; gap: 8px; }
-    .dash-grid > * { min-width: 0; }
     .cs-stat { min-width: 0; flex: 1 1 75px; }
     .form-grid-4 { grid-template-columns: repeat(2, 1fr); }
     /* Additionally hide Navn and Plan at mobile (already hiding others above) */

@@ -225,6 +225,96 @@ with sync_playwright() as pw:
     check("no «N løp» anywhere in either panel",
           bool(re.search(r'\d\s*løp\b', two['body'] + one['body'])), False)
 
+    # ── Narrow desktop windows (2026-09-27) ────────────────────────────────────────────────────────
+    # A grid item's minimum width is its content's. Sko oversikt beside Ukentlig oversikt — the only
+    # half-width pair; the table alone needs ~555 px — needs 835 px of grid side by side. Two columns
+    # used to start at 769 px, so between there and ~875 px both columns overflowed: every card grew
+    # wider than the window (835 px cards on 800) and every chart redrew at that width and held it.
+    # Now the grid stays one column until the pair fits (880 px), and in one column the cards may
+    # shrink below their content. Side by side the pair keeps content-aware widths: min-width:0 on it
+    # made the halves equal and pushed the table behind a scroll at 900 px (the 900 px check caught it).
+    # ⚠️ The CONTROL is what makes the 800 px checks non-vacuous: it proves this fixture's pair could
+    # NOT sit side by side there. The first diagnosis blamed Formkurve's canvas; canvases only follow.
+    # Walked as one narrowing window, 1280 → 900 → 800, because crossing from two columns into one is
+    # where a chart drawn wide held its card open (860 px on 800 without min-width:0). A 1000 px step
+    # was dropped: in two columns a card spanning both is not measured for the column widths, so a
+    # check there could never fail on this (falsification, 2026-09-27).
+    print("== narrow desktop windows: cards fit, the pair stacks until it fits ==")
+    SHOES = """() => {
+      const run = (id, dato, uke, distanse, sko) => ({ id, dato, uke, oktnavn:'Tur', okttype:'Easy',
+        treningsplan:'Runna', løpetype:'utendors', distanse, varighet: distanse*360, tempo:360,
+        soner:[0,10,20,0,0], sko });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [run('a','2026-08-03','2026-32',10,'Saucony Endorphin Speed 5'),
+                   run('b','2026-08-10','2026-33',12,'Nike Pegasus 41 Premium'),
+                   run('c','2026-08-17','2026-34',9,'Saucony Endorphin Speed 5'),
+                   run('d','2026-08-24','2026-35',14,'Nike Pegasus 41 Premium')],
+        shoes: [{ name:'Saucony Endorphin Speed 5', startKm:0, retired:false, retirementKm:700 },
+                { name:'Nike Pegasus 41 Premium', startKm:120, retired:false, retirementKm:800 }],
+        shoeDefaults:{}, goals:{}, events:[], plannedSessions:[], settings:{zones:[]}, lastUpdated:'' }));
+    }"""
+    WIDTHS = """() => { const g = document.querySelector('#panel-dash .dash-grid');
+      const mc = el => { const w0 = el.style.width; el.style.width = 'min-content';
+                         const w = el.getBoundingClientRect().width; el.style.width = w0; return w; };
+      const cards = [...g.children].filter(c => c.offsetParent);
+      const half = cards.filter(c => !c.classList.contains('span2'));
+      // Ink past a card's right edge, anywhere except inside a scroll container (that is where the
+      // weekly table is supposed to go when its card is narrower than it).
+      const scrolls = el => { for (let a = el.parentElement; a && a !== g; a = a.parentElement)
+          if (getComputedStyle(a).overflowX !== 'visible') return true; return false; };
+      const spills = cards.flatMap(c => { const right = c.getBoundingClientRect().right;
+          return [...c.querySelectorAll('*')].filter(el => el.getBoundingClientRect().right > right + 1 && !scrolls(el))
+                   .slice(0, 1).map(el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '')); });
+      // How much of the weekly table is hidden behind a scroll inside its own card.
+      let wrap = document.getElementById('weeklyTable').parentElement;
+      while (wrap && getComputedStyle(wrap).overflowX === 'visible') wrap = wrap.parentElement;
+      return { grid: g.clientWidth, cols: getComputedStyle(g).gridTemplateColumns.split(' ').length,
+               halves: half.length, halfNeed: half.reduce((s, c) => s + mc(c), 0) + parseFloat(getComputedStyle(g).columnGap),
+               widest: Math.max(...cards.map(c => c.getBoundingClientRect().width)), spills,
+               tableHidden: wrap ? wrap.scrollWidth - wrap.clientWidth : 0 }; }"""
+    pg2 = b.new_page(viewport={"width": 1280, "height": 900})
+    pg2.on("pageerror", lambda e: errs.append(str(e)))
+    # Clock frozen INSIDE a week that has a run (Tue 2026-08-18, run 'c' on the 17th): the current
+    # week's row then carries its «Denne uken» tag, which is what widens the table's first column to
+    # his real shape. On the live clock no fixture week is current, the table is ~90 px narrower, and
+    # the pair fits — the control caught exactly that.
+    pg2.add_init_script("""(() => { const R = Date, fixed = new R(2026, 7, 18, 12, 0, 0).getTime();
+      function F(...a) { return a.length ? new R(...a) : new R(fixed); }
+      F.prototype = R.prototype; F.now = () => fixed; F.parse = R.parse; F.UTC = R.UTC; window.Date = F; })();""")
+    pg2.goto(APP); pg2.evaluate(SHOES); pg2.goto(APP)
+    pg2.wait_for_timeout(600)
+    pg2.evaluate("() => switchTab('dash')")
+    # Settle first: measured at 150 ms the two cards were not filled yet, so the control read a pair
+    # that fitted — and a stretch check on an empty dashboard passes for the wrong reason.
+    pg2.wait_for_timeout(700)
+
+    def settle(width):
+        # Polled, like the 402 px check above: charts resize a beat after layout, and a canvas still
+        # at its old width reads as a stretch. The last measurement is what gets reported.
+        pg2.set_viewport_size({"width": width, "height": 900})
+        for _ in range(30):
+            pg2.wait_for_timeout(150)
+            m = pg2.evaluate(WIDTHS)
+            if m['widest'] <= m['grid'] + 0.5 and not m['spills'] and m['tableHidden'] <= 1:
+                break
+        return m
+
+    w = settle(900)
+    check(f"900 px — control: two columns, and the pair fits side by side ({w['halfNeed']:.0f} of {w['grid']} px)",
+          (w['cols'], w['halves'], w['halfNeed'] <= w['grid']), (2, 2, True))
+    check("900 px — no card is wider than the grid, and the table is whole",
+          (w['widest'] <= w['grid'] + 0.5, w['tableHidden'] <= 1), (True, True))
+    w = settle(800)
+    check(f"800 px — control: side by side, the pair would NOT fit ({w['halfNeed']:.0f} of {w['grid']} px)",
+          (w['halves'], w['halfNeed'] > w['grid']), (2, True))
+    check("800 px — so the grid is one column and the pair stacks", w['cols'], 1)
+    check(f"800 px — no card is wider than the grid (widest {w['widest']:.0f} of {w['grid']} px)",
+          w['widest'] <= w['grid'] + 0.5, True)
+    check(f"800 px — the weekly table is whole, not behind a scroll ({w['tableHidden']} px hidden)",
+          w['tableHidden'] <= 1, True)
+    check("800 px — and nothing spills out of its card", w['spills'], [])
+    pg2.close()
+
     check("no page errors", errs, [])
     b.close()
 
