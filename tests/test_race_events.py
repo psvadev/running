@@ -1402,6 +1402,59 @@ with sync_playwright() as b0:
     check("no page errors", perr, [])
     pg.close()
 
+    # ── Consistency pass (2026-09-27), from a review of every tab in Firefox ────────────────────
+    # Each of these was a small inconsistency he had stopped seeing; each check fails if its fix is
+    # reverted. Firefox itself is not in this suite (CI is WebKit-only by decision), so the Firefox
+    # cases are pinned by the CSS that causes them, not by a Firefox render.
+    print("== consistency pass ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    perr = []
+    pg.on("pageerror", lambda e: perr.append(str(e)))
+    boot(pg, "plan")
+    # Hendelser: ✕ means CLOSE everywhere else (detail panel, Strava dialog). Here it deleted.
+    dels = pg.evaluate("() => [...document.querySelectorAll('[data-del-event]')].map(b => b.textContent.trim())")
+    check("control: there are events to delete", len(dels) > 0, True)
+    check("Hendelser deletes with 🗑️, the app's delete — not ✕, the app's close", set(dels), {"🗑️"})
+    # The Runna import is a real button now; the raw picker printed «Browse… No file selected.»
+    check("the raw file picker is hidden",
+          pg.evaluate("() => getComputedStyle(document.getElementById('runnaIcsFile')).display"), "none")
+    with pg.expect_file_chooser() as fc:
+        pg.click("#btnPickIcs")
+    check("...and the button opens it", fc.value is not None, True)
+    # A form save looks like every other form save.
+    pg.evaluate("() => switchTab('settings')"); pg.wait_for_timeout(300)
+    check("«Lagre grenser» is the same primary save as «Lagre» and «Lagre profil»",
+          pg.evaluate("""() => ['contSaveBtn', 'btnSaveConsistency', 'btnSaveProfile']
+              .map(id => document.getElementById(id).classList.contains('btn-primary'))"""), [True, True, True])
+    check("...and its fields get the shared field style (accent border on focus)",
+          pg.evaluate("() => ['contWalkMax', 'contRunMin'].every(id => document.getElementById(id).classList.contains('inp'))"), True)
+    # Firefox drew these in monospace because controls do not inherit the page font on their own.
+    pg.evaluate("() => switchTab('form')"); pg.wait_for_timeout(300)
+    fonts = pg.evaluate("""() => { const body = getComputedStyle(document.body).fontFamily;
+        return ['fNotater', 'fBeskrivelse', 'fDato'].map(id => {
+          const e = document.getElementById(id); return e ? getComputedStyle(e).fontFamily === body : null; }); }""")
+    check("⚠️ notes, description and date use the page font, not the browser's", fonts, [True, True, True])
+    check("number fields carry no steppers",
+          pg.evaluate("() => getComputedStyle(document.querySelector('input[type=number]')).appearance"), "textfield")
+    # A session is «økt»; «løp» also means race. The year table beside «Ukentlig oversikt» said LØP.
+    pg.evaluate("() => switchTab('dash')"); pg.wait_for_timeout(500)
+    # ⚠️ Scoped to the year table itself, and fed two years of runs. The first version read every
+    # <th> on the dashboard of THIS fixture — which has no sessions, so the dashboard was its empty
+    # state and the year table never rendered — found «Økter» in some other table, and passed with
+    # «Løp» restored (falsification, 2026-09-27).
+    pg.evaluate("""() => { const d = JSON.parse(localStorage.getItem('lpl_cache'));
+        d.sessions = [
+          { id:'y1', dato:'2025-10-02', uke:'2025-40', okttype:'Easy', distanse:5, varighet:1800, tempo:360, soner:[0,0,0,0,0] },
+          { id:'y2', dato:'2026-03-02', uke:'2026-10', okttype:'Easy', distanse:6, varighet:2160, tempo:360, soner:[0,0,0,0,0] }];
+        localStorage.setItem('lpl_cache', JSON.stringify(d)); }""")
+    pg.goto(APP); pg.wait_for_timeout(500)
+    pg.evaluate("() => switchTab('dash')"); pg.wait_for_timeout(600)
+    heads = pg.evaluate("() => [...document.querySelectorAll('#yearCompTable th')].map(t => t.textContent.trim())")
+    check("control: the year table is rendered", len(heads) > 0, True)
+    check("the year table counts «Økter», not «Løp»", ("Økter" in heads, "Løp" in heads), (True, False))
+    check("no page errors in the consistency pass", perr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))

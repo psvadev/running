@@ -39,6 +39,14 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
+  /* Form controls do not inherit the page font by default, and Firefox — his main browser — then
+     draws Notater, Øktbeskrivelse and the date fields in MONOSPACE (seen 2026-09-27; the WebKit test
+     suite never showed it). Family only: every control's size is already set where it is styled. */
+  input, select, textarea, button { font-family: inherit; }
+  /* No steppers on number fields: they nudge by one unit (useless for a distance or a heart rate)
+     and in Firefox they made a placeholder look like an entered value. Arrow keys still step. */
+  input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
   /* ── Header ── */
   header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; display: flex; align-items: center; gap: 16px; height: 56px; }
@@ -1441,7 +1449,10 @@
     <div class="card-title">Planlagte økter <span class="ct-sub">· importert fra Runna</span></div>
     <p class="muted-sm" style="margin:0 0 12px;">Importer Runna-planens <strong>.ics</strong>-fil for å se planlagte økter og hvor godt de matcher det du faktisk løper. Én import per treningsblokk holder — hele blokken følger med. Strength og ad-hoc-løp hoppes over.<br>Listen under viser den <strong>aktive</strong> blokken. En ny import erstatter bare den, så tidligere blokker beholder planen sin og vises fortsatt i sin egen blokkvisning.<br><em>Slik:</em> i Runna: <strong>Profile → Connected Apps &amp; Devices → Connected Calendar → Other calendar → Copy URL</strong>. Åpne URL-en i nettleseren → last ned <code>.ics</code>-filen → velg den her.</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      <input class="muted-sm" type="file" id="runnaIcsFile" accept=".ics,text/calendar" style="max-width:100%;">
+      <!-- A button that opens a hidden picker, the same way «Åpne fil» does: the raw control printed the
+           browser's own «Browse… No file selected.», the one unstyled control on the page. -->
+      <button class="btn-secondary btn-sm" id="btnPickIcs" type="button">📥 Velg .ics-fil</button>
+      <input type="file" id="runnaIcsFile" accept=".ics,text/calendar" style="display:none">
       <button class="btn-secondary btn-sm" id="btnClearPlanned" style="display:none">Fjern importerte</button>
     </div>
     <div id="plannedImportMsg" style="font-size:12px;margin-bottom:10px"></div>
@@ -1918,14 +1929,14 @@
       <div style="display:flex;gap:12px;margin-bottom:10px">
         <div style="flex:1">
           <label class="muted-sm" style="display:block;margin-bottom:4px;">Gange under (km/t)</label>
-          <input type="number" step="0.1" min="1" max="15" id="contWalkMax" placeholder="7" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+          <input class="inp" type="number" step="0.1" min="1" max="15" id="contWalkMax" placeholder="7" style="width:100%;padding:6px 8px;font-size:12px">
         </div>
         <div style="flex:1">
           <label class="muted-sm" style="display:block;margin-bottom:4px;">Løping over (km/t)</label>
-          <input type="number" step="0.1" min="1" max="20" id="contRunMin" placeholder="7.5" style="width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+          <input class="inp" type="number" step="0.1" min="1" max="20" id="contRunMin" placeholder="7.5" style="width:100%;padding:6px 8px;font-size:12px">
         </div>
       </div>
-      <button class="btn-secondary btn-sm" id="contSaveBtn">Lagre grenser</button>
+      <button class="btn-primary btn-sm" id="contSaveBtn">💾 Lagre grenser</button>
       <span id="contMsg" style="font-size:12px;color:var(--green);margin-left:8px"></span>
       <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
         <p class="muted-sm" style="margin-bottom:8px;">Analyser alle Strava-koblede økter på én gang, så run/walk (utendørs) + HR-drift &amp; kadens (alle økter) fylles ut i øktdetaljer og trender. Kjøres i bolker for å holde seg under Strava sin grense — klikk igjen for å fortsette om den pauser.</p>
@@ -10426,7 +10437,7 @@ function renderDashboard() {
       <thead><tr style="color:var(--muted)">
         <th style="padding:4px 8px;text-align:left">År</th>
         <th style="padding:4px 8px;text-align:right">Total km</th>
-        <th style="padding:4px 8px;text-align:right">Løp</th>
+        <th style="padding:4px 8px;text-align:right">Økter</th>
         <th style="padding:4px 8px;text-align:right">Snitt km/uke</th>
       </tr></thead>
       <tbody>${compYears.map((year, i) => {
@@ -12112,6 +12123,7 @@ const Settings = {
     document.getElementById('newUbNote').addEventListener('keydown', e => { if (e.key === 'Enter') this.addUpcomingBlock(); });
     // Planned sessions (Runna .ics import)
     document.getElementById('runnaIcsFile').addEventListener('change', e => this.importRunnaIcs(e));
+    document.getElementById('btnPickIcs').addEventListener('click', () => document.getElementById('runnaIcsFile').click());
     document.getElementById('btnClearPlanned').addEventListener('click', () => this.clearPlanned());
     // ⛽ chips, delegated on the list — it is re-rendered on every expand, import and match, so a
     // per-chip listener would either be lost or, bound here per render, stack one deep per redraw.
@@ -12672,10 +12684,10 @@ const Settings = {
 
       const actionButtons = isRetired
         ? `<button class="btn-secondary btn-sm" data-shoe-action="activate" data-shoe-name="${nameAttr}">Aktiver</button>
-           <button class="btn-secondary btn-sm" data-shoe-action="delete" data-shoe-name="${nameAttr}">Fjern</button>`
+           <button class="btn-secondary btn-sm" data-shoe-action="delete" data-shoe-name="${nameAttr}" title="Slett">🗑️</button>`
         : `<button class="btn-secondary btn-sm" data-shoe-action="retire" data-shoe-name="${nameAttr}">Pensjonér</button>
-           <button class="btn-secondary btn-sm" data-shoe-action="edit" data-safe-id="${safeId}" style="font-size:11px">Rediger</button>
-           <button class="btn-secondary btn-sm" data-shoe-action="delete" data-shoe-name="${nameAttr}">Fjern</button>`;
+           <button class="btn-secondary btn-sm" data-shoe-action="edit" data-safe-id="${safeId}" title="Rediger">✏️</button>
+           <button class="btn-secondary btn-sm" data-shoe-action="delete" data-shoe-name="${nameAttr}" title="Slett">🗑️</button>`;
 
       const cardStyle = isRetired
         ? 'background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;opacity:0.6'
@@ -12789,7 +12801,7 @@ const Settings = {
         <span class="er-title">${escapeHtml(evt.title)}</span>
         ${dist}
         <button class="btn-secondary btn-sm" data-edit-event="${evt.id}" title="Rediger">✏️</button>
-        <button class="btn-secondary btn-sm" data-del-event="${evt.id}" title="Slett">✕</button>
+        <button class="btn-secondary btn-sm" data-del-event="${evt.id}" title="Slett">🗑️</button>
       </div>`;
     }).join('');
     if (overflow > 0) {
