@@ -185,6 +185,7 @@
   .dash-filter-bar { position: sticky; top: 0; z-index: 99; display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; }
   .year-pill { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface2); color: var(--muted); transition: all .15s; user-select: none; }
   .year-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .df-pills { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
 
   /* Insight cards */
   #insightContent { display:flex; flex-wrap:wrap; gap:10px; }
@@ -1087,19 +1088,22 @@
         <option>Egentrening</option><option>Runna</option>
       </select>
     </div>
+    <!-- Pills like År beside them and every chart toggle (his pick, 2026-09-27): these two were the
+         only radio buttons left among the app's toggles. Buttons, not spans, so Tab and Enter/Space
+         reach them the way they reached the radios. -->
     <div class="form-group">
       <label>Løpetype</label>
-      <div class="muted-sm" style="display:flex;gap:10px;align-items:center;padding-top:6px;">
-        <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="" checked> Alle</label>
-        <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="utendors"> 🏃 Ute</label>
-        <label style="cursor:pointer"><input type="radio" name="dfLopetype" value="treadmill"> ⚙️ Inne</label>
+      <div class="df-pills" id="dfVenuePills" role="group" aria-label="Løpetype">
+        <button type="button" class="year-pill active" data-venue="" aria-pressed="true">Alle</button>
+        <button type="button" class="year-pill" data-venue="utendors" aria-pressed="false">🏃 Ute</button>
+        <button type="button" class="year-pill" data-venue="treadmill" aria-pressed="false">⚙️ Inne</button>
       </div>
     </div>
     <div class="form-group">
       <label>Tempo-enhet</label>
-      <div class="muted-sm" style="display:flex;gap:10px;align-items:center;padding-top:6px;">
-        <label style="cursor:pointer"><input type="radio" name="dfPaceUnit" value="pace" checked> min/km</label>
-        <label style="cursor:pointer"><input type="radio" name="dfPaceUnit" value="kmh"> km/t</label>
+      <div class="df-pills" id="dfUnitPills" role="group" aria-label="Tempo-enhet">
+        <button type="button" class="year-pill active" data-unit="pace" aria-pressed="true">min/km</button>
+        <button type="button" class="year-pill" data-unit="kmh" aria-pressed="false">km/t</button>
       </div>
     </div>
     <div class="form-group" style="flex:1;min-width:180px">
@@ -6880,6 +6884,16 @@ const DashFilter = {
     });
   }
 };
+
+// A pill group with one choice (Løpetype, Tempo-enhet): the class carries the look, aria-pressed
+// what it means — the radios they replaced announced their state, and these must too.
+function setPills(groupId, key, value) {
+  document.querySelectorAll(`#${groupId} .year-pill`).forEach(p => {
+    const on = p.dataset[key] === value;
+    p.classList.toggle('active', on);
+    p.setAttribute('aria-pressed', String(on));
+  });
+}
 
 const YEAR_COLORS = ['#6c8fff','#4caf87','#f0c060','#ff6c8f','#c07af0','#5bc8f5','#f09060'];
 
@@ -13658,13 +13672,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Global pace unit toggle — affects all pace charts
-  document.querySelectorAll('input[name="dfPaceUnit"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      paceUnit = radio.value;
-      const s = DashFilter.get(Store.data.sessions);
-      renderPaceWeekChart(s);
-      renderWeekNow(Store.data.sessions);   // its snitt-tempo tile honours the unit too
-    });
+  document.getElementById('dfUnitPills').addEventListener('click', e => {
+    const pill = e.target.closest('[data-unit]');
+    if (!pill || pill.dataset.unit === paceUnit) return;
+    paceUnit = pill.dataset.unit;
+    setPills('dfUnitPills', 'unit', paceUnit);
+    const s = DashFilter.get(Store.data.sessions);
+    renderPaceWeekChart(s);
+    renderWeekNow(Store.data.sessions);   // its snitt-tempo tile honours the unit too
   });
 
   [['zoneToggleWeek','week'],['zoneToggleMaaned','month']].forEach(([id, val]) => {
@@ -13767,14 +13782,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('dfPlan').addEventListener('change', e => { DashFilter.plan = e.target.value; renderDashboard(); });
   document.getElementById('chkEvents').checked = showEventMarkers;
   document.getElementById('chkEvents').addEventListener('change', e => { showEventMarkers = e.target.checked; renderDashboard(); });
-  document.querySelectorAll('input[name="dfLopetype"]').forEach(r => r.addEventListener('change', e => { DashFilter.løpetype = e.target.value; renderDashboard(); }));
+  document.getElementById('dfVenuePills').addEventListener('click', e => {
+    const pill = e.target.closest('[data-venue]');
+    if (!pill || pill.dataset.venue === DashFilter.løpetype) return;
+    DashFilter.løpetype = pill.dataset.venue;
+    setPills('dfVenuePills', 'venue', DashFilter.løpetype);
+    renderDashboard();
+  });
   document.getElementById('btnDashReset').addEventListener('click', () => {
     DashFilter.years.clear(); DashFilter.type = ''; DashFilter.plan = ''; DashFilter.løpetype = '';
     document.getElementById('dfType').value = '';
     document.getElementById('dfPlan').value = '';
-    document.querySelector('input[name="dfLopetype"][value=""]').checked = true;
+    setPills('dfVenuePills', 'venue', '');
     paceUnit = 'pace';
-    document.querySelector('input[name="dfPaceUnit"][value="pace"]').checked = true;
+    setPills('dfUnitPills', 'unit', 'pace');
     showEventMarkers = eventMarkersDefault();
     document.getElementById('chkEvents').checked = showEventMarkers;
     aeTypeFilter = 'both';

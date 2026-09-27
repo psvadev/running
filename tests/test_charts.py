@@ -225,6 +225,42 @@ with sync_playwright() as pw:
     check("no «N løp» anywhere in either panel",
           bool(re.search(r'\d\s*løp\b', two['body'] + one['body'])), False)
 
+    # ── Løpetype and Tempo-enhet are pills, not radios (his pick, 2026-09-27) ───────────────────────
+    # They were the only radio buttons left among the app's toggles. What must survive the change is
+    # BEHAVIOUR, so a click has to filter the dashboard (asserted on the weekly table, not on
+    # DashFilter), the state has to be announced (aria-pressed, as a radio's checked state was), the
+    # keyboard has to reach them, and Nullstill has to put both groups back.
+    print("== Løpetype and Tempo-enhet are pills ==")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    pg.evaluate("() => switchTab('dash')")
+    pg.wait_for_timeout(400)
+    PRESSED = """() => ['dfVenuePills', 'dfUnitPills'].map(id =>
+      [...document.querySelectorAll(`#${id} .year-pill`)]
+        .filter(p => p.getAttribute('aria-pressed') === 'true' && p.classList.contains('active'))
+        .map(p => p.textContent.trim()))"""
+    rows = lambda: pg.locator('#weeklyBody tr').count()
+    check("no radio buttons left in the filter bar",
+          pg.evaluate("() => document.querySelectorAll('#dashFilterBar input[type=radio]').length"), 0)
+    check("defaults: exactly Alle and min/km pressed", pg.evaluate(PRESSED), [['Alle'], ['min/km']])
+    before = rows()
+    check("control: the weekly table has rows to lose", before > 0, True)
+    pg.click('#dfVenuePills [data-venue="treadmill"]')
+    pg.wait_for_timeout(400)
+    check("⚙️ Inne filters the dashboard (this fixture has no belt runs)", rows(), 0)
+    check("...and is the one pressed", pg.evaluate(PRESSED)[0], ['⚙️ Inne'])
+    pg.focus('#dfUnitPills [data-unit="kmh"]')
+    pg.keyboard.press("Enter")
+    pg.wait_for_timeout(300)
+    check("the keyboard reaches them: Enter on km/t presses it", pg.evaluate(PRESSED)[1], ['km/t'])
+    pg.click("#btnDashReset")
+    pg.wait_for_timeout(600)
+    check("Nullstill puts both groups back", pg.evaluate(PRESSED), [['Alle'], ['min/km']])
+    check("...and the dashboard with them", rows(), before)
+    # They should read as the År pills beside them, not merely share a class name.
+    heights = pg.evaluate("""() => ['#dfVenuePills .year-pill', '#dfYearPills .year-pill']
+        .map(s => Math.round(document.querySelector(s).getBoundingClientRect().height))""")
+    check(f"the same height as the År pills ({heights[0]} vs {heights[1]} px)", heights[0] == heights[1], True)
+
     # ── Narrow desktop windows (2026-09-27) ────────────────────────────────────────────────────────
     # A grid item's minimum width is its content's. Sko oversikt beside Ukentlig oversikt — the only
     # half-width pair; the table alone needs ~555 px — needs 835 px of grid side by side. Two columns

@@ -182,10 +182,11 @@ with sync_playwright() as p:
     # ---------------------------------------------------------------- 4. pace unit
     print("== snitt tempo follows the km/t toggle ==")
     check("min/km by default", "/km" in pg.locator("#weekNowCard").inner_text(), True)
-    pg.locator('input[name="dfPaceUnit"][value="kmh"]').check()
+    # A pill since 2026-09-27 (it was a radio button).
+    pg.locator('#dfUnitPills [data-unit="kmh"]').click()
     pg.wait_for_timeout(300)
     check("switches to km/t", "km/t" in pg.locator("#weekNowCard").inner_text(), True)
-    pg.locator('input[name="dfPaceUnit"][value="pace"]').check()
+    pg.locator('#dfUnitPills [data-unit="pace"]').click()
     pg.wait_for_timeout(300)
 
     # ---------------------------------------------------------------- 5. click-through
