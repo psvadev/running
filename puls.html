@@ -6955,6 +6955,24 @@ let aeTypeFilter = 'both';   // 'both' (Easy+Long) | 'Easy' | 'Long' — rolige-
 let paceUnit = 'pace';     // 'pace' | 'kmh' — global unit for all pace charts
 let cachedBlocks = [];
 
+// The x-axis of the week/month trend charts (the *GroupBy toggles above): the week number or month
+// name alone, flat, with the unit and year said once in the axis title («uke · 2025–26»). «Uke 05 '26»
+// under every bar tilted 27° on a laptop and 45° on a phone, where only 9 of 26 weeks got a label
+// (his pick, 2026-09-28). Only the drawn text changes: `data.labels` keep «Uke 05 '26» for the
+// tooltips, and the event markers place themselves from `_rawLabels`, never from tick text.
+function periodAxis(keys, groupBy) {
+  const years = [...new Set(keys.map(k => k.slice(0, 4)))];   // keys arrive sorted
+  const span = years.length > 1 ? `${years[0]}–${years[years.length - 1].slice(2)}` : (years[0] || '');
+  const week = groupBy === 'week';
+  return {
+    grid: { display: false },
+    ticks: { color: '#7880a0', maxRotation: 0,
+             callback: i => week ? keys[i].slice(5) : PICKER_MONTHS[+keys[i].slice(5, 7) - 1] },
+    title: { display: true, text: week ? ['uke', span].filter(Boolean).join(' · ') : span,
+             color: '#7880a0', font: { size: 11 }, padding: { top: 2, bottom: 0 } },
+  };
+}
+
 function renderZoneChart(sessions) {
   const NO_MTHS = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
   const zoneMap = {};
@@ -6987,7 +7005,7 @@ function renderZoneChart(sessions) {
         tooltip:{ callbacks:{ label: ctx => `${ctx.dataset.label}: ${minsToHm(ctx.parsed.y)}` } }
       },
       scales:{
-        x:{ stacked:true, grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45} },
+        x:{ stacked:true, ...periodAxis(keys, zoneGroupBy) },
         y:{ stacked:true, grid:{color:'#2e3248'}, ticks:{color:'#7880a0', callback: v => minsToHm(v)}, title:{display:true,text:'tt:mm',color:'#7880a0'} }
       },
       responsive:true, maintainAspectRatio:false
@@ -8410,7 +8428,7 @@ function renderVenueChart(sessions) {
     options: {
       plugins: { legend: { display: true, labels: { color: '#e8eaf0', boxWidth: 14, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
       scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
+        x: { stacked: true, ...periodAxis(keys, venueGroupBy) },
         y: { stacked: true, grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'km', color: '#7880a0' } }
       },
       responsive: true, maintainAspectRatio: false
@@ -8461,7 +8479,7 @@ function renderElevChart(sessions) {
     options: {
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y} høydemeter` } } },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
+        x: periodAxis(keys, elevGroupBy),
         y: { beginAtZero: true, grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'høydemeter (m)', color: '#7880a0' } }
       },
       responsive: true, maintainAspectRatio: false,
@@ -8531,7 +8549,7 @@ function renderContinuityTrend(sessions) {
         tooltip: { callbacks: { label: c => isRunning ? `${c.parsed.y}% løping` : `${(c.parsed.y || 0).toFixed(2)} km sammenhengende` } }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
+        x: periodAxis(keys, contTrendGroupBy),
         y: isRunning
           ? { min: 0, max: 100, grid: { color: '#2e3248' }, ticks: { color: '#7880a0', callback: v => v + '%' }, title: { display: true, text: 'andel løping', color: '#7880a0' } }
           : { beginAtZero: true, grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'km', color: '#7880a0' } }
@@ -8605,7 +8623,7 @@ function renderAeroTrend(sessions) {
         tooltip: { callbacks: { label: c => `${c.dataset.label}: ${isDrift ? (c.parsed.y > 0 ? '+' : '') + c.parsed.y + '%' : c.parsed.y + ' spm'}` } }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
+        x: periodAxis(keys, aeroTrendGroupBy),
         y: isDrift
           ? { grid: { color: ctx => (ctx.tick && ctx.tick.value === 0) ? '#565c7a' : '#2e3248' }, ticks: { color: '#7880a0', callback: v => (v > 0 ? '+' : '') + v + '%' }, title: { display: true, text: 'HR-drift', color: '#7880a0' } }
           : { grid: { color: '#2e3248' }, ticks: { color: '#7880a0', callback: v => v + ' spm' }, title: { display: true, text: 'kadens (spm)', color: '#7880a0' } }
@@ -9795,7 +9813,7 @@ function renderWeeklyDistChart(sessions) {
             return lines;
           }
         }}},
-        scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x:{grid:{display:false}, ticks:{color:'#7880a0',maxRotation:45}} },
+        scales:{ y:{grid:{color:'#2e3248'}, ticks:{color:'#7880a0'}}, x: periodAxis(distKeys, distGroupBy) },
         onClick: (evt, elements) => { if (elements.length && distGroupBy === 'week') DetailPanel.openWeek(distKeys[elements[0].index], Store.data.sessions); },
         responsive:true, maintainAspectRatio:false
       }
@@ -9849,7 +9867,7 @@ function renderPaceWeekChart(sessions) {
         }}},
         scales:{
           y:{ reverse:!useKmh, grid:{color:'#2e3248'}, title:{display:true,text:useKmh?'Fart (km/t)':'Tempo (min/km)',color:'#7880a0',font:{size:11}}, ticks:{color:'#7880a0', callback: v => useKmh ? PaceConv.fmtKmh(v) : secsToMmSs(Math.round(v*60))} },
-          x:{ grid:{display:false}, ticks:{color:'#7880a0', maxRotation:45} }
+          x: periodAxis(paceKeys, paceGroupBy)
         },
         onClick: (evt, elements) => { if (elements.length && paceGroupBy === 'week') DetailPanel.openWeek(paceKeys[elements[0].index], Store.data.sessions); },
         responsive:true, maintainAspectRatio:false
@@ -10433,7 +10451,7 @@ function renderDashboard() {
         }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#7880a0', maxRotation: 45 } },
+        x: periodAxis(loadWeeks, 'week'),
         y: { grid: { color: '#2e3248' }, ticks: { color: '#7880a0' }, title: { display: true, text: 'poeng', color: '#7880a0' } }
       },
       onClick: (evt, elements) => { if (elements.length) DetailPanel.openWeek(loadWeeks[elements[0].index], Store.data.sessions, 'load'); },

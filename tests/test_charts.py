@@ -410,6 +410,110 @@ with sync_playwright() as pw:
     check("800 px — and nothing spills out of its card", w['spills'], [])
     pg2.close()
 
+    # ── Week axes: the number alone, flat, the year said once (his pick B, 2026-09-28) ─────────────
+    # «Uke 05 '26» under every bar tilted 27° on a laptop and 45° on a phone, where Chart.js then named
+    # only 9 of 26 weeks. Now a tick is the zero-padded week number and «uke · 2025–26» sits once under
+    # the axis. Measured on the RENDERED scale — Chart.js's own labelRotation and the ticks it kept —
+    # not on the options (#26). What would fail silently: a number under the WRONG bar (every tick is
+    # checked against the label of the bar it sits under), the tooltip losing its full «Uke 01 '26»
+    # (data.labels changed instead of the tick text), and a title that misses a New Year — the
+    # fixture's 30 weeks cross one, so «52 01» and «2025–26» are both in view. All eight weekly charts
+    # render, including the two that need a current Strava analysis.
+    print("== week axes: the number alone, flat, the year once ==")
+    WEEKLY = ['load', 'weeklyDist', 'pace', 'venue', 'elev', 'zones', 'contTrend', 'aeroTrend']
+    AXSEED = """() => {
+      const thr = Continuity.thresholds();
+      const cont = { version: CONTINUITY_ANALYSIS_VERSION, thresholdVersion: CONTINUITY_THRESHOLD_VERSION,
+        walkMaxKmh: thr.definiteWalkMaxKmh, runMinKmh: thr.definiteRunMinKmh,
+        movingTimeSeconds: 3000, runningTimeSeconds: 2800, walkingTimeSeconds: 100,
+        unclassifiedTimeSeconds: 100, stoppedTimeSeconds: 0, runningRatio: 0.93, walkingRatio: 0.03,
+        unclassifiedRatio: 0.04, runningDistanceMeters: 8000, walkingDistanceMeters: 200,
+        unclassifiedDistanceMeters: 200, longestContinuousRunSeconds: 1200, longestContinuousRunMeters: 3100,
+        runToWalkTransitions: 2, uphillWalkingTimeSeconds: 10, uphillWalkingDistanceMeters: 18,
+        sampleCount: 3000, datakvalitet: 'høy', warnings: [] };
+      const aero = { version: AEROBIC_ANALYSIS_VERSION, hasDecoupling: true, decouplingPercent: 4,
+        hasCadence: true, avgCadenceSpm: 168 };
+      const sessions = [];
+      // A Wednesday in each of 30 weeks, ISO 2025-40 through 2026-17 (ISO 2025 has 52 weeks); the
+      // charts keep the last 26, 2025-44 to 2026-17. A belt run every fifth week for Ute/inne.
+      for (let w = 0; w < 30; w++) {
+        const d = new Date(Date.UTC(2025, 9, 1) + w * 7 * 864e5).toISOString().slice(0, 10);
+        sessions.push({ id: 'u' + w, dato: d, uke: isoWeek(d), oktnavn: 'Tur', okttype: 'Easy',
+          treningsplan: 'Runna', løpetype: 'utendors', distanse: 8, varighet: 2880, tempo: 360,
+          hoydeMeter: 60, soner: [0, 600, 1200, 0, 0], stravaId: 's' + w,
+          stravaAnalysis: { continuity: cont, aerobic: aero } });
+        if (w % 5 === 0) sessions.push({ id: 't' + w, dato: d, uke: isoWeek(d), oktnavn: 'Belte',
+          okttype: 'Easy', treningsplan: 'Runna', løpetype: 'treadmill', distanse: 5, varighet: 1800,
+          tempo: 360, soner: [0, 600, 600, 0, 0] });
+      }
+      localStorage.setItem('lpl_cache', JSON.stringify({ sessions, shoes: [], shoeDefaults: {}, goals: {},
+        events: [], plannedSessions: [], settings: { zones: [] }, lastUpdated: '' }));
+    }"""
+    AXES = """(names) => names.map(n => { const c = Charts[n]; if (!c) return { n, missing: true };
+      const x = c.scales.x;
+      return { n, width: c.width, rot: Math.round(x.labelRotation), labels: c.data.labels,
+               ticks: x.ticks.map(t => ({ v: t.value, l: t.label })),
+               title: x.options.title && x.options.title.display ? x.options.title.text : null }; })"""
+    # The tooltip title of one bar, raised the way a hover raises it.
+    TIP = """([n, i]) => { const c = Charts[n];
+      c.tooltip.setActiveElements([{ datasetIndex: 0, index: i }], { x: 0, y: 0 }); c.update('none');
+      const t = c.tooltip.title; c.tooltip.setActiveElements([], { x: 0, y: 0 }); c.update('none'); return t; }"""
+
+    def axes(page, width):
+        # Polled: Chart.js resizes a beat after the viewport does, and a scale read mid-resize still
+        # carries the old width's rotation.
+        page.set_viewport_size({"width": width, "height": 900})
+        for _ in range(40):
+            page.wait_for_timeout(150)
+            a = page.evaluate(AXES, WEEKLY)
+            if all(not x.get('missing') and x['width'] <= width for x in a):
+                break
+        return a
+
+    def misplaced(a):
+        # Ticks whose number is not the week of the bar they sit under.
+        return [(t['l'], a['labels'][t['v']]) for t in a['ticks']
+                if f"Uke {t['l']} '" not in a['labels'][t['v']]]
+
+    pg4 = b.new_page(viewport={"width": 1280, "height": 900})
+    pg4.on("pageerror", lambda e: errs.append(str(e)))
+    pg4.goto(APP); pg4.evaluate(AXSEED); pg4.goto(APP)
+    pg4.wait_for_timeout(700)
+    pg4.evaluate("() => switchTab('dash')")
+    pg4.wait_for_timeout(700)
+    for width in (1280, 402):
+        a = axes(pg4, width)
+        check(f"{width} px — control: all eight weekly charts rendered, 26 weeks each",
+              [(x['n'], len(x.get('labels', []))) for x in a], [(n, 26) for n in WEEKLY])
+        check(f"{width} px — every week axis is flat", {x['n']: x['rot'] for x in a if x['rot']}, {})
+        check(f"{width} px — each tick is the week of the bar above it, zero-padded",
+              {x['n']: misplaced(x)[:2] for x in a if misplaced(x)}, {})
+        check(f"{width} px — the unit and both years said once, under the axis",
+              {x['n']: x['title'] for x in a if x['title'] != "uke · 2025–26"}, {})
+        if width == 1280:
+            check("1280 px — every week is named", {x['n']: len(x['ticks']) for x in a if len(x['ticks']) < 26}, {})
+            wd = next(x for x in a if x['n'] == 'weeklyDist')
+            check("...and New Year reads 52 → 01", ' 52 01 ' in f" {' '.join(t['l'] for t in wd['ticks'])} ", True)
+        else:
+            check("402 px — at least every third week is named",
+                  {x['n']: len(x['ticks']) for x in a if len(x['ticks']) * 3 < 26}, {})
+    # The bar is found by its raw week key, never by the display label under test (falsification: a
+    # lookup through Pulssoner's own labels crashed before the tooltip was read). Every weekly chart
+    # holds the same 26 weeks here, so one index serves both.
+    i = pg4.evaluate("() => Charts.load.data._rawLabels.indexOf('2026-01')")
+    check("control: week 2026-01 is in view", i >= 0, True)
+    check("the tooltip keeps the full week: Pulssoner (its default title)", pg4.evaluate(TIP, ['zones', i]), ["Uke 01 '26"])
+    check("...and Ukentlig distanse (its own title)", pg4.evaluate(TIP, ['weeklyDist', i]), ["Uke 01 '26"])
+    pg4.set_viewport_size({"width": 1280, "height": 900})
+    pg4.wait_for_function("() => Charts.weeklyDist.width > 1000", timeout=6000)
+    pg4.click("#distToggleMaaned")
+    pg4.wait_for_timeout(400)
+    m = pg4.evaluate(AXES, ['weeklyDist'])[0]
+    check("Måned: the ticks are the month names alone",
+          [t['l'] for t in m['ticks']], ['Okt', 'Nov', 'Des', 'Jan', 'Feb', 'Mar', 'Apr'])
+    check("...flat, with the years once under the axis", (m['rot'], m['title']), (0, '2025–26'))
+    pg4.close()
+
     check("no page errors", errs, [])
     b.close()
 
