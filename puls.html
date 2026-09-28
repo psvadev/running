@@ -1973,7 +1973,7 @@
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Lokale sikkerhetskopier</div>
-      <p class="muted-sm" style="margin-bottom:10px;">Lagres automatisk i nettleseren hver gang du åpner filen. Siste 7 dager beholdes.</p>
+      <p class="muted-sm" style="margin-bottom:10px;">Den første tilstanden hver dag lagres automatisk i nettleseren; siste 7 dager beholdes. Rett før Tøm alle data, kobling av gamle økter til Strava og «Analyser alle» tas i tillegg en egen kopi — den nyeste av dem står øverst.</p>
       <div id="backupList"></div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
@@ -3670,8 +3670,9 @@ const Store = {
     this._migrate();
     this.loadedFromPersisted = true;
     // Never waited for and never blocking: a load must not fail because its backup did. A failure is
-    // kept in BackupDB.lastError, which the Lokale sikkerhetskopier card shows.
-    if (snapshot) BackupDB.save(json, this.data.sessions.length).catch(() => {});
+    // kept in BackupDB.lastError, which the Lokale sikkerhetskopier card shows. An empty dataset has
+    // nothing to protect, and must not take the day's first-copy slot from the data that follows.
+    if (snapshot && this.data.sessions.length) BackupDB.saveDaily(json, this.data.sessions.length).catch(() => {});
     return true;
   },
 
@@ -3986,16 +3987,47 @@ const BackupDB = {
       try { result = work(tx.objectStore('backups'), track); } catch (e) { fail(e); }
     });
   },
-  // Today's copy, then a trim to the newest 7 — in the same transaction, so a failure anywhere
-  // (write, key read or a delete) leaves every stored copy exactly as it was.
-  async save(json, sessionCount) {
+  // Two kinds of copy (2026-09-28). DAILY copies are keyed by the LOCAL calendar day — localISODate()
+  // reads local getters, never toISOString(), so a new day starts at local midnight — and the newest 7
+  // are kept. «Før endring» is ONE copy under a key that can never be a date: the state right before
+  // the latest bulk change, overwritten by the next (his call: deliberately single-level).
+  BEFORE_KEY: 'før-endring',
+  _isDayKey: k => /^\d{4}-\d{2}-\d{2}$/.test(k),
+  // The FIRST state seen each day wins, so today's copy can undo a mistake made earlier today (it used
+  // to be overwritten by every load and Drive pull). Atomic: the "is today there?" read and the write
+  // share one readwrite transaction, and IndexedDB runs readwrite transactions on a store one at a
+  // time, so a second caller sees the first caller's committed copy instead of overwriting it (the
+  // template's saveDailyBackup reads and writes in two transactions and has that race). The put is
+  // queued BEFORE the trim's key read, so the trim sees the new day. → 'written' | 'exists'
+  async saveDaily(json, sessionCount) {
     const date = localISODate();
-    try {
-      await this._run('readwrite', (store, track) => {
-        track(store.put({ date, timestamp: new Date().toISOString(), sessionCount, json }, date));
-        track(store.getAllKeys(), keys => keys.sort().slice(0, -7).forEach(k => track(store.delete(k))));
+    return this._write((store, track) => {
+      let outcome = 'exists';
+      track(store.get(date), existing => {
+        if (existing) return;
+        outcome = 'written';
+        track(store.put({ kind: 'day', date, timestamp: new Date().toISOString(), sessionCount, json }, date));
+        track(store.getAllKeys(), keys => keys.filter(this._isDayKey).sort().slice(0, -7)
+          .forEach(k => track(store.delete(k))));
       });
-      this.lastError = null;
+      return () => outcome;
+    });
+  },
+  // Taken right before a bulk change; the callers stop when it fails. → 'written'
+  async saveBefore(json, sessionCount, reason) {
+    return this._write((store, track) => {
+      track(store.put({ kind: 'before', reason, date: localISODate(), timestamp: new Date().toISOString(),
+                        sessionCount, json }, this.BEFORE_KEY));
+      return () => 'written';
+    });
+  },
+  // Every backup WRITE goes through here. A failure is kept in `lastError` and rethrown; only a write
+  // that actually stored a copy clears it — a saveDaily that found today's copy already there does not.
+  async _write(work) {
+    try {
+      const outcome = await this._run('readwrite', work);
+      if (outcome === 'written') this.lastError = null;
+      return outcome;
     } catch (e) {
       this.lastError = { at: new Date().toISOString(), message: (e && (e.message || e.name)) || 'ukjent feil' };
       throw e;
@@ -4008,9 +4040,9 @@ const BackupDB = {
     const all = await this._run('readonly', (store, track) => { const r = track(store.getAll()); return () => r.result || []; });
     return all.sort((a, b) => b.date.localeCompare(a.date));
   },
-  async restore(date) {
-    const b = await this._run('readonly', (store, track) => { const r = track(store.get(date)); return () => r.result; });
-    return b?.json ?? null;
+  // The whole record (its kind, reason and counts name it in the restore confirm), or null.
+  async restore(key) {
+    return this._run('readonly', (store, track) => { const r = track(store.get(key)); return () => r.result || null; });
   }
 };
 
@@ -5607,7 +5639,7 @@ const StravaBackfill = {
       // Snapshot before a bulk mutation, same as the Slett-alle button — this writes stravaId
       // onto dozens of sessions at once, so a bad match set should be recoverable from
       // Innstillinger → Lokale sikkerhetskopier. No copy, no change: it must have LANDED first.
-      try { await BackupDB.save(Store.toJSON(), Store.data.sessions.length); }
+      try { await BackupDB.saveBefore(Store.toJSON(), Store.data.sessions.length, 'Koble gamle økter til Strava'); }
       catch { showToast('Kunne ikke ta sikkerhetskopi først — ingenting er koblet. Se Lokale sikkerhetskopier.', 'error'); return; }
       const byId = {};
       Store.data.sessions.forEach(s => byId[s.id] = s);
@@ -5619,7 +5651,10 @@ const StravaBackfill = {
       if (typeof Settings !== 'undefined' && Settings.loadContinuityFields) Settings.loadContinuityFields();
       if (saved) {
         showToast(`Koblet ${linked} økter til Strava — henter pulsdata…`, 'success');
-        Continuity.analyzeAll();   // newly-linked runs are now _needsAnalysis → metrics + trends fill in
+        // Newly-linked runs are now _needsAnalysis → metrics + trends fill in. Part of the same change as
+        // the link: the copy taken above covers it, so the analysis must not overwrite it with the
+        // post-link state (the single «før endring» slot would then hold nothing worth going back to).
+        Continuity.analyzeAll({ snapshot: false });
       } else {
         // Don't claim success, and don't spend ~40 Strava fetches analysing state that can't be
         // persisted — let the user restore the file first, then re-run from Innstillinger.
@@ -5776,7 +5811,8 @@ const Continuity = {
   // pause or a 429. Saves once per batch. Runs with missing streams are skipped/counted, never faked.
   BACKFILL_MAX_PER_BATCH: 40,
   _backfillRunning: false,
-  async analyzeAll() {
+  // `snapshot: false` only when the caller already took the «før endring» copy for this change.
+  async analyzeAll({ snapshot = true } = {}) {
     if (this._backfillRunning) return;
     const setMsg = (txt, col) => { const m = document.getElementById('contBackfillMsg'); if (m) { m.textContent = txt; m.style.color = col || 'var(--muted)'; } };
     if (!StravaIO.isSignedIn()) { setMsg('Koble til Strava først', 'var(--danger)'); return; }
@@ -5792,8 +5828,10 @@ const Continuity = {
       // Snapshot before a bulk mutation (writes stravaAnalysis onto up to BACKFILL_MAX_PER_BATCH
       // sessions), same as the Slett-alle button. No copy, no change — and inside the try, so the
       // finally below always gives the button back (a failed copy used to leave it dead).
-      try { await BackupDB.save(Store.toJSON(), Store.data.sessions.length); }
-      catch { setMsg('Kunne ikke ta sikkerhetskopi først — ingenting er analysert. Se Lokale sikkerhetskopier.', 'var(--danger)'); return; }
+      if (snapshot) {
+        try { await BackupDB.saveBefore(Store.toJSON(), Store.data.sessions.length, 'Analyser alle Strava-økter'); }
+        catch { setMsg('Kunne ikke ta sikkerhetskopi først — ingenting er analysert. Se Lokale sikkerhetskopier.', 'var(--danger)'); return; }
+      }
       for (const s of pending) {
         if (done >= this.BACKFILL_MAX_PER_BATCH) {
           if (ok) await FileIO.save();
@@ -12348,10 +12386,10 @@ const Settings = {
     });
     document.getElementById('btnDownload').addEventListener('click', () => FileIO.download());
     document.getElementById('btnClearAll').addEventListener('click', async () => {
-      if (!confirm('Slett ALLE treningsøkter? Dette kan ikke angres.')) return;
+      if (!confirm('Slett ALLE treningsøkter?\nEn kopi tas først — du finner den øverst under Innstillinger → Lokale sikkerhetskopier.')) return;
       // Snapshot the pre-clear state so it's recoverable from Lokale sikkerhetskopier — and wait for
       // it to LAND: this copy is the only way back, so no copy means nothing is deleted.
-      try { await BackupDB.save(Store.toJSON(), Store.data.sessions.length); }
+      try { await BackupDB.saveBefore(Store.toJSON(), Store.data.sessions.length, 'Tøm alle data'); }
       catch (e) { alert(`Kunne ikke ta sikkerhetskopi før slettingen — ingenting er slettet.\n\n${e?.message || e?.name || ''}`); return; }
       Store.data.sessions = [];
       Store.data.lastUpdated = new Date().toISOString();
@@ -12398,7 +12436,7 @@ const Settings = {
     try { backups = await BackupDB.getAll(); } catch (e) { readError = e; }
     if (seq !== this._backupRenderSeq) return;
     const e = BackupDB.lastError;
-    const warn = e ? `<p class="muted-sm" style="color:var(--danger);margin-bottom:8px">⚠️ Siste sikkerhetskopi feilet ${fmtDate(localISODate(new Date(e.at)))} kl. ${new Date(e.at).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}: ${escapeHtml(e.message)}</p>` : '';
+    const warn = e ? `<p class="muted-sm" style="color:var(--danger);margin-bottom:8px">⚠️ Siste sikkerhetskopi feilet ${fmtDate(localISODate(new Date(e.at)))} kl. ${this._clock(e.at)}: ${escapeHtml(e.message)}</p>` : '';
     if (readError) {
       // A list that can't be read is NOT an empty list: say so, and touch nothing.
       container.innerHTML = warn + `<p class="muted-sm" style="color:var(--danger)">Kunne ikke lese sikkerhetskopiene: ${escapeHtml(readError?.message || readError?.name || 'ukjent feil')}</p>`;
@@ -12408,23 +12446,38 @@ const Settings = {
       container.innerHTML = warn + '<p class="muted-sm">Ingen sikkerhetskopier ennå.</p>';
       return;
     }
-    container.innerHTML = warn + backups.map(b => `
+    // «Før endring» first — the newest state worth going back to — then the daily copies. Copies
+    // written before 2026-09-28 carry no `kind`; they are daily ones.
+    const before = backups.find(b => b.kind === 'before');
+    const row = (key, label, count) => `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
-        <span>${b.date} <span style="color:var(--muted);font-size:11px">(${b.sessionCount} økter)</span></span>
-        <button class="btn-secondary btn-sm" onclick="Settings.restoreBackup('${b.date}')">↩ Gjenopprett</button>
-      </div>
-    `).join('');
+        <span>${label} <span style="color:var(--muted);font-size:11px">(${count} økter)</span></span>
+        <button class="btn-secondary btn-sm" onclick="Settings.restoreBackup('${key}')">↩ Gjenopprett</button>
+      </div>`;
+    container.innerHTML = warn
+      + (before ? row(BackupDB.BEFORE_KEY, this._backupLabel(before), before.sessionCount) : '')
+      + backups.filter(b => b.kind !== 'before').map(b => row(b.date, fmtDate(b.date), b.sessionCount)).join('');
+  },
+  _clock: iso => new Date(iso).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' }),
+  _backupLabel(b) {
+    return b.kind === 'before'
+      ? `Før «${escapeHtml(b.reason || 'endring')}» · ${fmtDate(b.date)} kl. ${this._clock(b.timestamp)}`
+      : fmtDate(b.date);
   },
 
-  async restoreBackup(date) {
-    if (!confirm(`Gjenopprett sikkerhetskopi fra ${date}?\nNåværende data overskrives.`)) return;
-    let json;
-    try { json = await BackupDB.restore(date); }
+  // By key: a date for a daily copy, BackupDB.BEFORE_KEY for «før endring». Read first, so the
+  // confirm can say exactly what comes back.
+  async restoreBackup(key) {
+    let rec;
+    try { rec = await BackupDB.restore(key); }
     catch (e) { alert(`Kunne ikke lese sikkerhetskopien — ingenting er endret.\n\n${e?.message || e?.name || ''}`); return; }
-    if (!json) { alert('Kunne ikke laste sikkerhetskopi.'); return; }
-    // snapshot:false — restoring the 09.09 backup must not rewrite TODAY's with 09.09's contents.
-    // Backups are keyed by date, so that would spend the newest snapshot to recover an older one.
-    if (!Store.load(json, { snapshot: false })) return;
+    if (!rec?.json) { alert('Kunne ikke laste sikkerhetskopi.'); return; }
+    const what = rec.kind === 'before'
+      ? `kopien fra før «${rec.reason || 'endring'}» (${fmtDate(rec.date)} kl. ${this._clock(rec.timestamp)}, ${rec.sessionCount} økter)`
+      : `sikkerhetskopien fra ${fmtDate(rec.date)} (${rec.sessionCount} økter)`;
+    if (!confirm(`Gjenopprett ${what}?\nNåværende data overskrives.`)) return;
+    // snapshot:false — restoring the 09.09 backup must not also count as today's first state.
+    if (!Store.load(rec.json, { snapshot: false })) return;
     await FileIO.save();
     refreshAll();
     this.renderBackupList();
@@ -13635,6 +13688,13 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('popstate', e => {
     const tab = e.state?.tab || window.location.hash.slice(1);
     switchTab(VALID_TABS.includes(tab) ? tab : 'form', true);
+  });
+  // A tab left open past midnight takes the new day's first copy when it is SHOWN again, before
+  // anything is edited. Never on hide (his call, 2026-09-28): a copy taken then would already hold
+  // that visit's changes. saveDaily writes only when today's copy is missing.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !Store.data.sessions.length) return;
+    BackupDB.saveDaily(Store.toJSON(), Store.data.sessions.length).catch(() => {});
   });
   const hashTab = window.location.hash.slice(1);
   const initialTab = VALID_TABS.includes(hashTab) ? hashTab : 'form';

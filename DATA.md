@@ -126,8 +126,11 @@ Syk/Ferie/Deload/Taper events **explain gaps and dips in the volume charts** —
   storage. A failed write shows a persistent red sync state plus a message — never "Lagret". Bulk
   operations check this and won't claim success (or spend Strava API calls) on unsaved state.
 - **Bulk writes snapshot first.** Linking old sessions to Strava and the analyse-all backfill both
-  write a `BackupDB` snapshot before mutating, like the Slett-alle button — recoverable from
-  Innstillinger → Lokale sikkerhetskopier (daily, last 7). **All three stop without changing
+  write a `BackupDB` «før endring» copy before mutating, like the Slett-alle button — recoverable
+  from Innstillinger → Lokale sikkerhetskopier. That copy is ONE slot, overwritten by the next bulk
+  change (the link and the analysis it starts count as one). The daily copies are separate: the
+  FIRST state of each local calendar day, the newest 7 kept (2026-09-28 — until then every load
+  overwrote today's). **All three stop without changing
   anything when that snapshot fails** (2026-09-28): the failure used to be swallowed, so a bulk
   write could run with no copy to go back to. A failed backup write is shown on that card until a
   later write succeeds; ordinary saves and loads are never blocked by a backup.
