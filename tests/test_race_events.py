@@ -1498,8 +1498,9 @@ with sync_playwright() as b0:
     check("distance, time and pace lead the panel",
           full['lead'], [['6.92 km', 'distanse'], ['0:39:47', 'tid'], ['5:45 /km', 'tempo']])
     # Exactly the six rows that moved up are gone — the rest in their old order, nothing else lost.
+    # No «Stigning» although this run stores stigning:1: the incline was retired the same day.
     check("...and the list keeps every other row, in its old order",
-          full['rows'], ['Snitt km/t', 'HR snitt / topp', 'Stigning', 'Sko', 'RPE'])
+          full['rows'], ['Snitt km/t', 'HR snitt / topp', 'Sko', 'RPE'])
     bare = pg.evaluate(HEAD, 'bare')
     check("a run with only a time leads with only the time", bare['lead'], [['0:30:00', 'tid']])
     check("...and with no plan, the plan is simply left out", bare['meta'], 'søndag 09.08.2026 · Easy · Utendørs')

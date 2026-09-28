@@ -1,14 +1,16 @@
-"""Stigning/Høydemeter are venue-exclusive — verify neither leaks onto the wrong venue. (2026-08-06)
+"""Høydemeter is outdoor-only — verify it never leaks onto a treadmill run. (2026-08-06, reworked 2026-09-27)
 
 Standalone, not in run_all.py (needs Playwright + WebKit):
     python tests/test_venue_fields.py
 
-The bug this locks down: clear() seeded Stigning with the 1 % indoor default BEFORE the venue was
-settled, and the venue change only ever *hid* the field, never emptied it. So logging an outdoor run
-straight after a treadmill one saved a phantom `stigning: 1` on the outdoor session. The rule lived in
-four places (clear, applyVenueForType, the #fLopetype onchange, the edit path); it now lives in
-Form.syncVenueFields and the save is venue-guarded as well, so the invariant holds even if the form
-misbehaves.
+The bug this suite was written for: clear() seeded the treadmill incline (Stigning) with its 1 %
+default BEFORE the venue was settled, and the venue change only ever *hid* a field, never emptied it,
+so an outdoor run logged straight after a treadmill one saved a phantom `stigning: 1`. The rule lived
+in four places; it now lives in Form.syncVenueFields, and the save is venue-guarded as well.
+
+The incline itself was RETIRED on 2026-09-27 (his call: 1 % or 1.5 % on every belt run, read by
+nothing). It is retired, not deleted: the form no longer asks and nothing shows or exports it, but an
+old run's recorded value stays in the file — including through an edit, which section 5 pins.
 """
 import pathlib, sys
 sys.stdout.reconfigure(encoding='utf-8')
@@ -55,62 +57,62 @@ with sync_playwright() as p:
     errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
 
-    # ---- 1. fresh form after a TREADMILL run: indoor, seeded 1 %
+    # ---- 1. fresh form after a TREADMILL run: nothing venue-specific to fill in
     print("== new form, last run was indoor ==")
     boot(pg, "treadmill")
     check("venue follows the last run", pg.input_value("#fLopetype"), "treadmill")
-    check("stigning seeded to 1", pg.input_value("#fStigning"), "1")
-    check("stigning visible", pg.locator("#stigningGroup").is_visible(), True)
     check("høydemeter hidden", pg.locator("#hoydeMeterGroup").is_visible(), False)
+    check("there is no incline field anywhere (retired 2026-09-27)",
+          pg.locator("#fStigning, #stigningGroup").count(), 0)
 
-    # ---- 2. THE BUG: fresh form after an OUTDOOR run must not carry the indoor default
-    print("== new form, last run was outdoor (the regression) ==")
+    # ---- 2. fresh form after an OUTDOOR run
+    print("== new form, last run was outdoor ==")
     boot(pg, "utendors")
     check("venue follows the last run", pg.input_value("#fLopetype"), "utendors")
-    check("stigning NOT seeded", pg.input_value("#fStigning"), "")
-    check("stigning hidden", pg.locator("#stigningGroup").is_visible(), False)
     check("høydemeter visible", pg.locator("#hoydeMeterGroup").is_visible(), True)
-
-    # and what actually gets saved
-    saved = pg.evaluate("() => { const r = Form.read(); return { stigning: r.stigning, hoyde: r.hoydeMeter, venue: r['l\\u00f8petype'] }; }")
-    check("outdoor session saves no stigning", saved["stigning"], None)
+    # No `stigning` KEY at all, not a null one — section 5 is why that difference matters.
+    saved = pg.evaluate("() => { const r = Form.read(); return { has: 'stigning' in r, venue: r['l\\u00f8petype'] }; }")
+    check("a save carries no incline key", saved["has"], False)
     check("outdoor session venue", saved["venue"], "utendors")
 
-    # ---- 3. switching venue by hand keeps the pair exclusive, both ways
+    # ---- 3. switching venue by hand: Høydemeter is emptied whenever it hides
     print("== switching venue by hand ==")
+    pg.fill("#fHoydeMeter", "250")
     pg.select_option("#fLopetype", "treadmill")
     pg.wait_for_timeout(150)
-    check("switching to indoor seeds 1 %", pg.input_value("#fStigning"), "1")
-    # set the now-hidden outdoor field directly — Playwright cannot fill an invisible input, and
-    # planting a stale value there is exactly the state the guard has to survive
-    pg.evaluate("() => { document.getElementById('fHoydeMeter').value = '250'; }")
+    check("switching to indoor hides høydemeter", pg.locator("#hoydeMeterGroup").is_visible(), False)
+    check("...and empties it", pg.input_value("#fHoydeMeter"), "")
     pg.select_option("#fLopetype", "utendors")
     pg.wait_for_timeout(150)
-    check("switching out empties stigning", pg.input_value("#fStigning"), "")
-    pg.select_option("#fLopetype", "treadmill")
-    pg.wait_for_timeout(150)
-    check("switching back empties høydemeter", pg.input_value("#fHoydeMeter"), "")
+    check("switching back shows it again, empty",
+          (pg.locator("#hoydeMeterGroup").is_visible(), pg.input_value("#fHoydeMeter")), (True, ""))
 
-    # ---- 4. the seed only fills a BLANK field, never overwrites a typed one
-    print("== a typed value wins over the default ==")
-    pg.fill("#fStigning", "3")
-    pg.evaluate("() => Form.syncVenueFields(true)")   # re-sync without leaving the venue
-    check("re-syncing indoor keeps a typed 3", pg.input_value("#fStigning"), "3")
-
-    # ---- 5. the save guard holds even if the form is forced into a bad state
+    # ---- 4. the save guard holds even if the form is forced into a bad state
     print("== save guard is independent of the form ==")
     pg.evaluate("""() => {
-      document.getElementById('fLopetype').value = 'utendors';
-      document.getElementById('fStigning').value = '1';   // force the old bug's state
-    }""")
-    forced = pg.evaluate("() => { const r = Form.read(); return [r.stigning, r.hoydeMeter]; }")
-    check("forced stigning is dropped on an outdoor save", forced[0], None)
-    pg.evaluate("""() => {
       document.getElementById('fLopetype').value = 'treadmill';
-      document.getElementById('fHoydeMeter').value = '250';
+      document.getElementById('fHoydeMeter').value = '250';   // planted: Playwright cannot fill a hidden input
     }""")
-    forced2 = pg.evaluate("() => { const r = Form.read(); return [r.stigning, r.hoydeMeter]; }")
-    check("forced høydemeter is dropped on an indoor save", forced2[1], None)
+    check("forced høydemeter is dropped on an indoor save", pg.evaluate("() => Form.read().hoydeMeter"), None)
+
+    # ---- 5. RETIRED, NOT DELETED: an old run keeps its recorded incline through an edit
+    # updateSession MERGES the form's fields into the stored session. read() has no `stigning` key,
+    # so the stored value survives; a `stigning: null` in read() would have wiped each of his 62
+    # recorded values the first time that run was edited, with nothing on screen to show it.
+    print("== an old run keeps its recorded incline through an edit ==")
+    pg.on("dialog", lambda d: d.accept())
+    pg.evaluate("""() => {
+      const s = Store.data.sessions.find(x => x.id === 'seed1');
+      s['l\\u00f8petype'] = 'treadmill'; s.stigning = 1.5;
+      Form.editSession('seed1');
+    }""")
+    pg.wait_for_timeout(200)
+    pg.fill("#fOktnavn", "Endret navn")
+    pg.evaluate("() => Form.save()")
+    pg.wait_for_timeout(300)
+    after = pg.evaluate("() => { const s = Store.data.sessions.find(x => x.id === 'seed1'); return [s.oktnavn, s.stigning]; }")
+    check("control: the edit really was saved", after[0], "Endret navn")
+    check("...and the recorded 1.5 % is still stored", after[1], 1.5)
 
     check("no page errors", errs, [])
     pg.close()
@@ -381,7 +383,6 @@ with sync_playwright() as p:
 
     # Scoped by input TYPE, so every number field is covered — not just the one that was reported.
     check("the fix is not distance-only", typed("#fMalDistanse", "7,5"), "7.5")
-    check("...and reaches Stigning too", typed("#fStigning", "1,5"), "1.5")
 
     # A comma must NOT be rewritten in a text field, where it is a legitimate character.
     check("text fields keep their commas",
@@ -427,9 +428,9 @@ with sync_playwright() as p:
     pg.close()
 
     # ── Logg's HØYDE column: outdoor metres only (his call, 2026-09-27) ─────────────────────────
-    # It used to fall back to the treadmill incline, so one column mixed % and m — and the incline is
-    # ~1 % on nearly every belt run. Treadmill rows are blank now. The incline must still be in the
-    # run's detail view and the export: "out of this column" must not quietly become "gone".
+    # It used to fall back to the treadmill incline, so one column mixed % and m. Treadmill rows are
+    # blank now — and since the incline was retired the same day, it is gone from the detail view and
+    # the export too, while the outdoor climb stays in both and the stored value stays in the file.
     print("== Logg HØYDE: outdoor metres only ==")
     pg = b.new_page(viewport={"width": 1700, "height": 900})   # above 1600 px every column is shown
     herr = []
@@ -490,14 +491,18 @@ with sync_playwright() as p:
     # tell the property's absence apart.
     check("digits are tabular", 'tabular-nums' in align['tabular'], True)
 
-    pg.evaluate("() => DetailPanel.openSession('belte')")
-    pg.wait_for_timeout(300)
-    check("the incline is still in the run's detail view",
-          pg.evaluate("""() => [...document.querySelectorAll('#detailBody .dp-kv')]
-              .map(r => [...r.children].map(c => c.textContent.trim()).join(' ')).includes('Stigning 1%')"""), True)
-    check("...and in the export",
-          pg.evaluate("""() => String(TSV_COLS.find(c => c[0] === 'Stigning (%)')[1](
-              Store.data.sessions.find(s => s.id === 'belte')))"""), '1')
+    # Retired, not deleted: shown and exported nowhere, still in the stored data. Outdoor climb stays.
+    ROWS = """(id) => { DetailPanel.openSession(id);
+      return [...document.querySelectorAll('#detailBody .dp-kv .dp-key')].map(k => k.textContent.trim()); }"""
+    belt, out = pg.evaluate(ROWS, 'belte'), pg.evaluate(ROWS, 'ute')
+    check("control: the detail view rendered its rows", len(belt) > 0, True)
+    check("a treadmill run's detail view no longer shows the incline", 'Stigning' in belt, False)
+    check("an outdoor run's detail view still shows its climb", 'Høydemeter' in out, True)
+    cols = pg.evaluate("() => TSV_COLS.map(c => c[0])")
+    check("the export has no incline column, and keeps the elevation one",
+          ('Stigning (%)' in cols, 'Høydemeter (m)' in cols), (False, True))
+    check("...while the recorded value is still in the file",
+          pg.evaluate("() => Store.data.sessions.find(s => s.id === 'belte').stigning"), 1)
     check("no page errors in the log", herr, [])
     pg.close()
 

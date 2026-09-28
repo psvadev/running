@@ -908,7 +908,7 @@
       </div>
       <div class="form-group">
         <label>Løpetype</label>
-        <select id="fLopetype" onchange="Form.syncVenueFields(true)">
+        <select id="fLopetype" onchange="Form.syncVenueFields()">
           <option value="utendors">Utendørs</option>
           <option value="treadmill" selected>Tredemølle</option>
         </select>
@@ -990,10 +990,6 @@
       <div class="form-group">
         <label>Snitt km/t <span style="color:var(--accent);font-size:10px">auto</span></label>
         <input type="text" id="fSnittkmh" placeholder="–" readonly>
-      </div>
-      <div class="form-group" id="stigningGroup">
-        <label>Stigning (%)</label>
-        <input type="number" id="fStigning" step="0.5" min="0" max="20" placeholder="1.0" inputmode="decimal">
       </div>
       <div class="form-group" id="hoydeMeterGroup" style="display:none">
         <label>Høydemeter (m)</label>
@@ -2310,7 +2306,6 @@ const TSV_COLS = [
   ['Kalorier',       s => s.kalorier || ''],
   ['Tempo (min/km)', s => s.tempo ? secsToMmSs(s.tempo) : ''],
   ['Snitt km/t',     s => s.snittkmh != null ? s.snittkmh.toFixed(1) : ''],
-  ['Stigning (%)',   s => s.stigning != null ? s.stigning : ''],
   ['Høydemeter (m)', s => s.hoydeMeter != null ? s.hoydeMeter : ''],
   ['Sko',            s => s.sko || ''],
   ['RPE',            s => s.rpe || ''],
@@ -6381,24 +6376,15 @@ const Form = {
     });
   },
 
-  // The single place that decides what the venue-dependent fields look like. This rule used to be
-  // written out in THREE — clear(), applyVenueForType() and the #fLopetype onchange — each mirroring
-  // it slightly differently, which is exactly how the 1 % default came to be applied before the venue
-  // was settled and then leak onto outdoor runs.
-  //
-  // Two rules, together so they cannot diverge:
-  //   1. The hidden field is always EMPTIED. Stigning (%) and Høydemeter (m) are mutually exclusive
-  //      (DATA.md), and a value you cannot see must never reach the save.
-  //   2. Indoor seeds 1 %, because every treadmill run is done at 1 % or more. Only on a fresh/blank
-  //      field, never when editing, and never over something already typed.
-  syncVenueFields(seedDefault) {
+  // The single place that decides what the venue-dependent field looks like: Høydemeter is outdoor
+  // climb only (DATA.md), so it shows for an outdoor run and is EMPTIED for a treadmill one — a value
+  // you cannot see must never reach the save. This rule once lived in THREE places, and it used to
+  // manage the treadmill incline as well, which is how a 1 % default leaked onto outdoor runs. The
+  // incline was retired on 2026-09-27 (his call: at a constant 1–1.5 % it said nothing).
+  syncVenueFields() {
     const isTM = document.getElementById('fLopetype').value === 'treadmill';
-    const stig = document.getElementById('fStigning');
-    document.getElementById('stigningGroup').style.display = isTM ? '' : 'none';
     document.getElementById('hoydeMeterGroup').style.display = isTM ? 'none' : '';
     if (isTM) document.getElementById('fHoydeMeter').value = '';
-    else stig.value = '';
-    if (isTM && seedDefault && !this.editId && !stig.value) stig.value = '1';
   },
 
   // Venue autofill — only the deterministic case: Tempo & Intervaller are always run indoors, so
@@ -6412,7 +6398,7 @@ const Form = {
     const el = document.getElementById('fLopetype');
     if (el.value === 'treadmill') return;
     el.value = 'treadmill';
-    this.syncVenueFields(true);
+    this.syncVenueFields();
     this.applyShoeDefault();
   },
 
@@ -6442,12 +6428,10 @@ const Form = {
       malDistanse: parseFloat(document.getElementById('fMalDistanse').value) || null,
       tempo: mmSsToSecs(document.getElementById('fTempo').value) || null,
       snittkmh: parseFloat(document.getElementById('fSnittkmh').value) || null,  // set by autoCalcPace
-      // Venue-guarded, because the FIELDS are only hidden, never emptied, when the venue changes —
-      // and `clear()` seeds Stigning with the 1 % default before the venue is even settled. Without
-      // this guard, logging an outdoor run right after a treadmill one saved a phantom `stigning: 1`
-      // on it. Stigning (%) and Høydemeter (m) are mutually exclusive by design (DATA.md), so the
-      // save is the right place to enforce it: the invariant then holds whatever the form did.
-      stigning: isTreadmill ? (Math.min(parseFloat(document.getElementById('fStigning').value) || 0, 20) || null) : null,
+      // Venue-guarded here as well as in syncVenueFields, so outdoor-only holds whatever the form did.
+      // There is deliberately NO `stigning` key (the incline was retired 2026-09-27): updateSession
+      // MERGES into the stored session, so a missing key keeps an older run's recorded incline through
+      // an edit, where `stigning: null` would have wiped it. Nothing reads it any more.
       hoydeMeter: !isTreadmill ? (parseInt(document.getElementById('fHoydeMeter').value) || null) : null,
       sko: document.getElementById('fSko').value,
       løpetype: lopetype,
@@ -6492,11 +6476,8 @@ const Form = {
     document.getElementById('fTempo').value = s.tempo ? secsToMmSs(s.tempo) : '';
     document.getElementById('fSnittkmh').value = s.snittkmh || '';
     document.getElementById('fLopetype').value = s.løpetype || 'utendors';
-    document.getElementById('fStigning').value = s.stigning ?? '';
     document.getElementById('fHoydeMeter').value = s.hoydeMeter ?? '';
-    // Same single rule: shows the field this venue owns and empties the other. `false` = never seed
-    // the 1 % default while editing — an existing session's incline is whatever it was recorded as.
-    this.syncVenueFields(false);
+    this.syncVenueFields();   // the same single rule: Høydemeter shows for outdoor, empties for treadmill
     document.getElementById('fRpe').value = s.rpe || '';
     document.getElementById('fKarbohydrat').value = s.karbohydrat ?? '';   // ?? so a stored 0 shows
     this.syncPlanFields();
@@ -6551,8 +6532,8 @@ const Form = {
   // the moment it is added, with no threshold copied into JS to drift out of sync.
   //
   // ⚠️ EVERY numeric field is checked, including the hidden one. The first version skipped
-  // invisible fields, on the theory that a venue-hidden Stigning/Høydemeter is not saved — but
-  // read() drops them by VENUE, not by visibility, and the two can disagree: a hidden Høydemeter of
+  // invisible fields, on the theory that a venue-hidden field is not saved — but read() drops
+  // Høydemeter by VENUE, not by visibility, and the two can disagree: a hidden Høydemeter of
   // -50 was skipped here and still stored. Visibility is the wrong axis. Nothing is needed in its
   // place, because syncVenueFields always EMPTIES the hidden field (its rule 1, pinned by
   // test_venue_fields), and an empty optional field is valid — so it can never block a save.
@@ -6617,7 +6598,7 @@ const Form = {
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
-     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fStigning','fHoydeMeter','fRpe','fKarbohydrat','fBeskrivelse','fNotater','fLand','fStravaId'].forEach(id => {
+     'fKalorier','fMalDistanse','fTempo','fSnittkmh','fHoydeMeter','fRpe','fKarbohydrat','fBeskrivelse','fNotater','fLand','fStravaId'].forEach(id => {
       document.getElementById(id).value = '';
     });
     markLandInput();
@@ -6630,7 +6611,7 @@ const Form = {
     this.planTouched = false;
     document.getElementById('fTreningsplan').value = DEFAULT_PLAN;
     this.syncPlanForType();       // Økt-type survives a save, so a race form must re-derive its plan
-    this.syncVenueFields(true);   // visibility + the 1 % indoor seed, decided together
+    this.syncVenueFields();       // Høydemeter shown or emptied by venue
     this.lastAutoOktnavn = '';
     this.applyPlannedDefault();   // Økt-type + Mål distanse from that day's imported Runna plan (if any)
     this.applyVenueForType();     // Tempo/Intervaller → Tredemølle (after the type is known)
@@ -6740,9 +6721,9 @@ const Log = {
         ? `<span class="badge badge-indoor" title="Tredemølle">⚙️</span>`
         : `<span class="badge badge-outdoor" title="Utendørs">🏃</span>`;
       // HØYDE is outdoor climb in metres only (his call, 2026-09-27). It used to fall back to the
-      // treadmill incline, so one column mixed % and m — and the incline is ~1 % on nearly every belt
-      // run. The incline stays in the run's detail view, the form and the export. Checked by venue,
-      // not only by the field, so an older row carrying both cannot put metres on a treadmill run.
+      // treadmill incline, so one column mixed % and m — and the incline was 1–1.5 % on every belt
+      // run; it was retired altogether the same day. Checked by venue, not only by the field, so an
+      // older row carrying both cannot put metres on a treadmill run.
       return `<tr onclick="Log.rowClick(event, '${s.id}')"${s.utenforAnalyse ? ' style="opacity:.55" title="Avvik — holdt utenfor analyse"' : ''}>
         <td><input type="checkbox" class="log-row-chk" data-id="${s.id}"></td>
         <td>${fmtDate(s.dato)}</td>
@@ -8946,7 +8927,6 @@ const DetailPanel = {
       ['Snitt km/t',     s.snittkmh ? s.snittkmh+' km/t' : null],
       ['HR snitt / topp',(s.gjsnittspuls||s.toppuls) ? [s.gjsnittspuls, s.toppuls].filter(Boolean).join(' / ') : null],
       ['Kalorier',       s.kalorier ? s.kalorier+' kcal' : null],
-      ['Stigning',       s.stigning ? s.stigning+'%' : null],
       ['Høydemeter',     s.hoydeMeter ? s.hoydeMeter+' m' : null],
       ['Sko',            s.sko  || null],
       ['RPE',            s.rpe  ? `<span style="font-weight:600;color:${rpeColor(s.rpe)}">${s.rpe}/10</span>` : null, true],
@@ -11032,8 +11012,8 @@ const StravaImport = {
       document.getElementById('fDistanse').value = (a.distance / 1000).toFixed(2);
 
       // Løpetype first — dispatching 'change' reuses the existing inline handler that
-      // shows/hides stigningGroup/hoydeMeterGroup and clears the other, so this must
-      // happen before elevation/stigning are set below or they'd get wiped.
+      // shows or empties hoydeMeterGroup by venue, so this must happen before the
+      // elevation is set below or it would get wiped.
       document.getElementById('fLopetype').value = a.trainer ? 'treadmill' : 'utendors';
       document.getElementById('fLopetype').dispatchEvent(new Event('change'));
 
