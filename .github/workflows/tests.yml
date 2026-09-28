@@ -157,3 +157,6 @@ jobs:
 
       - name: Event markers — which charts draw them
         run: python tests/test_event_markers.py
+
+      - name: Local backups — failures shown, risky actions blocked
+        run: python tests/test_backups.py

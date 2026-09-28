@@ -127,7 +127,10 @@ Syk/Ferie/Deload/Taper events **explain gaps and dips in the volume charts** —
   operations check this and won't claim success (or spend Strava API calls) on unsaved state.
 - **Bulk writes snapshot first.** Linking old sessions to Strava and the analyse-all backfill both
   write a `BackupDB` snapshot before mutating, like the Slett-alle button — recoverable from
-  Innstillinger → Lokale sikkerhetskopier (daily, last 7).
+  Innstillinger → Lokale sikkerhetskopier (daily, last 7). **All three stop without changing
+  anything when that snapshot fails** (2026-09-28): the failure used to be swallowed, so a bulk
+  write could run with no copy to go back to. A failed backup write is shown on that card until a
+  later write succeeds; ordinary saves and loads are never blocked by a backup.
 - **A load must look like a dataset.** `Store.load()` validates the parsed shape *before* adopting
   it; a JSON array, `null`, or a primitive is rejected with the existing data left intact. (Such a
   file used to be adopted wholesale and then serialised back as `[]`, wiping the real data.)

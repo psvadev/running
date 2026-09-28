@@ -3669,7 +3669,9 @@ const Store = {
     if (!this.data.shoes) this.data.shoes = [];
     this._migrate();
     this.loadedFromPersisted = true;
-    if (snapshot) BackupDB.save(json, this.data.sessions.length);
+    // Never waited for and never blocking: a load must not fail because its backup did. A failure is
+    // kept in BackupDB.lastError, which the Lokale sikkerhetskopier card shows.
+    if (snapshot) BackupDB.save(json, this.data.sessions.length).catch(() => {});
     return true;
   },
 
@@ -3930,55 +3932,85 @@ const HandleDB = {
   }
 };
 
+// Local backups. A backup that did not land must never look like one that did (2026-09-28, ported
+// from the template's audit): every failure REJECTS, a failed write is kept in `lastError` for the
+// Lokale sikkerhetskopier card, and the actions that snapshot before a bulk change stop when their
+// copy fails. It used to swallow everything (`catch {}`), and a transaction that aborted after its
+// write succeeded — a quota failure at commit — left save() waiting forever.
 const BackupDB = {
+  // The last failed backup WRITE, `{ at, message }` or null. Only a successful write clears it: a
+  // read, a restore or a re-render must never take down the warning it exists to show.
+  lastError: null,
+  _dbp: null,
+  // One connection, reused. A failed open is not cached, so the next call tries again.
   _open() {
-    return new Promise((res, rej) => {
+    return this._dbp ??= new Promise((res, rej) => {
       const r = indexedDB.open('lpl_backups', 1);
-      r.onupgradeneeded = e => e.target.result.createObjectStore('backups');
-      r.onsuccess = e => res(e.target.result);
-      r.onerror = () => rej(r.error);
+      r.onupgradeneeded = () => r.result.createObjectStore('backups');
+      r.onsuccess = () => {
+        const db = r.result;
+        db.onversionchange = () => { db.close(); this._dbp = null; };   // never block another tab's upgrade
+        res(db);
+      };
+      r.onerror = e => { e.preventDefault(); rej(r.error); };
+    }).catch(e => { this._dbp = null; throw e; });
+  },
+  // Runs `work(store, track)` in ONE transaction and settles exactly once: when it has committed, or
+  // with the first error. Every request goes through `track(req, then)` — `then(result)` runs on its
+  // success (inside a try, so a throw there fails the transaction instead of escaping). A failed
+  // request records its own error, aborts the transaction so nothing else in it commits, and rejects
+  // with that error. Its preventDefault() only keeps Firefox from ALSO reporting it as uncaught:
+  // preventing the event stops IndexedDB's own abort, so without the explicit abort + reject the
+  // transaction would go on to commit and read as a success. `work` may return a function whose value
+  // becomes the result once the transaction has committed.
+  async _run(mode, work) {
+    const db = await this._open();
+    return new Promise((resolve, reject) => {
+      let settled = false, reqError = null, tx, result;
+      const settle = (fn, v) => { if (!settled) { settled = true; fn(v); } };
+      const fail = err => {
+        reqError = reqError || err || new DOMException('Sikkerhetskopien feilet', 'UnknownError');
+        try { tx && tx.abort(); } catch { /* already committed or aborting — the error below is the report */ }
+        settle(reject, reqError);
+      };
+      const track = (req, then) => {
+        req.onerror = e => { e.preventDefault(); fail(req.error); };
+        if (then) req.onsuccess = () => { try { then(req.result); } catch (e) { fail(e); } };
+        return req;
+      };
+      try { tx = db.transaction('backups', mode); } catch (e) { return fail(e); }
+      tx.oncomplete = () => reqError ? settle(reject, reqError)
+                                     : settle(resolve, typeof result === 'function' ? result() : undefined);
+      tx.onerror = () => fail(tx.error);
+      tx.onabort = () => fail(tx.error || new DOMException('Sikkerhetskopien ble avbrutt', 'AbortError'));
+      try { result = work(tx.objectStore('backups'), track); } catch (e) { fail(e); }
     });
   },
+  // Today's copy, then a trim to the newest 7 — in the same transaction, so a failure anywhere
+  // (write, key read or a delete) leaves every stored copy exactly as it was.
   async save(json, sessionCount) {
+    const date = localISODate();
     try {
-      const db = await this._open();
-      const date = localISODate();
-      await new Promise((res, rej) => {
-        const tx = db.transaction('backups', 'readwrite');
-        tx.objectStore('backups').put({ date, timestamp: new Date().toISOString(), sessionCount, json }, date);
-        tx.oncomplete = res; tx.onerror = rej;
+      await this._run('readwrite', (store, track) => {
+        track(store.put({ date, timestamp: new Date().toISOString(), sessionCount, json }, date));
+        track(store.getAllKeys(), keys => keys.sort().slice(0, -7).forEach(k => track(store.delete(k))));
       });
-      const all = await this.getAll();
-      if (all.length > 7) {
-        const db2 = await this._open();
-        const toDelete = all.slice(7);
-        await new Promise((res, rej) => {
-          const tx = db2.transaction('backups', 'readwrite');
-          toDelete.forEach(b => tx.objectStore('backups').delete(b.date));
-          tx.oncomplete = res; tx.onerror = rej;
-        });
-      }
-    } catch { /* ignore */ }
+      this.lastError = null;
+    } catch (e) {
+      this.lastError = { at: new Date().toISOString(), message: (e && (e.message || e.name)) || 'ukjent feil' };
+      throw e;
+    } finally {
+      if (typeof Settings !== 'undefined') Settings.renderBackupList();
+    }
   },
+  // Rejects when the store can't be read — a caller must never show that as "no backups".
   async getAll() {
-    try {
-      const db = await this._open();
-      return await new Promise(res => {
-        const r = db.transaction('backups').objectStore('backups').getAll();
-        r.onsuccess = () => res((r.result || []).sort((a, b) => b.date.localeCompare(a.date)));
-        r.onerror = () => res([]);
-      });
-    } catch { return []; }
+    const all = await this._run('readonly', (store, track) => { const r = track(store.getAll()); return () => r.result || []; });
+    return all.sort((a, b) => b.date.localeCompare(a.date));
   },
   async restore(date) {
-    try {
-      const db = await this._open();
-      return await new Promise(res => {
-        const r = db.transaction('backups').objectStore('backups').get(date);
-        r.onsuccess = () => res(r.result?.json ?? null);
-        r.onerror = () => res(null);
-      });
-    } catch { return null; }
+    const b = await this._run('readonly', (store, track) => { const r = track(store.get(date)); return () => r.result; });
+    return b?.json ?? null;
   }
 };
 
@@ -5574,8 +5606,9 @@ const StravaBackfill = {
     try {
       // Snapshot before a bulk mutation, same as the Slett-alle button — this writes stravaId
       // onto dozens of sessions at once, so a bad match set should be recoverable from
-      // Innstillinger → Lokale sikkerhetskopier.
-      await BackupDB.save(Store.toJSON(), Store.data.sessions.length);
+      // Innstillinger → Lokale sikkerhetskopier. No copy, no change: it must have LANDED first.
+      try { await BackupDB.save(Store.toJSON(), Store.data.sessions.length); }
+      catch { showToast('Kunne ikke ta sikkerhetskopi først — ingenting er koblet. Se Lokale sikkerhetskopier.', 'error'); return; }
       const byId = {};
       Store.data.sessions.forEach(s => byId[s.id] = s);
       let linked = 0;
@@ -5753,12 +5786,14 @@ const Continuity = {
     const btn = document.getElementById('contBackfillBtn');
     this._backfillRunning = true;
     if (btn) btn.disabled = true;
-    // Snapshot before a bulk mutation (writes stravaAnalysis onto up to BACKFILL_MAX_PER_BATCH
-    // sessions), same as the Slett-alle button.
-    await BackupDB.save(Store.toJSON(), Store.data.sessions.length);
     const total = pending.length;
     let ok = 0, noData = 0, done = 0;
     try {
+      // Snapshot before a bulk mutation (writes stravaAnalysis onto up to BACKFILL_MAX_PER_BATCH
+      // sessions), same as the Slett-alle button. No copy, no change — and inside the try, so the
+      // finally below always gives the button back (a failed copy used to leave it dead).
+      try { await BackupDB.save(Store.toJSON(), Store.data.sessions.length); }
+      catch { setMsg('Kunne ikke ta sikkerhetskopi først — ingenting er analysert. Se Lokale sikkerhetskopier.', 'var(--danger)'); return; }
       for (const s of pending) {
         if (done >= this.BACKFILL_MAX_PER_BATCH) {
           if (ok) await FileIO.save();
@@ -12312,10 +12347,12 @@ const Settings = {
       FileIO.openNew(); refreshAll(); this.render();
     });
     document.getElementById('btnDownload').addEventListener('click', () => FileIO.download());
-    document.getElementById('btnClearAll').addEventListener('click', () => {
+    document.getElementById('btnClearAll').addEventListener('click', async () => {
       if (!confirm('Slett ALLE treningsøkter? Dette kan ikke angres.')) return;
-      // Snapshot the pre-clear state so it's recoverable from Lokale sikkerhetskopier.
-      BackupDB.save(Store.toJSON(), Store.data.sessions.length);
+      // Snapshot the pre-clear state so it's recoverable from Lokale sikkerhetskopier — and wait for
+      // it to LAND: this copy is the only way back, so no copy means nothing is deleted.
+      try { await BackupDB.save(Store.toJSON(), Store.data.sessions.length); }
+      catch (e) { alert(`Kunne ikke ta sikkerhetskopi før slettingen — ingenting er slettet.\n\n${e?.message || e?.name || ''}`); return; }
       Store.data.sessions = [];
       Store.data.lastUpdated = new Date().toISOString();
       FileIO.save(); refreshAll(); this.render();
@@ -12350,15 +12387,28 @@ const Settings = {
     if (dst && src) { dst.textContent = src.textContent; dst.className = src.className; }
   },
 
+  _backupRenderSeq: 0,
   async renderBackupList() {
     const container = document.getElementById('backupList');
     if (!container) return;
-    const backups = await BackupDB.getAll();
-    if (!backups.length) {
-      container.innerHTML = '<p class="muted-sm">Ingen sikkerhetskopier ennå.</p>';
+    // Renders overlap (every backup write triggers one); only the newest may write the card, and it
+    // reads BackupDB.lastError AFTER its own read, so an older render can't bring back a stale state.
+    const seq = ++this._backupRenderSeq;
+    let backups = null, readError = null;
+    try { backups = await BackupDB.getAll(); } catch (e) { readError = e; }
+    if (seq !== this._backupRenderSeq) return;
+    const e = BackupDB.lastError;
+    const warn = e ? `<p class="muted-sm" style="color:var(--danger);margin-bottom:8px">⚠️ Siste sikkerhetskopi feilet ${fmtDate(localISODate(new Date(e.at)))} kl. ${new Date(e.at).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}: ${escapeHtml(e.message)}</p>` : '';
+    if (readError) {
+      // A list that can't be read is NOT an empty list: say so, and touch nothing.
+      container.innerHTML = warn + `<p class="muted-sm" style="color:var(--danger)">Kunne ikke lese sikkerhetskopiene: ${escapeHtml(readError?.message || readError?.name || 'ukjent feil')}</p>`;
       return;
     }
-    container.innerHTML = backups.map(b => `
+    if (!backups.length) {
+      container.innerHTML = warn + '<p class="muted-sm">Ingen sikkerhetskopier ennå.</p>';
+      return;
+    }
+    container.innerHTML = warn + backups.map(b => `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
         <span>${b.date} <span style="color:var(--muted);font-size:11px">(${b.sessionCount} økter)</span></span>
         <button class="btn-secondary btn-sm" onclick="Settings.restoreBackup('${b.date}')">↩ Gjenopprett</button>
@@ -12368,7 +12418,9 @@ const Settings = {
 
   async restoreBackup(date) {
     if (!confirm(`Gjenopprett sikkerhetskopi fra ${date}?\nNåværende data overskrives.`)) return;
-    const json = await BackupDB.restore(date);
+    let json;
+    try { json = await BackupDB.restore(date); }
+    catch (e) { alert(`Kunne ikke lese sikkerhetskopien — ingenting er endret.\n\n${e?.message || e?.name || ''}`); return; }
     if (!json) { alert('Kunne ikke laste sikkerhetskopi.'); return; }
     // snapshot:false — restoring the 09.09 backup must not rewrite TODAY's with 09.09's contents.
     // Backups are keyed by date, so that would spend the newest snapshot to recover an older one.
