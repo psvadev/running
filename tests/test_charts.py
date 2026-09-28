@@ -452,20 +452,21 @@ with sync_playwright() as pw:
     AXES = """(names) => names.map(n => { const c = Charts[n]; if (!c) return { n, missing: true };
       const x = c.scales.x;
       return { n, width: c.width, rot: Math.round(x.labelRotation), labels: c.data.labels,
-               ticks: x.ticks.map(t => ({ v: t.value, l: t.label })),
+               sets: c.data.datasets.length, ticks: x.ticks.map(t => ({ v: t.value, l: t.label })),
                title: x.options.title && x.options.title.display ? x.options.title.text : null }; })"""
-    # The tooltip title of one bar, raised the way a hover raises it.
-    TIP = """([n, i]) => { const c = Charts[n];
-      c.tooltip.setActiveElements([{ datasetIndex: 0, index: i }], { x: 0, y: 0 }); c.update('none');
+    # The tooltip title of one bar, raised the way a hover raises it — on the first dataset that has
+    # a value there (Årssammenligning's 2025 line has none in January).
+    TIP = """([n, i]) => { const c = Charts[n], d = Math.max(0, c.data.datasets.findIndex(s => s.data[i] != null));
+      c.tooltip.setActiveElements([{ datasetIndex: d, index: i }], { x: 0, y: 0 }); c.update('none');
       const t = c.tooltip.title; c.tooltip.setActiveElements([], { x: 0, y: 0 }); c.update('none'); return t; }"""
 
     def axes(page, width):
         # Polled: Chart.js resizes a beat after the viewport does, and a scale read mid-resize still
-        # carries the old width's rotation.
+        # carries the old width's rotation. The last entry is Årssammenligning.
         page.set_viewport_size({"width": width, "height": 900})
         for _ in range(40):
             page.wait_for_timeout(150)
-            a = page.evaluate(AXES, WEEKLY)
+            a = page.evaluate(AXES, WEEKLY + ['yearComp'])
             if all(not x.get('missing') and x['width'] <= width for x in a):
                 break
         return a
@@ -482,7 +483,17 @@ with sync_playwright() as pw:
     pg4.evaluate("() => switchTab('dash')")
     pg4.wait_for_timeout(700)
     for width in (1280, 402):
-        a = axes(pg4, width)
+        *a, y = axes(pg4, width)
+        # Årssammenligning (2026-09-28, his go): its x is the week of the YEAR, one axis for every
+        # year's line, so the title is «uke» alone — the legend names the years. Read with .get():
+        # a missing chart must fail these checks, not crash the suite before the rest run (#31).
+        check(f"{width} px — Årssammenligning: control, both years drawn and labelled",
+              (y.get('sets', 0) >= 2, len(y.get('ticks', [])) >= 5), (True, True))
+        check(f"{width} px — Årssammenligning: flat, with «uke» once under the axis",
+              (y.get('rot'), y.get('title')), (0, 'uke'))
+        check(f"{width} px — Årssammenligning: each tick is its column's week, zero-padded",
+              [(t['l'], y['labels'][t['v']]) for t in y.get('ticks', [])
+               if f"Uke {t['l']}" != y['labels'][t['v']]][:2], [])
         check(f"{width} px — control: all eight weekly charts rendered, 26 weeks each",
               [(x['n'], len(x.get('labels', []))) for x in a], [(n, 26) for n in WEEKLY])
         check(f"{width} px — every week axis is flat", {x['n']: x['rot'] for x in a if x['rot']}, {})
@@ -504,6 +515,8 @@ with sync_playwright() as pw:
     check("control: week 2026-01 is in view", i >= 0, True)
     check("the tooltip keeps the full week: Pulssoner (its default title)", pg4.evaluate(TIP, ['zones', i]), ["Uke 01 '26"])
     check("...and Ukentlig distanse (its own title)", pg4.evaluate(TIP, ['weeklyDist', i]), ["Uke 01 '26"])
+    check("...and Årssammenligning names its first column «Uke 01», padded like the rest",
+          pg4.evaluate(TIP, ['yearComp', 0]), ["Uke 01"])
     pg4.set_viewport_size({"width": 1280, "height": 900})
     pg4.wait_for_function("() => Charts.weeklyDist.width > 1000", timeout=6000)
     pg4.click("#distToggleMaaned")
