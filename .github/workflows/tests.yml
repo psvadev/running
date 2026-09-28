@@ -160,3 +160,6 @@ jobs:
 
       - name: Local backups — failures shown, risky actions blocked
         run: python tests/test_backups.py
+
+      - name: Content-Security-Policy — data only to the app's own hosts, none missed
+        run: python tests/test_csp.py

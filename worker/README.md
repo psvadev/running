@@ -28,6 +28,7 @@ CORS is locked to the app's origin via the `ALLOWED_ORIGINS` allowlist at the to
 ### 5. Get the URL and wire it up
 - The worker's overview page shows its live URL (e.g. `https://puls-strava-auth.<your-subdomain>.workers.dev`)
 - In `puls.html` → **Innstillinger → Strava**, paste in the **Client ID** (step 1) and this **Worker URL**, then click "Koble til Strava"
+- **Running your own copy of `puls.html`?** Also put this worker's host in `connect-src` in the `Content-Security-Policy` meta tag at the top of `puls.html` (and in `WORKER` in `tests/test_csp.py`). The page only talks to the worker its policy names, so any other Worker URL is blocked by the browser — "Koble til Strava" would fail with a CSP error in the console
 
 ### Redeploying after code changes
 Repeat step 3 (Edit code → paste updated `index.js` → Save and deploy). The secret persists — no need to re-add it.
@@ -46,7 +47,7 @@ npx wrangler deploy
 - `wrangler secret put` — prompts you to paste the Strava app's Client Secret; stored in Cloudflare's environment, never committed to git.
 - `wrangler deploy` — uploads `index.js`, prints the live URL.
 
-Paste that URL into Innstillinger → Strava → Worker URL in the app.
+Paste that URL into Innstillinger → Strava → Worker URL in the app — and, for your own copy of `puls.html`, add its host to the Content-Security-Policy as in step 5 above.
 
 ### Redeploying after code changes
 Just re-run `npx wrangler deploy` — the secret persists across deploys.

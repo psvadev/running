@@ -2,6 +2,17 @@
 <html lang="no">
 <head>
 <meta charset="UTF-8">
+<!-- Content-Security-Policy: where this page may load scripts from and send data to (2026-09-28).
+     'unsafe-inline' has to stay — the main script and the on…= handlers are inline — so this does not
+     stop an injected inline script. What it limits is where data can go: connect-src names every host
+     the app talks to (Google Drive and sign-in, Strava, GitHub for the version footer, the Strava
+     worker), so the Drive/Strava tokens in localStorage cannot be sent anywhere else by fetch, image
+     or form. (A page navigation still could; a CSP does not cover that.)
+     ⚠️ The worker is named EXACTLY: a different Worker URL typed into Innstillinger → Strava is blocked
+     until its host is added here too. Deliberate — only the known worker may receive a token. A fork
+     that deploys its own worker adds its host here. So does any new fetch() target, or it fails on the
+     live site; tests/test_csp.py fails first. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://www.strava.com https://api.github.com https://puls-strava-auth.petter-cerb.workers.dev; object-src 'none'; base-uri 'none'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Puls</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏃</text></svg>">
