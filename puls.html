@@ -1549,6 +1549,7 @@
            browser's own «Browse… No file selected.», the one unstyled control on the page. -->
       <button class="btn-secondary btn-sm" id="btnPickIcs" type="button">📥 Velg .ics-fil</button>
       <input type="file" id="runnaIcsFile" accept=".ics,text/calendar" style="display:none">
+      <button class="btn-secondary btn-sm" id="btnPlanNames" style="display:none">Hent navn fra planen</button>
       <button class="btn-secondary btn-sm" id="btnClearPlanned" style="display:none">Fjern importerte</button>
     </div>
     <div id="plannedImportMsg" style="font-size:12px;margin-bottom:10px"></div>
@@ -2828,6 +2829,24 @@ function plannedTitle(p) {
 function hasGenericName(s) {
   const n = (s.oktnavn || '').trim().toLowerCase().replace(/ run$/, '');
   return !n || n === `${s.treningsplan} ${s.okttype}`.toLowerCase();
+}
+
+// Older runs whose name says nothing of its own, each with the named workout the imported plan says it
+// was (his ask, 2026-09-29: «all intervals are called the same regardless of regular, pyramids, broken
+// miles»). Local — the plan already holds the names, so no Strava request. Only the same workout: the
+// same type, or Runna's record of that day's COMPLETED workout, whose type is a guess from prose
+// (parseRunnaIcs — a completed «Broken Miles» reads Easy). Never a race: its name is its 🏁 event's or
+// his. → [{ s, name }], oldest first
+function planNameRenames() {
+  const planned = Store.data.plannedSessions || [];
+  const matchOf = matchPlannedSessions(planned);
+  const byId = new Map(Store.data.sessions.map(s => [s.id, s]));
+  return planned.flatMap(p => {
+    const s = byId.get(matchOf[p.id]), name = plannedTitle(p);
+    if (!s || !name || s.okttype === 'Race' || !hasGenericName(s)) return [];
+    const sameWorkout = s.okttype === p.okttype || (p.fromCompleted && s.dato === p.date);
+    return sameWorkout ? [{ s, name }] : [];
+  }).sort((a, b) => a.s.dato.localeCompare(b.s.dato));
 }
 
 // True if a date (YYYY-MM-DD string) falls inside a registered Sykdom/Ferie event window; returns
@@ -12399,6 +12418,7 @@ const Settings = {
     document.getElementById('runnaIcsFile').addEventListener('change', e => this.importRunnaIcs(e));
     document.getElementById('btnPickIcs').addEventListener('click', () => document.getElementById('runnaIcsFile').click());
     document.getElementById('btnClearPlanned').addEventListener('click', () => this.clearPlanned());
+    document.getElementById('btnPlanNames').addEventListener('click', () => this.namesFromPlan());
     // ⛽ chips, delegated on the list — it is re-rendered on every expand, import and match, so a
     // per-chip listener would either be lost or, bound here per render, stack one deep per redraw.
     document.getElementById('plannedList').addEventListener('click', e => {
@@ -13441,14 +13461,41 @@ const Settings = {
     this.renderPlannedList();
   },
 
+  // «Hent navn fra planen»: older runs named «Runna Intervaller» take their workout's name from the
+  // imported plan. planNameRenames decides which; this shows every rename before anything changes,
+  // then takes the «før endring» copy — no copy, no change, like «Tøm alle data» — and writes.
+  async namesFromPlan() {
+    const renames = planNameRenames();
+    if (!renames.length) return;
+    const SHOW = 40;
+    const lines = renames.slice(0, SHOW).map(r => `${fmtDate(r.s.dato)}  ${r.s.oktnavn || '(uten navn)'} → ${r.name}`);
+    if (renames.length > SHOW) lines.push(`…og ${okter(renames.length - SHOW)} til`);
+    if (!confirm(`Gi ${okter(renames.length)} navn fra planen?\n\n${lines.join('\n')}\n\n`
+      + 'Andre navn røres ikke. En kopi tas først — du finner den øverst under Innstillinger → Lokale sikkerhetskopier.')) return;
+    try { await BackupDB.saveBefore(Store.toJSON(), Store.data.sessions.length, 'Navn fra planen'); }
+    catch (e) { alert(`Kunne ikke ta sikkerhetskopi — ingen navn er endret.\n\n${e?.message || e?.name || ''}`); return; }
+    renames.forEach(r => { r.s.oktnavn = r.name; });
+    Store.data.lastUpdated = new Date().toISOString();
+    FileIO.save();
+    refreshAll();
+    showToast(`${okter(renames.length)} fikk navn fra planen`, 'success');
+  },
+
   renderPlannedList() {
     const listEl = document.getElementById('plannedList');
     const adhEl = document.getElementById('plannedAdherence');
     const clearBtn = document.getElementById('btnClearPlanned');
+    const namesBtn = document.getElementById('btnPlanNames');
     if (!listEl) return;
     const today = localISODate();
     const all = (Store.data.plannedSessions || []);
     if (clearBtn) clearBtn.style.display = all.length ? '' : 'none';
+    // Offered only while a run is left to name — once every name is taken, the button goes.
+    const toName = all.length ? planNameRenames().length : 0;
+    if (namesBtn) {
+      namesBtn.style.display = toName ? '' : 'none';
+      namesBtn.textContent = `Hent navn fra planen (${okter(toName)})`;
+    }
 
     // ONE block's sessions, never a merged bucket. Imports are additive, so the store holds every
     // block ever imported; this card shows the block you are running now — or, between blocks, the

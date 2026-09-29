@@ -1559,6 +1559,125 @@ with sync_playwright() as b0:
     check("no page errors in the detail header", perr, [])
     pg.close()
 
+    # ── Older runs take their workout's name from the plan (his ask, 2026-09-29) ──────────────────
+    # «All intervals are called the same regardless of regular, pyramids, broken miles» — the imported
+    # plan already holds each workout's name, so one button in Planlagte økter renames the older runs,
+    # locally, after a «før endring» copy. Only a run the matcher pairs with a NAMED workout (not «Easy
+    # Run»); only the same workout — the same type, or Runna's record of that day's COMPLETED workout,
+    # whose type is a guess from prose (a completed «Broken Miles» reads Easy); only a name that says
+    # nothing of its own; never a race. Each run below is the only thing between its rule and a rename,
+    # one week each, so no pairing can borrow another week's run.
+    print("== older runs take their workout's name from the plan ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    nerr = []
+    pg.on("pageerror", lambda e: nerr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      const run = (id, dato, okttype, oktnavn, treningsplan = 'Runna', distanse = 6) => ({ id, dato, uke: '',
+        oktnavn, okttype, treningsplan, løpetype: 'utendors', distanse, varighet: 2400, soner: [0,0,0,0,0] });
+      const plan = (id, date, okttype, title, distance = 6, fromCompleted = false) =>
+        ({ id, date, okttype, title, distance, fromCompleted });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [
+          run('L', '2026-06-14', 'Long', '', 'Runna', 14),                       // blank              → renamed
+          run('K', '2026-06-17', 'Intervaller', 'Runna Intervaller'),            // nothing planned    → stays
+          run('A', '2026-06-23', 'Intervaller', 'Runna Intervaller'),            // generated          → renamed
+          run('B', '2026-06-30', 'Tempo', 'Runna tempo run', 'Runna', 7),        // his older spelling → renamed
+          run('D', '2026-07-02', 'Easy', 'Runna Easy'),                          // «Easy Run» planned → stays
+          run('C', '2026-07-05', 'Long', 'Runna Long', 'Runna', 12),             // generated          → renamed
+          run('E', '2026-07-07', 'Intervaller', 'Runna intervaller'),            // completed, same day → renamed
+          run('F', '2026-07-09', 'Intervaller', 'Bakkeintervaller', 'Runna', 5), // typed              → stays
+          run('G', '2026-07-14', 'Easy', 'Runna Easy', 'Runna', 8),              // ran easy instead   → stays
+          run('H', '2026-07-22', 'Intervaller', 'Runna Intervaller', 'Runna', 5), // completed, next day → stays
+          run('I', '2026-07-25', 'Race', '', 'Runna', 10),                       // a race             → stays
+          run('J', '2026-07-28', 'Intervaller', '', 'Egentrening')],             // Egentrening        → stays
+        plannedSessions: [
+          plan('pL', '2026-06-14', 'Long', 'Block Long Run', 14),
+          plan('pA', '2026-06-23', 'Intervaller', 'Drop Set'),
+          plan('pB', '2026-06-30', 'Tempo', 'Progressive Run', 7),
+          plan('pD', '2026-07-02', 'Easy', 'Easy Run'),
+          plan('pC', '2026-07-05', 'Long', 'Progressive Long Run', 12),
+          plan('pE', '2026-07-07', 'Easy', 'Broken Miles', 6, true),
+          plan('pF', '2026-07-09', 'Intervaller', '400m Repeats', 5),
+          plan('pG', '2026-07-14', 'Intervaller', 'Broken Miles', 8),
+          plan('pH', '2026-07-21', 'Easy', 'Drop Set', 5, true),
+          plan('pI', '2026-07-25', 'Race', 'Sentrumsløpet', 10),
+          plan('pJ', '2026-07-28', 'Intervaller', 'Fast 8-4-2s')],
+        shoes: [], goals: {}, events: [], settings: { zones: [] }, lastUpdated: '' }));
+    }""")
+    pg.goto(APP)
+    pg.evaluate("() => switchTab('plan')")
+    pg.wait_for_timeout(400)
+    BEFORE = {'L': '', 'K': 'Runna Intervaller', 'A': 'Runna Intervaller', 'B': 'Runna tempo run',
+              'D': 'Runna Easy', 'C': 'Runna Long', 'E': 'Runna intervaller', 'F': 'Bakkeintervaller',
+              'G': 'Runna Easy', 'H': 'Runna Intervaller', 'I': '', 'J': ''}
+    RENAMED = {'L': 'Block Long Run', 'A': 'Drop Set', 'B': 'Progressive Run', 'C': 'Progressive Long Run',
+               'E': 'Broken Miles'}
+    NAMES = "() => Object.fromEntries(Store.data.sessions.map(s => [s.id, s.oktnavn]))"
+    BTN = """() => { const b = document.getElementById('btnPlanNames');
+      return b ? [getComputedStyle(b).display !== 'none', b.textContent.trim()] : 'MISSING'; }"""
+    COPY = """async () => { const r = await BackupDB.restore(BackupDB.BEFORE_KEY);
+      return r && [r.reason, Object.fromEntries(JSON.parse(r.json).sessions.map(s => [s.id, s.oktnavn]))]; }"""
+    check("control: the fixture loaded as written", pg.evaluate(NAMES), BEFORE)
+    check("the button offers the five runs", pg.evaluate(BTN), [True, 'Hent navn fra planen (5 økter)'])
+    check("...and they are these five, each with its workout's name",
+          pg.evaluate("() => typeof planNameRenames === 'function' ? planNameRenames().map(r => [r.s.id, r.name]) : 'MISSING'"),
+          [[k, RENAMED[k]] for k in ('L', 'A', 'B', 'C', 'E')])
+
+    dialogs = []
+
+    def answer(accept):
+        def h(d):
+            dialogs.append((d.type, d.message))
+            d.accept() if accept else d.dismiss()
+        return h
+
+    def click_names(accept):
+        dialogs.clear()
+        h = answer(accept)
+        pg.on("dialog", h)
+        pg.evaluate("() => document.getElementById('btnPlanNames')?.click()")
+        pg.wait_for_timeout(600)
+        pg.remove_listener("dialog", h)
+        return list(dialogs)
+
+    asked = click_names(False)
+    msg = asked[0][1] if asked else ''
+    check("the confirm names the count first", msg.split('\n')[0], 'Gi 5 økter navn fra planen?')
+    check("...then every rename, oldest first, old name → new",
+          [l for l in msg.split('\n') if l[:2].isdigit()],     # the dated lines — the footer has a → too
+          ['14.06.2026  (uten navn) → Block Long Run', '23.06.2026  Runna Intervaller → Drop Set',
+           '30.06.2026  Runna tempo run → Progressive Run', '05.07.2026  Runna Long → Progressive Long Run',
+           '07.07.2026  Runna intervaller → Broken Miles'])
+    check("cancel changes nothing", pg.evaluate(NAMES), BEFORE)
+    check("...and takes no copy", pg.evaluate(COPY), None)
+
+    # The copy is the only way back, so no copy means no change — the same rule as «Tøm alle data».
+    pg.evaluate("""() => { window.__saveBefore = BackupDB.saveBefore;
+      BackupDB.saveBefore = async () => { throw new DOMException('Disken er full', 'QuotaExceededError'); }; }""")
+    asked = click_names(True)
+    check("a copy that fails renames nothing", pg.evaluate(NAMES), BEFORE)
+    check("...and says so", [t for t, _ in asked] == ['confirm', 'alert']
+          and asked[1][1].startswith('Kunne ikke ta sikkerhetskopi — ingen navn er endret'), True)
+    pg.evaluate("() => { BackupDB.saveBefore = window.__saveBefore; }")
+
+    check("control: nothing has dated the data yet", pg.evaluate("() => Store.data.lastUpdated"), '')
+    click_names(True)
+    check("accepting renames exactly those five — every other name as it was",
+          pg.evaluate(NAMES), {**BEFORE, **RENAMED})
+    check("the «før endring» copy holds every name from before", pg.evaluate(COPY), ['Navn fra planen', BEFORE])
+    check("the change is dated", pg.evaluate("() => !!Store.data.lastUpdated"), True)
+    check("the toast says what happened",
+          '5 økter fikk navn fra planen' in pg.evaluate("() => [...document.querySelectorAll('.toast')].map(t => t.textContent)"),
+          True)
+    check("the button is gone — nothing left to rename", pg.evaluate(BTN)[0], False)
+    pg.goto(APP)
+    pg.wait_for_timeout(500)
+    check("the new names survive a reload", pg.evaluate(NAMES), {**BEFORE, **RENAMED})
+    check("no page errors while renaming", nerr, [])
+    pg.close()
+
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))
