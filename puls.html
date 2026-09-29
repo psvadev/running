@@ -2808,13 +2808,17 @@ function matchPlannedSessions(planned) {
   return matchOf;
 }
 
+// Runna's names for a session with no workout of its own — they only restate the okttype column. One
+// list for both readers: the plan card hides them, and a Strava title that is one of them does not
+// replace «Runna Easy» (a fetched easy run would otherwise read «Easy Run» beside older «Runna Easy»).
+const GENERIC_WORKOUT_TITLES = ['easy run', 'long run', 'recovery run', 'tempo run', 'tempo', 'threshold run',
+  'intervals', 'interval session', 'race', 'test', 'time trial'];
+
 // A planned session's display title, minus the redundant "<Type> Run" phrasing that just restates the
 // okttype column (keeps flavored names like "Rolling 300s" / "Progressive Long Run" / "400m Repeats").
 function plannedTitle(p) {
   const t = (p.title || '').trim();
-  const generic = ['easy run', 'long run', 'recovery run', 'tempo run', 'tempo', 'threshold run',
-    'intervals', 'interval session', 'race', 'test', 'time trial'];
-  return generic.includes(t.toLowerCase()) ? '' : t;
+  return GENERIC_WORKOUT_TITLES.includes(t.toLowerCase()) ? '' : t;
 }
 
 // True if a date (YYYY-MM-DD string) falls inside a registered Sykdom/Ferie event window; returns
@@ -11137,10 +11141,13 @@ const StravaImport = {
       // Remember which Strava activity filled this session so an edit can re-pull it later.
       document.getElementById('fStravaId').value = a.id;
       // …and its title: Runna names the workout there («Pyramid Intervals»), which says more than the
-      // generated «Runna Intervaller» (his call, 2026-09-29). maybeAutoName decides whether the field
-      // may change — a typed name, a race's 🏁 event and an edit all win over it.
+      // generated «Runna Intervaller» (his call, 2026-09-29). Not Strava's time-of-day default, nor
+      // Runna's generic «Easy Run» — easy and long runs have no name of their own, so they keep
+      // «Runna Easy». maybeAutoName decides whether the field may change — a typed name, a race's 🏁
+      // event and an edit all win over it.
       const title = (a.name || '').trim();
-      Form.stravaTitle = STRAVA_DEFAULT_TITLE.test(title) ? '' : title;
+      Form.stravaTitle = STRAVA_DEFAULT_TITLE.test(title) || GENERIC_WORKOUT_TITLES.includes(title.toLowerCase())
+        ? '' : title;
       Form.maybeAutoName();
       document.getElementById('fDistanse').value = (a.distance / 1000).toFixed(2);
 

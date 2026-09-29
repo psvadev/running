@@ -520,6 +520,12 @@ with sync_playwright() as p:
     check("Strava's time-of-day names are no title — the generated name stays",
           [named(title=t)[1] for t in ('Morning Run', 'Ettermiddagsløp')], ['Runna Intervaller'] * 2)
     check("...and neither is a blank one", named(title='   ')[1], 'Runna Intervaller')
+    # His point: «regular easy and long runs got no extra sub title». Runna's Strava title for those is
+    # the generic «Easy Run»/«Long Run» — the same words the plan card hides (plannedTitle) — so they
+    # keep the generated name, and old and new easy runs read alike.
+    check("Runna's generic «Easy Run» / «Long Run» is no title either — «Runna Easy» / «Runna Long» stay",
+          [named(type='Easy', title='Easy Run')[1], named(type='Long', title='Long Run')[1]],
+          ['Runna Easy', 'Runna Long'])
     check("Egentrening, which had no generated name, gets the title",
           named(plan='Egentrening', title='Tur med Kari')[1], 'Tur med Kari')
     check("a race keeps its 🏁 event's name", named(dato='2026-10-03', type='Race', title='10K race')[1],
