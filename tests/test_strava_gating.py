@@ -2,6 +2,7 @@
 
 Standalone — NOT part of run_all.py. Run directly:
     python tests/test_strava_gating.py      (needs Playwright + WebKit)
+    PW_ENGINE=firefox python tests/test_strava_gating.py  (also chromium; firefox is his main browser)
 
 WHY THIS SUITE EXISTS: this behaviour is invisible to the app's only user. His Strava is permanently
 connected, so the disconnected state is one he will never see and can never report a regression in.
@@ -17,12 +18,13 @@ Two properties that are easy to break and cost nothing to assert:
 Not connected is the default state of a fresh profile, so the disconnected half needs no setup.
 The connected half fakes a stored token — StravaIO.isSignedIn() only checks for a refresh_token.
 """
-import pathlib, sys
+import os, pathlib, sys
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
 
 # Relative to this file, not the repo checkout path — CI clones somewhere else entirely.
 APP = (pathlib.Path(__file__).resolve().parent.parent / "puls.html").as_uri()
+ENGINE = os.environ.get("PW_ENGINE", "webkit")
 HINT = 'Koble til Strava i Innstillinger først'
 passed = failed = 0
 
@@ -47,7 +49,8 @@ STATE = """() => {
 }"""
 
 with sync_playwright() as p:
-    b = p.webkit.launch()
+    b = getattr(p, ENGINE).launch()
+    print(f"engine: {ENGINE}")
     pg = b.new_page()
     pg.goto(APP)
     pg.evaluate("() => switchTab('settings')")
@@ -476,6 +479,69 @@ with sync_playwright() as p:
         check(f"{tz}: a morning, an afternoon and a late-evening run all read 20.11.2026",
               tp.evaluate(PICK), ['20.11.2026'] * 3)
         ctx.close()
+
+    # ── A fetched run takes its Strava title as Øktnavn (his call, 2026-09-29) ──────────────────────
+    # Runna names the workout on Strava («Pyramid Intervals»), which says more than the generated
+    # «Runna Intervaller» — whose two halves the log already shows in its PLAN column and type badge.
+    # New runs only. A typed name, a race's 🏁 event name and an edit all still win, and Strava's
+    # time-of-day fallback («Morning Run») is no title, so the generated name stays. Driven through the
+    # real _populate with its two extra Strava requests answered in-page; Form.read() is what a save
+    # would store.
+    print("== a fetched run takes its Strava title ==")
+    tp = b.new_page()
+    tp.goto(APP)
+    tp.evaluate("""() => {
+      StravaIO.fetchActivityDetail = async () => ({ description: '' });
+      StravaIO.fetchZones = async () => null;
+      Store.data.events = [{ id: 'r1', type: 'race', date: '2026-10-03', title: 'Sentrumsløpet 10K' }];
+      switchTab('form');
+    }""")
+    NAME = """async ({ dato, type, plan, typed, title, after }) => {
+      Form.clear();
+      const set = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('change')); };
+      set('fDato', dato); set('fOkttype', type); set('fTreningsplan', plan);
+      if (typed) document.getElementById('fOktnavn').value = typed;
+      const before = document.getElementById('fOktnavn').value;
+      await StravaImport._populate({ id: 7, name: title, distance: 7780, moving_time: 2932,
+                                     average_speed: 2.65, trainer: true, has_heartrate: false });
+      if (after) set('fOkttype', after);
+      return [before, Form.read().oktnavn];
+    }"""
+
+    def named(**kw):
+        return tp.evaluate(NAME, {**dict(dato='2026-09-29', type='Intervaller', plan='Runna', typed='',
+                                         title='Pyramid Intervals', after=''), **kw})
+
+    before, name = named()
+    check("control: before the fetch the name is the generated «Runna Intervaller»", before, 'Runna Intervaller')
+    check("a fetched run takes its Strava title", name, 'Pyramid Intervals')
+    check("...and keeps it when the type is changed afterwards", named(after='Tempo')[1], 'Pyramid Intervals')
+    check("a name typed before the fetch is kept", named(typed='Bakkeintervaller')[1], 'Bakkeintervaller')
+    check("Strava's time-of-day names are no title — the generated name stays",
+          [named(title=t)[1] for t in ('Morning Run', 'Ettermiddagsløp')], ['Runna Intervaller'] * 2)
+    check("...and neither is a blank one", named(title='   ')[1], 'Runna Intervaller')
+    check("Egentrening, which had no generated name, gets the title",
+          named(plan='Egentrening', title='Tur med Kari')[1], 'Tur med Kari')
+    check("a race keeps its 🏁 event's name", named(dato='2026-10-03', type='Race', title='10K race')[1],
+          'Sentrumsløpet 10K')
+    check("a race with no 🏁 event takes the Strava title rather than a blank",
+          named(dato='2026-10-10', type='Race', title='Tønsberg 10K')[1], 'Tønsberg 10K')
+    named()   # leaves «Pyramid Intervals» as the last fetched title
+    check("a cleared form does not carry the last run's title over", tp.evaluate("""() => {
+      Form.clear();
+      const set = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('change')); };
+      set('fDato', '2026-09-30'); set('fOkttype', 'Easy'); set('fTreningsplan', 'Runna');
+      return document.getElementById('fOktnavn').value; }"""), 'Runna Easy')
+    check("«Oppdater fra Strava» on a saved run leaves its name alone", tp.evaluate("""async () => {
+      Store.data.sessions = [{ id: 'e1', dato: '2026-09-22', uke: '2026-39', oktnavn: 'Runna Easy', okttype: 'Easy',
+        treningsplan: 'Runna', varighet: 2700, distanse: 7, soner: [0,0,0,0,0], stravaId: 7 }];
+      Form.editSession('e1');
+      await StravaImport._populate({ id: 7, name: 'Recovery Run', distance: 7000, moving_time: 2700,
+                                     average_speed: 2.6, trainer: false, has_heartrate: false });
+      const n = Form.read().oktnavn;
+      Form.cancelEdit();
+      return n; }"""), 'Runna Easy')
+    tp.close()
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))

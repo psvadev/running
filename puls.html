@@ -6161,6 +6161,7 @@ const Form = {
   shoeTouched: false,   // a hand-picked shoe is final for the rest of this form — same rule as planTouched
   pendingGearId: null,  // Strava gear this form could not match; save() links it to the shoe he picks
   stravaGear: null,     // the imported activity's gear, kept only to compare against the chosen shoe
+  stravaTitle: '',      // the imported activity's own title ('' = none, or Strava's time-of-day default)
 
   init() {
     document.getElementById('fDato').value = localISODate();
@@ -6250,8 +6251,11 @@ const Form = {
   },
 
   // A race is named by its 🏁 event or by you — never by the programme, which is what produced the
-  // meaningless "Runna Race". With no event registered the field is CLEARED rather than left holding
-  // the previous type's "Runna Easy": a stale generated name on a race is worse than a blank one.
+  // meaningless "Runna Race". With no event registered it takes the run's Strava title, else the
+  // field is CLEARED rather than left holding the previous type's "Runna Easy": a stale generated
+  // name on a race is worse than a blank one.
+  // Any other run fetched from Strava takes the activity's own title (his call, 2026-09-29) — the
+  // workout's name, where «Runna Intervaller» only repeats the plan and type shown beside it.
   //
   // Either way only a name this function generated is touched — anything typed is left alone.
   maybeAutoName() {
@@ -6261,7 +6265,9 @@ const Form = {
     let generated = null;   // null = leave the field alone entirely; '' = clear it
     if (type === 'Race') {
       const evt = raceEventOn(document.getElementById('fDato').value);
-      generated = (evt && evt.title) ? evt.title : '';
+      generated = (evt && evt.title) ? evt.title : this.stravaTitle;
+    } else if (this.stravaTitle) {
+      generated = this.stravaTitle;
     } else if (type && plan && plan !== 'Egentrening') {
       generated = `${plan} ${type}`;
     }
@@ -6706,6 +6712,7 @@ const Form = {
     this.shoeTouched = false;     // a new form owes nothing to the last form's hand-pick
     this.pendingGearId = null;
     this.stravaGear = null;
+    this.stravaTitle = '';        // before maybeAutoName below: a new form owes nothing to the last run
     const shoeHint = document.getElementById('shoeSrcHint');
     if (shoeHint) shoeHint.textContent = '';
     this.applyShoeDefault();      // ⚠️ AFTER the plan prefill: the shoe rule reads Økt-type, and on a
@@ -11030,6 +11037,11 @@ function updateStravaFetchVisibility() {
   if (rescan) rescan.style.display = on ? '' : 'none';
 }
 
+// Strava names every activity; with nothing better it uses the time of day, in the athlete's language.
+// That says nothing about the workout, so it must not replace «Runna Easy». The Norwegian forms are a
+// best guess at Strava's wording — the English ones are certain.
+const STRAVA_DEFAULT_TITLE = /^(morning|lunch|afternoon|evening|night) run$|^(morgen|formiddags|lunsj|ettermiddags|kvelds|natt)løp$/i;
+
 const StravaImport = {
   activities: [],
 
@@ -11124,6 +11136,12 @@ const StravaImport = {
     try {
       // Remember which Strava activity filled this session so an edit can re-pull it later.
       document.getElementById('fStravaId').value = a.id;
+      // …and its title: Runna names the workout there («Pyramid Intervals»), which says more than the
+      // generated «Runna Intervaller» (his call, 2026-09-29). maybeAutoName decides whether the field
+      // may change — a typed name, a race's 🏁 event and an edit all win over it.
+      const title = (a.name || '').trim();
+      Form.stravaTitle = STRAVA_DEFAULT_TITLE.test(title) ? '' : title;
+      Form.maybeAutoName();
       document.getElementById('fDistanse').value = (a.distance / 1000).toFixed(2);
 
       // Løpetype first — dispatching 'change' reuses the existing inline handler that
