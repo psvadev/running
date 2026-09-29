@@ -483,10 +483,10 @@ with sync_playwright() as p:
     # ── A fetched run takes its Strava title as Øktnavn (his call, 2026-09-29) ──────────────────────
     # Runna names the workout on Strava («Pyramid Intervals»), which says more than the generated
     # «Runna Intervaller» — whose two halves the log already shows in its PLAN column and type badge.
-    # New runs only. A typed name, a race's 🏁 event name and an edit all still win, and Strava's
-    # time-of-day fallback («Morning Run») is no title, so the generated name stays. Driven through the
-    # real _populate with its two extra Strava requests answered in-page; Form.read() is what a save
-    # would store.
+    # A typed name and a race's 🏁 event name still win, and Strava's time-of-day fallback («Morning
+    # Run») is no title, so the generated name stays. A saved run takes it only through «Oppdater fra
+    # Strava» (the last checks below). Driven through the real _populate with its two extra Strava
+    # requests answered in-page; Form.read() is what a save would store.
     print("== a fetched run takes its Strava title ==")
     tp = b.new_page()
     tp.goto(APP)
@@ -538,15 +538,45 @@ with sync_playwright() as p:
       const set = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('change')); };
       set('fDato', '2026-09-30'); set('fOkttype', 'Easy'); set('fTreningsplan', 'Runna');
       return document.getElementById('fOktnavn').value; }"""), 'Runna Easy')
-    check("«Oppdater fra Strava» on a saved run leaves its name alone", tp.evaluate("""async () => {
-      Store.data.sessions = [{ id: 'e1', dato: '2026-09-22', uke: '2026-39', oktnavn: 'Runna Easy', okttype: 'Easy',
-        treningsplan: 'Runna', varighet: 2700, distanse: 7, soner: [0,0,0,0,0], stravaId: 7 }];
+
+    # «Oppdater fra Strava» on a saved run brings its title too (his ask, 2026-09-29) — the per-run way to
+    # give an older run its workout's name. Only over a name that says nothing its plan and type columns
+    # don't: blank, the generated «Runna Intervaller», or his older hand-typed «Runna intervaller» /
+    # «Runna long run». Never over a typed name, never on a race, and nothing is stored until «Oppdater
+    # økt». Driven through the real button path, updateCurrent; `retype` changes Økt-type AFTER the click.
+    UPD = """async ({ name, type, plan, title, retype, save }) => {
+      Store.data.sessions = [{ id: 'e1', dato: '2026-09-22', uke: '2026-39', oktnavn: name, okttype: type,
+        treningsplan: plan, varighet: 2700, distanse: 7, soner: [0,0,0,0,0], stravaId: 7 }];
+      StravaIO.fetchActivityDetail = async () => ({ id: 7, name: title, description: '', distance: 7000,
+        moving_time: 2700, average_speed: 2.6, trainer: false, has_heartrate: false });
       Form.editSession('e1');
-      await StravaImport._populate({ id: 7, name: 'Recovery Run', distance: 7000, moving_time: 2700,
-                                     average_speed: 2.6, trainer: false, has_heartrate: false });
-      const n = Form.read().oktnavn;
-      Form.cancelEdit();
-      return n; }"""), 'Runna Easy')
+      await StravaImport.updateCurrent();
+      if (retype) { const e = document.getElementById('fOkttype'); e.value = retype; e.dispatchEvent(new Event('change')); }
+      const got = [Form.read().oktnavn, Store.data.sessions[0].oktnavn];
+      if (save) { Form.save(); got.push(Store.data.sessions[0].oktnavn); } else Form.cancelEdit();
+      return got;
+    }"""
+
+    def updated(**kw):
+        return tp.evaluate(UPD, {**dict(name='Runna Intervaller', type='Intervaller', plan='Runna',
+                                        title='Pyramid Intervals', retype='', save=False), **kw})
+
+    check("«Oppdater fra Strava»: a generated name takes the title — in the form, not yet stored",
+          updated(), ['Pyramid Intervals', 'Runna Intervaller'])
+    check("...and «Oppdater økt» stores it", updated(save=True)[2], 'Pyramid Intervals')
+    check("...and so do his older spellings «Runna intervaller» / «Runna long run»",
+          [updated(name='Runna intervaller')[0],
+           updated(name='Runna long run', type='Long', title='Progressive Long Run')[0]],
+          ['Pyramid Intervals', 'Progressive Long Run'])
+    check("...and a blank name", updated(name='', plan='Egentrening', title='Tur med Kari')[0], 'Tur med Kari')
+    check("a typed name stays", updated(name='Bakkeintervaller')[0], 'Bakkeintervaller')
+    check("Strava's time-of-day and generic titles are no title here either",
+          [updated(name='Runna Easy', type='Easy', title=t)[0] for t in ('Morning Run', 'Easy Run')],
+          ['Runna Easy'] * 2)
+    check("a race keeps its own name, even a blank one",
+          updated(name='', type='Race', title='Tønsberg 10K')[0], '')
+    check("...and changing the type after the click renames nothing — only the click takes the title",
+          updated(name='', type='Race', title='Tønsberg 10K', retype='Tempo')[0], '')
     tp.close()
     b.close()
 

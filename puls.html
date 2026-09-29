@@ -2821,6 +2821,15 @@ function plannedTitle(p) {
   return GENERIC_WORKOUT_TITLES.includes(t.toLowerCase()) ? '' : t;
 }
 
+// A run's name that says nothing its plan and type columns don't: blank, or «{plan} {type}» — as the
+// form generates it («Runna Intervaller»), or as he typed it by hand before the form did («Runna
+// intervaller», «Runna long run»). Only such a name may give way to a better one, Strava's title or the
+// plan's workout; any other name he typed is his.
+function hasGenericName(s) {
+  const n = (s.oktnavn || '').trim().toLowerCase().replace(/ run$/, '');
+  return !n || n === `${s.treningsplan} ${s.okttype}`.toLowerCase();
+}
+
 // True if a date (YYYY-MM-DD string) falls inside a registered Sykdom/Ferie event window; returns
 // the event type ('illness'|'vacation') or null. Lets plan adherence excuse sessions you couldn't do
 // while sick/away — same "unavailable, not failed" principle Treningsrytme already applies per week.
@@ -6282,6 +6291,18 @@ const Form = {
     if (!nameEl.value.trim() || nameEl.value === this.lastAutoOktnavn) {
       nameEl.value = this.lastAutoOktnavn = generated;
     }
+  },
+
+  // «Oppdater fra Strava» on a saved run (his ask, 2026-09-29) is the one click in an edit that asks for
+  // Strava's data, so it brings the title too — the way to give an older run its workout's name, one
+  // at a time. Only over a name that says nothing of its own (hasGenericName), never on a race (its
+  // name is its 🏁 event's or his), and nothing is stored until «Oppdater økt». Changing the type or
+  // plan while editing still renames nothing: maybeAutoName's editId guard.
+  takeStravaTitle() {
+    const nameEl = document.getElementById('fOktnavn');
+    const run = { oktnavn: nameEl.value, okttype: document.getElementById('fOkttype').value,
+                  treningsplan: document.getElementById('fTreningsplan').value };
+    if (this.stravaTitle && run.okttype !== 'Race' && hasGenericName(run)) nameEl.value = this.stravaTitle;
   },
 
   togglePulsdata() {
@@ -11119,7 +11140,8 @@ const StravaImport = {
 
   // Re-pull the exact activity that filled the session being edited, by its stored id.
   // Only overwrites the Strava-derived form fields (populate never touches notes, the
-  // Avvik flag, RPE, sleep, shoes, …) and does NOT save — the user reviews, then saves.
+  // Avvik flag, RPE, sleep, shoes, …; the name only where nobody chose one — Form.takeStravaTitle)
+  // and does NOT save — the user reviews, then saves.
   async updateCurrent() {
     const id = document.getElementById('fStravaId').value;
     if (!id) return;
@@ -11145,12 +11167,13 @@ const StravaImport = {
       // …and its title: Runna names the workout there («Pyramid Intervals»), which says more than the
       // generated «Runna Intervaller» (his call, 2026-09-29). Not Strava's time-of-day default, nor
       // Runna's generic «Easy Run» — easy and long runs have no name of their own, so they keep
-      // «Runna Easy». maybeAutoName decides whether the field may change — a typed name, a race's 🏁
-      // event and an edit all win over it.
+      // «Runna Easy». Whether the field may change: maybeAutoName decides on a new run (a typed name
+      // and a race's 🏁 event win over it), takeStravaTitle on a saved one — an edit only reaches here
+      // through «Oppdater fra Strava», since Hent fra Strava is hidden while editing.
       const title = (a.name || '').trim();
       Form.stravaTitle = STRAVA_DEFAULT_TITLE.test(title) || GENERIC_WORKOUT_TITLES.includes(title.toLowerCase())
         ? '' : title;
-      Form.maybeAutoName();
+      if (Form.editId) Form.takeStravaTitle(); else Form.maybeAutoName();
       document.getElementById('fDistanse').value = (a.distance / 1000).toFixed(2);
 
       // Løpetype first — dispatching 'change' reuses the existing inline handler that
