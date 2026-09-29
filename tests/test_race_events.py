@@ -2,6 +2,7 @@
 
 Standalone — NOT part of run_all.py, which is the fast no-browser gate. Run directly:
     python tests/test_race_events.py       (needs Playwright + WebKit)
+    PW_ENGINE=firefox python tests/test_race_events.py  (also chromium; firefox is his main browser)
 
 Four things, none of which a Python port can reach because they are all form state and DOM:
 
@@ -27,6 +28,7 @@ from playwright.sync_api import sync_playwright
 
 # Relative to this file, not the repo checkout path — CI clones somewhere else entirely.
 APP = (pathlib.Path(__file__).resolve().parent.parent / "puls.html").as_uri()
+ENGINE = os.environ.get("PW_ENGINE", "webkit")
 passed = failed = 0
 
 # Wednesday 2026-08-05, midday.
@@ -93,7 +95,8 @@ def boot(pg, tab):
 
 
 with sync_playwright() as b0:
-    b = b0.webkit.launch()
+    b = getattr(b0, ENGINE).launch()
+    print(f"engine: {ENGINE}")
 
     # ── 1. Race sessions: derived plan + event-derived name ─────────────────────────────────
     print("== race Treningsplan + Øktnavn ==")
@@ -149,6 +152,22 @@ with sync_playwright() as b0:
     pg.fill('#fOktnavn', 'Mitt eget navn')
     set_date('2026-10-01')
     check("typed name is never overwritten", navn(), 'Mitt eget navn')
+
+    # Egentrening names nothing after a programme, so switching to it takes a generated «Runna
+    # Intervaller» back — by the race's rule above: a stale generated name is worse than none (found
+    # 2026-09-29: a run could be saved as Egentrening named «Runna …»). Switching back restores it,
+    # and a typed name stays through both.
+    pg.evaluate("() => Form.clear()")
+    set_date('2026-08-12')
+    pg.select_option('#fOkttype', 'Intervaller')
+    check("control: the form generated «Runna Intervaller»", navn(), 'Runna Intervaller')
+    pg.select_option('#fTreningsplan', 'Egentrening')
+    check("switching to Egentrening takes the generated name back", navn(), '')
+    pg.select_option('#fTreningsplan', 'Runna')
+    check("...and switching back restores it", navn(), 'Runna Intervaller')
+    pg.fill('#fOktnavn', 'Bakkeintervaller')
+    pg.select_option('#fTreningsplan', 'Egentrening')
+    check("a typed name stays when the plan becomes Egentrening", navn(), 'Bakkeintervaller')
 
     check("no page errors", perr, [])
     pg.close()

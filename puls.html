@@ -6260,13 +6260,16 @@ const Form = {
   // name on a race is worse than a blank one.
   // Any other run fetched from Strava takes the activity's own title (his call, 2026-09-29) — the
   // workout's name, where «Runna Intervaller» only repeats the plan and type shown beside it.
+  // Egentrening names nothing after a programme, so switching to it takes a generated «Runna
+  // Intervaller» back to blank, by the race's rule (found 2026-09-29: a run could be saved as
+  // Egentrening named «Runna …»).
   //
   // Either way only a name this function generated is touched — anything typed is left alone.
   maybeAutoName() {
     if (this.editId) return;
     const type = document.getElementById('fOkttype').value;
     const plan = document.getElementById('fTreningsplan').value;
-    let generated = null;   // null = leave the field alone entirely; '' = clear it
+    let generated = '';   // '' clears a generated name — a typed one is never touched (below)
     if (type === 'Race') {
       const evt = raceEventOn(document.getElementById('fDato').value);
       generated = (evt && evt.title) ? evt.title : this.stravaTitle;
@@ -6275,7 +6278,6 @@ const Form = {
     } else if (type && plan && plan !== 'Egentrening') {
       generated = `${plan} ${type}`;
     }
-    if (generated === null) return;
     const nameEl = document.getElementById('fOktnavn');
     if (!nameEl.value.trim() || nameEl.value === this.lastAutoOktnavn) {
       nameEl.value = this.lastAutoOktnavn = generated;
