@@ -1,8 +1,9 @@
-# Runs the four Playwright suites on every push, so a regression is caught even when the pre-commit
+# Runs the committed Playwright suites on every push, so a regression is caught even when the pre-commit
 # routine gets skipped — which, in maintenance mode with weeks between changes, it eventually will.
 #
-# Scope is deliberate: the Python ports in tests/ (splits_port, pr_port, ...) are NOT run here. They
-# use real training sessions as fixtures and stay gitignored — see .gitignore. balcheck.py is also
+# Scope is deliberate: the local analysis checks in tests/ (pr_check, splits_check, ... — the Python
+# ports until 2026-09-28; they now call the shipped functions) are NOT run here. They use real
+# training sessions as fixtures and stay gitignored — see .gitignore. balcheck.py is also
 # absent by construction: it diffs the working file against git HEAD, so on a clean checkout it would
 # pass vacuously forever. Both remain part of the local `python tests/run_all.py` gate.
 name: tests

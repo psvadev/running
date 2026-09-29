@@ -3,11 +3,12 @@ puls.json
 HANDOFF.md
 # NOTE: `tests/*`, not `tests/` — git does not descend into an excluded DIRECTORY, so with a bare
 # `tests/` the negations below are never even evaluated and silently do nothing. Excluding the
-# contents keeps everything ignored while leaving the four re-includes reachable.
+# contents keeps everything ignored while leaving the re-includes below reachable.
 tests/*
 # The Playwright suites are the ONE exception, so CI can run them: each synthesises every session
-# in-page and reads no file, so there is nothing personal in them. The ports are a different story —
-# pr_port.py and friends carry real PR times and dates as fixtures, and they stay ignored.
+# in-page and reads no file, so there is nothing personal in them. The local analysis checks are a
+# different story — pr_check.py and friends (the Python ports until 2026-09-28) carry real PR times
+# and dates as fixtures, and they stay ignored.
 # Named ONE BY ONE on purpose: a blanket !tests/test_*.py would silently commit a future suite that
 # happened to embed a real session. Adding a name here is the conscious check that it is synthetic.
 !tests/test_weeknow.py
