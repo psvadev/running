@@ -5428,7 +5428,7 @@ function sessionDurationSeconds(s) {
 // two sessions both claim (a duplicate log), are left UNMATCHED, never guessed — because a wrong link
 // silently attaches another run's streams. Duration (moving OR elapsed) is the fallback for intervals,
 // whose logged distance often counts only the work reps, not the recovery jog Strava's GPS still records.
-// Ported + tested in match_port.py (17/17) and window._testSessionMatching() below.
+// Tested by the local tests/match_check.py and by window._testSessionMatching() below.
 function matchSessionsToActivities(sessions, activities, opt = {}) {
   const distTolKm = opt.distTolKm ?? 0.15, distTolPct = opt.distTolPct ?? 0.025;
   const durTolSec = opt.durTolSec ?? 120, durTolPct = opt.durTolPct ?? 0.05;
@@ -5491,7 +5491,7 @@ function matchSessionsToActivities(sessions, activities, opt = {}) {
   return { matches: kept, unmatched };
 }
 
-// In-browser parity harness for matchSessionsToActivities (mirrors match_port.py). Run in the console.
+// In-browser harness for matchSessionsToActivities. Run in the console.
 window._testSessionMatching = function () {
   let pass = 0, fail = 0;
   const chk = (n, c) => c ? pass++ : (fail++, console.warn('FAIL:', n));
@@ -6082,8 +6082,8 @@ window._testRunningContinuity = function () {
   return failed.length === 0;
 };
 
-// Synthetic harness for the aerobic metrics (HR drift + cadence). Mirrors the Python port
-// (scratchpad aerobic_port.py) 1:1 — run in the browser console to regression-check the math.
+// Synthetic harness for the aerobic metrics (HR drift + cadence) — run in the browser console to
+// regression-check the math. The local tests/aerobic_check.py runs the function before each commit.
 window._testAerobicMetrics = function () {
   const results = [];
   const check = (name, cond, detail) => results.push({ name, pass: !!cond, detail: cond ? '' : (detail || '') });
@@ -8825,7 +8825,7 @@ const WEEK_CONTEXTS = {
 };
 
 // ── HR graph helpers. PRESENTATION, not analysis: deliberately not named analyze*/compute*, stores
-// nothing, and carries no Python port — nothing downstream reads its output, it is only drawn.
+// nothing, and has no local analysis check: nothing downstream reads its output, it is only drawn.
 const HR_PACE_KEY = 'lpl_hr_pace';   // view preference only, same category as FUEL_GEL_KEY
 
 // Configured zone bounds as numbers, or null when a zone is genuinely incomplete.
@@ -10431,7 +10431,7 @@ function renderDashboard() {
   // estimate no faster than the real time, too far below the anchor to extrapolate down, or indoor
   // past INNE_MAX_PROGNOSE_KM — so the reason is stated once for the section rather than per cell.
   // A per-cell reason would mean `project` returning a cause instead of null, which changes the pure
-  // function's shape and drags prognose_port.py along for a purely cosmetic gain. Shown only when a
+  // function's shape and prognose_check.py's expectations for a purely cosmetic gain. Shown only when a
   // dash is actually on screen, so the card never explains something that isn't there.
   // UI copy says "distansen over" and never "anker" — the term is ours, not a runner's, and the
   // "fra 10 km (17.06.2026)" above already names the thing it would refer to. Code and comments
@@ -10473,7 +10473,7 @@ function renderDashboard() {
   document.getElementById('goalTimeList').innerHTML = venueTable(goalRows.map(d => {
     const pr = distPRs.find(r => r.key === d.key) || {};
     // computePerfCurve's rows carry label and km but no key, so match on label — unique, and it
-    // needs no change to a pure function that a Python port has to be kept in step with.
+    // needs no change to the pure function or to prognose_check.py's expectations.
     const pg = prognose.find(r => r.label === d.label) || {};
     // The 🎯 goal sits beside its distance, so the two venue columns keep the same place as in the
     // tables above. secsToHms, not secsToHmsShort: an unpadded h:mm:ss is ambiguous at the short
