@@ -698,6 +698,10 @@
      widths line up by their last digit, so a column reads straight down — 10.02 under 5.61, 172 under
      98. Headers follow their column. Dato and Uke stay left, with the text columns. */
   #logTable .num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* A treadmill run's HØYDE: a dimmed ⚙️ says «doesn't apply», so a blank cell keeps meaning «missing»
+     (his call, 2026-09-29). Dimmed like a locked atlas badge; default cursor like the log's other
+     tooltip icons, since the row itself is clickable. */
+  #logTable .log-na { opacity: .45; cursor: default; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
   .badge-easy { background: #1a3a2a; color: var(--green); }
   .badge-steady { background: #1e2e4a; color: #7aa8f0; }
@@ -6801,13 +6805,18 @@ const Log = {
         ? ` <span title="Gjeldende rekord: ${escapeHtml(prHeld.join(' · '))}" style="cursor:default">🏆</span>`
         : '';
       const badge = typeBadge(s.okttype);
-      const venueBadge = (s.løpetype || 'utendors') === 'treadmill'
+      const belt = (s.løpetype || 'utendors') === 'treadmill';
+      const venueBadge = belt
         ? `<span class="badge badge-indoor" title="Tredemølle">⚙️</span>`
         : `<span class="badge badge-outdoor" title="Utendørs">🏃</span>`;
       // HØYDE is outdoor climb in metres only (his call, 2026-09-27). It used to fall back to the
       // treadmill incline, so one column mixed % and m — and the incline was 1–1.5 % on every belt
-      // run; it was retired altogether the same day. Checked by venue, not only by the field, so an
-      // older row carrying both cannot put metres on a treadmill run.
+      // run; it was retired altogether the next day. Checked by venue, not only by the field, so an
+      // older row carrying both cannot put metres on a treadmill run. A belt run gets a dimmed ⚙️
+      // (his call, 2026-09-29): in this table a blank cell is how every column says «no value», so an
+      // empty HØYDE there read as missing. Blank keeps meaning missing — outdoor, no climb recorded.
+      const hoyde = belt ? `<span class="log-na" title="Tredemølle — ingen høydemeter">⚙️</span>`
+        : s.hoydeMeter ? s.hoydeMeter+'m' : '';
       return `<tr onclick="Log.rowClick(event, '${s.id}')"${s.utenforAnalyse ? ' style="opacity:.55" title="Avvik — holdt utenfor analyse"' : ''}>
         <td><input type="checkbox" class="log-row-chk" data-id="${s.id}"></td>
         <td>${fmtDate(s.dato)}</td>
@@ -6822,7 +6831,7 @@ const Log = {
         <td class="num">${s.gjsnittspuls||''}</td>
         <td class="num">${s.toppuls||''}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.sko||'')}</td>
-        <td class="num">${(s.løpetype || 'utendors') !== 'treadmill' && s.hoydeMeter ? s.hoydeMeter+'m' : ''}</td>
+        <td class="num">${hoyde}</td>
         <td class="num">${s.rpe ? `<span style="font-weight:600;color:${rpeColor(s.rpe)}">${s.rpe}</span>` : ''}</td>
         <td>
           <button class="btn-icon btn-sm" onclick="Form.editSession('${s.id}')" title="Rediger">✏️</button>

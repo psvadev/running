@@ -113,7 +113,7 @@ Et filter på **Alle · Fullførte · Gjenstår** veksler mellom alle utmerkelse
 
 ### Treningslogg
 - Full sorterbar tabell — klikk en kolonneoverskrift for å sortere
-- **Høyde**-kolonnen viser høydemeter for utendørsløp; tredemølleløp står tomme
+- **Høyde**-kolonnen viser høydemeter for utendørsløp; tredemølleløp viser en dempet ⚙️ («Tredemølle — ingen høydemeter»), så en tom celle betyr at tallet mangler
 - **RPE**-kolonnen viser innsats 1–10 i farge (grønn ≤3 · gul ≤6 · oransje ≤8 · rød over); logges i **0,5-steg**, så `6.5` ligger mellom *Tungt* og *Veldig tungt* — og lander i det oransje båndet; skjult på mobil
 - **📋-ikon** vises i øktnavn-kolonnen når det finnes en øktbeskrivelse — hold over for en forhåndsvisning; **📝-ikon** vises når det finnes et notat — hold over for en forhåndsvisning
 - **🏆-ikon** vises på en økt som **akkurat nå** holder en distanserekord — hold over for hvilke: «Gjeldende rekord: 5 km · 10 km». Samme betydning som 🏆 på en splitt inne i et tredemølleløp: *«dette er rekorden nå»*, ikke *«dette var best den dagen»*, så merket forsvinner i samme øyeblikk et senere løp slår det. 🏃 Ute og ⚙️ Inne regnes hver for seg, så en dag med både et uteløp og en mølleøkt gir hver rad sin egen rekord. Rekordene leses fra hele loggen, aldri fra det filteret du står i — filtrerer du bort en rekordholder, arver ingen pokalen

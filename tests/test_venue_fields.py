@@ -2,22 +2,24 @@
 
 Standalone, not in run_all.py (needs Playwright + WebKit):
     python tests/test_venue_fields.py
+    PW_ENGINE=firefox python tests/test_venue_fields.py  (also chromium; firefox is his main browser)
 
 The bug this suite was written for: clear() seeded the treadmill incline (Stigning) with its 1 %
 default BEFORE the venue was settled, and the venue change only ever *hid* a field, never emptied it,
 so an outdoor run logged straight after a treadmill one saved a phantom `stigning: 1`. The rule lived
 in four places; it now lives in Form.syncVenueFields, and the save is venue-guarded as well.
 
-The incline itself was RETIRED on 2026-09-27 (his call: 1 % or 1.5 % on every belt run, read by
+The incline itself was RETIRED on 2026-09-28 (his call: 1 % or 1.5 % on every belt run, read by
 nothing). It is retired, not deleted: the form no longer asks and nothing shows or exports it, but an
 old run's recorded value stays in the file — including through an edit, which section 5 pins.
 """
-import pathlib, sys
+import os, pathlib, sys
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
 
 # Relative to this file, not the repo checkout path — CI clones somewhere else entirely.
 APP = (pathlib.Path(__file__).resolve().parent.parent / "puls.html").as_uri()
+ENGINE = os.environ.get("PW_ENGINE", "webkit")
 passed = failed = 0
 
 
@@ -52,7 +54,8 @@ def boot(page, last_venue):
 
 
 with sync_playwright() as p:
-    b = p.webkit.launch()
+    b = getattr(p, ENGINE).launch()
+    print(f"engine: {ENGINE}")
     pg = b.new_page(viewport={"width": 1280, "height": 900})
     errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
@@ -428,10 +431,13 @@ with sync_playwright() as p:
     pg.close()
 
     # ── Logg's HØYDE column: outdoor metres only (his call, 2026-09-27) ─────────────────────────
-    # It used to fall back to the treadmill incline, so one column mixed % and m. Treadmill rows are
-    # blank now — and since the incline was retired the same day, it is gone from the detail view and
-    # the export too, while the outdoor climb stays in both and the stored value stays in the file.
-    print("== Logg HØYDE: outdoor metres only ==")
+    # It used to fall back to the treadmill incline, so one column mixed % and m — and since the incline
+    # was retired the next day, it is gone from the detail view and the export too, while the outdoor
+    # climb stays in both and the stored value stays in the file.
+    # A treadmill row shows a dimmed ⚙️ instead of a blank (his call, 2026-09-29): in the log a blank
+    # cell is how EVERY column says «no value», so an empty HØYDE on a belt run read as missing. Blank
+    # keeps meaning exactly that — an outdoor run with no climb recorded stays empty.
+    print("== Logg HØYDE: outdoor metres, a dimmed ⚙️ on the belt, blank only when missing ==")
     pg = b.new_page(viewport={"width": 1700, "height": 900})   # above 1600 px every column is shown
     herr = []
     pg.on("pageerror", lambda e: herr.append(str(e)))
@@ -445,7 +451,9 @@ with sync_playwright() as p:
                                                           toppuls: 181, rpe: 6, malDistanse: 10 }),
                    run('belte', '2026-09-24', 'treadmill', { stigning: 1, gjsnittspuls: 98 }),
                    // An older row carrying BOTH: the venue decides, not whichever field happens to be set.
-                   run('begge', '2026-09-23', 'treadmill', { stigning: 1, hoydeMeter: 40 })],
+                   run('begge', '2026-09-23', 'treadmill', { stigning: 1, hoydeMeter: 40 }),
+                   // Outdoor with no climb recorded: a genuinely MISSING value, so it must stay blank.
+                   run('uten', '2026-09-22', 'utendors', {})],
         shoes:[], goals:{}, events:[], settings:{zones:[]}, lastUpdated:'' }));
     }""")
     pg.goto(APP)
@@ -453,14 +461,22 @@ with sync_playwright() as p:
     pg.wait_for_timeout(400)
     # Keyed by the row's checkbox id, not the name cell: a 5 km belt run can hold the indoor 5 km
     # record, and then the name cell carries a 🏆 as well.
+    # Per row: the cell's text, the marker's tooltip and its opacity (null when there is no marker —
+    # read without throwing, so the old code fails these checks by name instead of crashing them).
     cells = pg.evaluate("""() => {
       const col = [...document.querySelectorAll('#logTable thead th')].findIndex(th => th.dataset.col === 'hoydeMeter');
-      return Object.fromEntries([...document.querySelectorAll('#logBody tr')].map(r =>
-        [r.querySelector('.log-row-chk').dataset.id, r.children[col].textContent.trim()])); }""")
-    check("control: the column is there and all three runs are listed", sorted(cells), ['begge', 'belte', 'ute'])
-    check("an outdoor run shows its climb in metres", cells['ute'], '57m')
-    check("a treadmill run's HØYDE is blank — no incline %", cells['belte'], '')
-    check("...and a row carrying both is blank too: the venue decides", cells['begge'], '')
+      return Object.fromEntries([...document.querySelectorAll('#logBody tr')].map(r => {
+        const c = r.children[col], m = c.querySelector('.log-na');
+        return [r.querySelector('.log-row-chk').dataset.id,
+                [c.textContent.trim(), m ? m.title : null, m ? +getComputedStyle(m).opacity : null]];
+      })); }""")
+    GEAR, NA = '⚙️', 'Tredemølle — ingen høydemeter'
+    check("control: the column is there and all four runs are listed", sorted(cells), ['begge', 'belte', 'ute', 'uten'])
+    check("an outdoor run shows its climb in metres, no marker", cells['ute'][:2], ['57m', None])
+    check("an outdoor run with no climb recorded stays BLANK — blank means missing", cells['uten'][:2], ['', None])
+    check("a treadmill run shows the titled ⚙️ — not a blank, not an incline %", cells['belte'][:2], [GEAR, NA])
+    check("...and so does a row carrying both fields: the venue decides", cells['begge'][:2], [GEAR, NA])
+    check("the marker is dimmed, not full strength", 0 < (cells['belte'][2] or 0) < 0.7, True)
 
     # ── The number columns, right-aligned with tabular digits (his call, 2026-09-27) ────────────
     # Measured where each value's TEXT ends against its cell's right padding edge — a cell always

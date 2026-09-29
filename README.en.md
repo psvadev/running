@@ -113,7 +113,7 @@ An **Alle · Fullførte · Gjenstår** filter switches between every badge, the 
 
 ### Session log (Treningslogg)
 - Full sortable table — click any column header to sort
-- **Høyde column** shows elevation gain in metres for outdoor runs; treadmill runs leave it blank
+- **Høyde column** shows elevation gain in metres for outdoor runs; treadmill runs show a dimmed ⚙️ («Tredemølle — ingen høydemeter»), so a blank cell means the value is missing
 - **RPE column** shows effort rating 1–10 in colour (green ≤3 · amber ≤6 · orange ≤8 · red above); logged in **0.5 steps**, so `6.5` sits between *Tungt* and *Veldig tungt* — and lands in the orange band; hidden on mobile
 - **📋 icon** shown in the session name column when a workout description exists — hover to preview; **📝 icon** shown when a note exists — hover to preview
 - **🏆 icon** shown on a session that **currently** holds a distance record — hover for which: «Gjeldende rekord: 5 km · 10 km». Same meaning as the 🏆 on a split inside a treadmill run: *"this is the record now"*, not *"this was best that day"*, so the marker disappears the moment a later run beats it. 🏃 Ute and ⚙️ Inne are counted separately, so a day holding both an outdoor run and a treadmill session gives each row its own record. Records are read from the whole log, never from the filter you happen to be in — filter a record-holder out and nobody inherits the trophy
