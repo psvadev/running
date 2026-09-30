@@ -526,6 +526,21 @@ with sync_playwright() as p:
     check("Runna's generic «Easy Run» / «Long Run» is no title either — «Runna Easy» / «Runna Long» stay",
           [named(type='Easy', title='Easy Run')[1], named(type='Long', title='Long Run')[1]],
           ['Runna Easy', 'Runna Long'])
+    # His REAL Strava titles carry Runna's distance in front of easy and long runs — «7.5km Easy Run»,
+    # «10km Long Run», «11km Progressive Long Run», «5km Race» (his screenshot, 2026-09-30). The check
+    # above uses the tidy «Easy Run», so it passed while every real easy run would have been named «7km
+    # Easy Run» (#24). The distance goes first, as the plan import already strips it from plan titles.
+    check("his real titles: «7.5km Easy Run» / «10km Long Run» still keep «Runna Easy» / «Runna Long»",
+          [named(type='Easy', title='7.5km Easy Run')[1], named(type='Long', title='10km Long Run')[1]],
+          ['Runna Easy', 'Runna Long'])
+    check("...a named long run reads as the plan names it: «11km Progressive Long Run» → «Progressive Long Run»",
+          named(type='Long', title='11km Progressive Long Run')[1], 'Progressive Long Run')
+    check("...and «5km Race» is no race's name — with no 🏁 event it stays blank",
+          named(dato='2026-10-10', type='Race', title='5km Race')[1], '')
+    # Only the RUN's distance is redundant. A workout named after its rep keeps it — the plan import
+    # has met «1km Repeats • 9km», a 9 km session of 1 km reps.
+    check("...but a rep distance is part of the name: «400m Repeats» and «1km Repeats» stay whole",
+          [named(title='400m Repeats')[1], named(title='1km Repeats')[1]], ['400m Repeats', '1km Repeats'])
     check("Egentrening, which had no generated name, gets the title",
           named(plan='Egentrening', title='Tur med Kari')[1], 'Tur med Kari')
     check("a race keeps its 🏁 event's name", named(dato='2026-10-03', type='Race', title='10K race')[1],
@@ -573,6 +588,10 @@ with sync_playwright() as p:
     check("Strava's time-of-day and generic titles are no title here either",
           [updated(name='Runna Easy', type='Easy', title=t)[0] for t in ('Morning Run', 'Easy Run')],
           ['Runna Easy'] * 2)
+    check("...nor is his real «7km Easy Run», and «11km Progressive Long Run» arrives without its distance",
+          [updated(name='Runna Easy', type='Easy', title='7km Easy Run')[0],
+           updated(name='Runna Long', type='Long', title='11km Progressive Long Run')[0]],
+          ['Runna Easy', 'Progressive Long Run'])
     check("a race keeps its own name, even a blank one",
           updated(name='', type='Race', title='Tønsberg 10K')[0], '')
     check("...and changing the type after the click renames nothing — only the click takes the title",

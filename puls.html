@@ -11189,7 +11189,11 @@ const StravaImport = {
       // «Runna Easy». Whether the field may change: maybeAutoName decides on a new run (a typed name
       // and a race's 🏁 event win over it), takeStravaTitle on a saved one — an edit only reaches here
       // through «Oppdater fra Strava», since Hent fra Strava is hidden while editing.
-      const title = (a.name || '').trim();
+      // Runna puts the run's distance in front on Strava — «7.5km Easy Run», «11km Progressive Long Run»,
+      // «5km Race» (his screenshot, 2026-09-30) — and it goes first: the distance is its own column, and
+      // what is left is either generic or the workout's own name. Only before a name ending «Run» or
+      // «Race», the only kinds Runna prefixes: in «1km Repeats» the km is the rep, part of the name.
+      const title = (a.name || '').trim().replace(/^[\d.]+\s*km\s+(?=.*\b(run|race)$)/i, '');
       Form.stravaTitle = STRAVA_DEFAULT_TITLE.test(title) || GENERIC_WORKOUT_TITLES.includes(title.toLowerCase())
         ? '' : title;
       if (Form.editId) Form.takeStravaTitle(); else Form.maybeAutoName();
