@@ -665,7 +665,6 @@
     /* Additionally hide Navn and Plan at mobile (already hiding others above) */
     #logTable th:nth-child(5),  #logTable td:nth-child(5),
     #logTable th:nth-child(6),  #logTable td:nth-child(6) { display: none; }
-    .shoe-bar-row { grid-template-columns: 110px 1fr 44px; }
     .zone-grid { grid-template-columns: repeat(3, 1fr); }
     .rk-groups, .rk-pace { grid-template-columns: 1fr; }
     .rk-pace { grid-auto-flow: row; grid-template-rows: none; }
@@ -808,8 +807,14 @@
   .shoe-bar-wrap > div { padding: 10px 0; border-bottom: 1px solid var(--border); }
   .shoe-bar-wrap > div:first-child { padding-top: 0; }
   .shoe-bar-wrap > div:last-child { border-bottom: none; padding-bottom: 0; }
-  .shoe-bar-row { display: grid; grid-template-columns: 160px 1fr 50px; gap: 8px; align-items: center; font-size: 13px; }
-  .shoe-bar-bg { background: var(--surface2); border-radius: 4px; height: 10px; overflow: hidden; }
+  /* Name and km share a line, the bar runs the full width below: a fixed name column cut «Saucony
+     Endorphin Speed 5» on every screen. Only a name too long for the whole line is cut — never the
+     km. overflow:hidden is what lets the name yield: a flex item that clips has no content-based
+     minimum width, so it needs no min-width:0. */
+  .shoe-bar-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; }
+  .shoe-bar-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shoe-bar-km { flex: 0 0 auto; white-space: nowrap; }
+  .shoe-bar-bg { background: var(--surface2); border-radius: 4px; height: 10px; overflow: hidden; margin-top: 7px; }
   .shoe-bar-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width .4s; }
   .page-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
   .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 4px; }
@@ -10776,11 +10781,11 @@ function renderDashboard() {
       const nameEsc = escapeHtml(name.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
       return `
       <div style="cursor:pointer" onclick="DetailPanel.openShoe('${nameEsc}')">
-        <div class="shoe-bar-row">
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(name)}">👟 ${escapeHtml(name)}</span>
-          <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>
-          <span style="text-align:right">${km.toFixed(0)} km${warn}</span>
-        </div>${metaLine}
+        <div class="shoe-bar-head">
+          <span class="shoe-bar-name" title="${escapeHtml(name)}">👟 ${escapeHtml(name)}</span>
+          <span class="shoe-bar-km">${km.toFixed(0)} km${warn}</span>
+        </div>
+        <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>${metaLine}
       </div>`;
     }).join('')
   }</div>`;

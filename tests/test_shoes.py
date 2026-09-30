@@ -2,6 +2,7 @@
 
 Standalone — NOT part of run_all.py, which is the fast no-browser gate. Run directly:
     python tests/test_shoes.py            (needs Playwright + WebKit)
+    PW_ENGINE=firefox python tests/test_shoes.py  (also chromium; firefox is his main browser)
 
 Nothing tested this before, on any of the three surfaces, and they had drifted into three
 different answers about the same shoe:
@@ -23,11 +24,12 @@ This suite pins the merged behaviour:
 
 No local data file exists; every session is synthesised in-page.
 """
-import pathlib, sys
+import os, pathlib, sys
 sys.stdout.reconfigure(encoding='utf-8')   # æøå + ⚠️ 🔴 in the assertions
 from playwright.sync_api import sync_playwright
 
 APP = (pathlib.Path(__file__).resolve().parent.parent / "puls.html").as_uri()
+ENGINE = os.environ.get("PW_ENGINE", "webkit")
 passed = failed = 0
 
 FREEZE = """
@@ -89,7 +91,8 @@ SEED = """() => {
 }"""
 
 with sync_playwright() as pw:
-    b = pw.webkit.launch()
+    b = getattr(pw, ENGINE).launch()
+    print(f"engine: {ENGINE}")
     pg = b.new_page(viewport={"width": 1280, "height": 900})
     errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
@@ -393,6 +396,75 @@ with sync_playwright() as pw:
 
     check("no shoe-rule page errors", serr, [])
     sp.close()
+
+    # ── Sko oversikt shows each shoe's whole name (2026-09-30, his pick B of three mockups) ─────────
+    # The name sat in a fixed 160 px column (110 on the phone), so his «Saucony Endorphin Speed 5»
+    # read «Saucony Endorphin Sp…» on every screen. Now name and km share a line and the bar runs the
+    # card's full width below them. Only a name too long for that whole line is cut, never the km — a
+    # cut number is worse than a cut label. 1536 px is his desktop, where the card is half-width.
+    print("== Sko oversikt shows each shoe's whole name ==")
+    REAL = ["ASICS Novablast 5", "Saucony Ride 18", "Saucony Endorphin Speed 5"]
+    LONG = "Saucony Endorphin Speed 5 — konkurransepar nummer to, oransje"
+    dp = b.new_page(viewport={"width": 1536, "height": 900})
+    derr = []
+    dp.on("pageerror", lambda e: derr.append(str(e)))
+    dp.add_init_script(FREEZE)
+    dp.goto(APP)
+    dp.evaluate("""([real, long]) => {
+      const run = (id, dato, distanse, sko, puls) => ({ id, dato, uke: '2026-33', oktnavn: 'Tur',
+        okttype: 'Easy', treningsplan: 'Egentrening', løpetype: 'utendors', distanse,
+        varighet: distanse * 420, tempo: 420, soner: [0,0,0,0,0], sko, gjsnittspuls: puls });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [run('n1', '2026-08-10', 34, real[0], 145), run('n2', '2026-08-12', 20, real[1], 149),
+                   run('n3', '2026-08-14', 5, real[2], 156), run('n4', '2026-08-15', 3, long, 150)],
+        shoes: [{ name: real[0], retirementKm: 800 }, { name: real[1], retirementKm: 800 },
+                { name: real[2], retirementKm: 500 }, { name: long }],
+        shoeDefaults: {}, goals: {}, events: [], plannedSessions: [], settings: { zones: [] },
+        lastUpdated: '' }));
+    }""", [REAL, LONG])
+    dp.goto(APP)
+    dp.wait_for_timeout(500)
+    dp.evaluate("() => switchTab('dash')")
+    dp.wait_for_timeout(500)
+    # Each part is found by what it shows (the name by its title, the km by «N km»), not by class,
+    # so the same checks read the old layout too.
+    GEOM = r"""() => [...document.querySelectorAll('#shoeBarChart .shoe-bar-wrap > div')].map(r => {
+      const box = e => e.getBoundingClientRect();
+      const name = r.querySelector('[title]'), bar = r.querySelector('.shoe-bar-bg');
+      const km = [...r.querySelectorAll('span')].find(s => /^\d+ km/.test(s.textContent.trim()));
+      const R = box(r), N = box(name), B = box(bar), K = box(km);
+      return { name: name.title, cut: name.scrollWidth > name.clientWidth + 1,
+               barFull: Math.abs(B.left - R.left) <= 1 && Math.abs(B.right - R.right) <= 1,
+               barBelow: B.top >= N.bottom - 1,
+               kmRight: Math.abs(K.right - R.right) <= 1,
+               kmOnNameLine: Math.abs((K.top + K.bottom) / 2 - (N.top + N.bottom) / 2) <= 4,
+               kmWhole: km.scrollWidth <= km.clientWidth + 1 && K.right <= R.right + 1,
+               pills: r.querySelectorAll('.shoe-stat').length };
+    })"""
+    desk = {g["name"]: g for g in dp.evaluate(GEOM)}
+    check("every shoe's whole name shows — «Saucony Endorphin Speed 5» too",
+          {n: desk[n]["cut"] for n in REAL + [LONG]}, {n: False for n in REAL + [LONG]})
+    check("the bar runs the card's full width, under the name",
+          [(desk[n]["barFull"], desk[n]["barBelow"]) for n in REAL], [(True, True)] * 3)
+    check("the km sits on the name's line, at the right edge",
+          [(desk[n]["kmRight"], desk[n]["kmOnNameLine"]) for n in REAL], [(True, True)] * 3)
+    check("each shoe keeps its four stat pills (his call: pills are fine)",
+          [desk[n]["pills"] for n in REAL], [4] * 3)
+    dp.click(f"#shoeBarChart [title='{REAL[2]}']")
+    dp.wait_for_timeout(300)
+    check("a tap on the name still opens that shoe", REAL[2] in (dp.text_content("#detailTitle") or ""), True)
+    dp.evaluate("() => document.getElementById('btnDetailClose').click()")   # also when nothing opened
+    dp.set_viewport_size({"width": 402, "height": 900})
+    dp.wait_for_timeout(400)
+    phone = {g["name"]: g for g in dp.evaluate(GEOM)}
+    check("on the phone too, the three real names show in full",
+          {n: phone[n]["cut"] for n in REAL}, {n: False for n in REAL})
+    check("a name too long for the phone is cut, never its km",
+          [phone[LONG]["cut"], phone[LONG]["kmWhole"]], [True, True])
+    check("the dashboard does not overflow at 402 px",
+          dp.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1"), True)
+    check("no page errors on the dashboard", derr, [])
+    dp.close()
 
     print("== 402 px ==")
     pg.set_viewport_size({"width": 402, "height": 900})
