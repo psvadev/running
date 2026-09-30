@@ -520,6 +520,18 @@ with sync_playwright() as p:
     check("Strava's time-of-day names are no title — the generated name stays",
           [named(title=t)[1] for t in ('Morning Run', 'Ettermiddagsløp')], ['Runna Intervaller'] * 2)
     check("...and neither is a blank one", named(title='   ')[1], 'Runna Intervaller')
+    # His REAL time-of-day titles mostly carry the weekday: a run outside the plan is «Monday Evening Run»
+    # in his Runna calendar (13 of its 15) and on Strava — 24.07 is «Friday Lunch Run», and he keeps
+    # «Runna tempo» for it (2026-09-30). The check above uses only the bare form (#24 again).
+    check("his real time-of-day titles carry the weekday — «Friday Lunch Run», any day, is no title either",
+          [named(title=t)[1] for t in ('Monday Evening Run', 'Tuesday Lunch Run', 'Wednesday Afternoon Run',
+                                       'Thursday Morning Run', 'Friday Lunch Run', 'saturday morning run',
+                                       'Sunday Night Run')],
+          ['Runna Intervaller'] * 7)
+    check("...so an Egentrening run outside the plan stays blank, as with «Evening Run»",
+          [named(plan='Egentrening', title=t)[1] for t in ('Thursday Evening Run', 'Evening Run')], ['', ''])
+    check("...but only a weekday: anything else in front makes it a name — «Sognsvann Evening Run» stays",
+          named(title='Sognsvann Evening Run')[1], 'Sognsvann Evening Run')
     # His point: «regular easy and long runs got no extra sub title». Runna's Strava title for those is
     # the generic «Easy Run»/«Long Run» — the same words the plan card hides (plannedTitle) — so they
     # keep the generated name, and old and new easy runs read alike.
@@ -588,6 +600,8 @@ with sync_playwright() as p:
     check("Strava's time-of-day and generic titles are no title here either",
           [updated(name='Runna Easy', type='Easy', title=t)[0] for t in ('Morning Run', 'Easy Run')],
           ['Runna Easy'] * 2)
+    check("...nor a weekday one: 24.07's «Runna tempo» survives its «Friday Lunch Run»",
+          updated(name='Runna tempo', type='Tempo', title='Friday Lunch Run')[0], 'Runna tempo')
     check("...nor is his real «7km Easy Run», and «11km Progressive Long Run» arrives without its distance",
           [updated(name='Runna Easy', type='Easy', title='7km Easy Run')[0],
            updated(name='Runna Long', type='Long', title='11km Progressive Long Run')[0]],

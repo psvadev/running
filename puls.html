@@ -11084,9 +11084,10 @@ function updateStravaFetchVisibility() {
 }
 
 // Strava names every activity; with nothing better it uses the time of day, in the athlete's language.
-// That says nothing about the workout, so it must not replace «Runna Easy». The Norwegian forms are a
-// best guess at Strava's wording — the English ones are certain.
-const STRAVA_DEFAULT_TITLE = /^(morning|lunch|afternoon|evening|night) run$|^(morgen|formiddags|lunsj|ettermiddags|kvelds|natt)løp$/i;
+// A run outside the plan arrives the same way with its weekday in front — «Friday Lunch Run», 13 of the
+// 15 such titles in his Runna calendar. That says nothing about the workout, so it must not replace
+// «Runna Easy». The Norwegian forms are a best guess at Strava's wording — the English ones are certain.
+const STRAVA_DEFAULT_TITLE = /^((monday|tuesday|wednesday|thursday|friday|saturday|sunday) )?(morning|lunch|afternoon|evening|night) run$|^(morgen|formiddags|lunsj|ettermiddags|kvelds|natt)løp$/i;
 
 const StravaImport = {
   activities: [],
