@@ -1494,7 +1494,12 @@ with sync_playwright() as b0:
           varighet:1800, soner:[0,0,0,0,0] },
         { id:'long', dato:'2026-08-16', uke:'2026-33', oktnavn:'Langtur', okttype:'Long', løpetype:'utendors',
           treningsplan:'Halvmaraton sub 2 – vinterblokken med bakker', distanse:21.14, varighet:7199, tempo:341,
-          soner:[0,0,0,0,0] },
+          soner:[0,0,0,0,0], stravaId:'16012345679' },
+        { id:'strava', dato:'2026-10-01', uke:'2026-40', oktnavn:'Runna Easy', okttype:'Easy', treningsplan:'Runna',
+          løpetype:'utendors', distanse:8.02, varighet:3100, tempo:387, soner:[0,0,0,0,0], stravaId:'16012345678' },
+        { id:'badid', dato:'2026-10-02', uke:'2026-40', oktnavn:'x', okttype:'Easy', løpetype:'utendors',
+          distanse:5, varighet:1800, tempo:360, soner:[0,0,0,0,0],
+          stravaId:'1"><img src=x onerror="window.__sx=1">' },
         { id:'xss', dato:'2026-08-10', uke:'2026-33', oktnavn:'x', okttype:'Easy', løpetype:'utendors',
           treningsplan:'<img src=x onerror="window.__xss=1">', distanse:5, varighet:1800, tempo:360,
           soner:[0,0,0,0,0] }],
@@ -1523,6 +1528,33 @@ with sync_playwright() as b0:
     bare = pg.evaluate(HEAD, 'bare')
     check("a run with only a time leads with only the time", bare['lead'], [['0:30:00', 'tid']])
     check("...and with no plan, the plan is simply left out", bare['meta'], 'søndag 09.08.2026 · Easy · Utendørs')
+    # A link to the run on Strava, for the route and everything Puls does not keep (his ask, 2026-10-01).
+    # Only from an id that is a plain number: a hand-edited file could hold anything there.
+    strava = pg.evaluate(HEAD, 'strava')
+    check("a run linked to Strava ends its line with «Vis på Strava ↗»",
+          strava['meta'], 'torsdag 01.10.2026 · Easy Runna · Utendørs · Vis på Strava ↗')
+    check("...a link to that activity, opening in a new tab",
+          pg.evaluate("""() => { const a = document.querySelector('#detailMeta a');
+            return a && [a.getAttribute('href'), a.target, (a.rel || '').includes('noopener')]; }"""),
+          ['https://www.strava.com/activities/16012345678', '_blank', True])
+    # Squeeze the line so it must break in the MIDDLE of the link: the link moves down whole instead of
+    # leaving «Vis på» on one line and «Strava ↗» on the next. Measured from the link itself, so it holds
+    # whatever the fonts.
+    check("...and the link never splits across two lines",
+          pg.evaluate("""() => { const m = document.getElementById('detailMeta'), a = m.querySelector('a');
+            if (!a) return null;
+            const ml = m.getBoundingClientRect().left, ar = a.getBoundingClientRect();
+            m.style.width = (ar.left - ml + ar.width / 2) + 'px';
+            const n = a.getClientRects().length; m.style.width = ''; return n; }"""), 1)
+    pg.evaluate(HEAD, 'full')
+    check("a run with no Strava id has no link",
+          pg.evaluate("() => document.querySelectorAll('#detailMeta a').length"), 0)
+    pg.evaluate(HEAD, 'badid')
+    pg.wait_for_timeout(200)
+    check("⚠️ an id that is not a plain number gives no link at all — nothing to inject",
+          pg.evaluate("""() => [document.querySelectorAll('#detailMeta a').length,
+                                document.querySelectorAll('#detailMeta img').length, window.__sx || 0]"""),
+          [0, 0, 0])
     # The header belongs to every panel. A week opened after a run must not keep the run's line.
     pg.evaluate("() => DetailPanel.openWeek('2026-32', Store.data.sessions)")
     pg.wait_for_timeout(200)
@@ -1553,9 +1585,11 @@ with sync_playwright() as b0:
       return { lead: document.querySelectorAll('#detailBody .dp-lead .dp-stat').length,
                wraps: r(meta).height > 30,
                fits: body.scrollWidth <= body.clientWidth && ink(meta).right <= r(btn).left
-                     && r(btn).right <= r(body).right + 1 }; }""")
+                     && r(btn).right <= r(body).right + 1,
+               link: (a => a ? [a.textContent, r(a).width > 0 && r(a).right <= r(btn).left] : null)(meta.querySelector('a')) }; }""")
     check("402 px — control: a long run with a long plan name is open", (geo['lead'], geo['wraps']), (3, True))
     check("402 px — the meta line wraps short of the ✕, and nothing leaves the panel", geo['fits'], True)
+    check("402 px — «Vis på Strava ↗» is there, inside the line", geo['link'], ['Vis på Strava ↗', True])
     check("no page errors in the detail header", perr, [])
     pg.close()
 

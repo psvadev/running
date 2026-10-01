@@ -739,6 +739,8 @@
   .dp-lead { padding-bottom:14px; border-bottom:1px solid var(--border); margin-bottom:6px; }
   .dp-lead .dpv { font-size:24px; font-weight:700; letter-spacing:-.3px; font-variant-numeric:tabular-nums; }
   .dp-meta { font-size:12px; color:var(--muted); margin-top:4px; line-height:1.6; }
+  .dp-meta a { color:var(--accent); text-decoration:none; white-space:nowrap; }   /* blue = you can tap it */
+  .dp-meta a:hover { text-decoration:underline; }
   /* The label/value rows under it. `white-space:pre-wrap` on the value: Øktbeskrivelse and Notater
      are multi-line free text (Runna pushes a whole structured workout — warmup, a repeat block,
      cooldown), and HTML would otherwise collapse every newline into a space. Harmless on the
@@ -9081,9 +9083,14 @@ const DetailPanel = {
     // was, minus what moved up. The weekday is parsed exactly as fmtDate parses the date beside it,
     // so the two always name the same day.
     const weekday = new Date(s.dato).toLocaleDateString('nb-NO', { weekday: 'long' });
+    // The run on Strava, for the route and everything Puls doesn't keep (his ask, 2026-10-01). Only from
+    // an id that is a plain number: a hand-edited file could hold anything there, and this is markup.
+    const onStrava = /^\d+$/.test(s.stravaId || '')
+      ? `<a href="https://www.strava.com/activities/${s.stravaId}" target="_blank" rel="noopener noreferrer">Vis på Strava ↗</a>`
+      : '';
     const meta = [`${weekday} ${fmtDate(s.dato)}`,
       typeBadge(s.okttype) + (s.treningsplan ? ` ${escapeHtml(s.treningsplan)}` : ''),
-      s.løpetype === 'treadmill' ? 'Tredemølle' : 'Utendørs'].join(' · ');
+      s.løpetype === 'treadmill' ? 'Tredemølle' : 'Utendørs', onStrava].filter(Boolean).join(' · ');
     // Each only when it has a value, like every row below.
     const lead = [
       s.distanse && [s.distanse + ' km', 'distanse'],
