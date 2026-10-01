@@ -211,6 +211,31 @@ with sync_playwright() as p:
         const s = hrGraphSeries({ time:{data:[...Array(600).keys()]}, heartrate:{data:Array(600).fill(140)},
           velocity_smooth:{data:[...Array(600)].map((_, i) => i >= 300 && i < 360 ? 0 : 2.5)} });
         return s.pace.some(p => p == null) && s.pace.some(p => p != null); }"""), True)
+    # ⚠️ ...but a WALK is not a stop. Strava's `moving` flag calls a 4 km/h walking recovery «stopped»,
+    # and his interval runs drew every recovery as a hole (2026-10-01) — the very stretches the walking
+    # line exists to show. Speed alone decides. The fixture flags the walk AND a 2 s blip at a jog
+    # false, as his real streams do; only the real standstill (0 m/s) may stay empty.
+    walk = pg.evaluate("""() => {
+        const t = [...Array(1500).keys()], hr = t.map(() => 150);
+        const vel = t.map(s => s >= 500 && s < 650 ? 1.11 : s >= 1200 && s < 1220 ? 0 : 3.2);
+        const moving = t.map(s => !(s >= 500 && s < 650) && !(s >= 900 && s < 902) && !(s >= 1200 && s < 1220));
+        const s = hrGraphSeries({ time:{data:t}, heartrate:{data:hr}, velocity_smooth:{data:vel}, moving:{data:moving} });
+        const at = sec => s.pace[s.t.findIndex(m => m * 60 >= sec)];
+        const r = hrGraphRange(s, hrZoneBounds());
+        // Every EMPTY drawn point, in seconds. The line is thinned to every 3rd second here, so a
+        // check that reads one moment can miss a 2 s blip entirely (the first version of this one
+        // did: it read 903 and passed on the old code) — hence all of them, plus proof a drawn point
+        // sits inside the blip.
+        const empty = s.t.filter((m, i) => s.pace[i] == null).map(m => Math.round(m * 60));
+        return { walk: at(575), stop: at(1210), walkPace: Math.round(at(575)), paceHi: r.paceHi,
+                 drawnInBlip: s.t.some(m => Math.round(m * 60) >= 900 && Math.round(m * 60) < 902),
+                 strayGaps: empty.filter(sec => sec < 1200 || sec >= 1220) }; }""")
+    check("⚠️ a walk Strava calls «stopped» is DRAWN", walk["walk"] is not None, True)
+    check("...as walking, well below the walking line", walk["walkPace"] > 3600 / 7.0, True)
+    check("a drawn point lands inside the 2 s flag blip (else the next check is vacuous)", walk["drawnInBlip"], True)
+    check("a 2 s flag blip at a jog does not cut the line — the standstill is the ONLY gap", walk["strayGaps"], [])
+    check("...while a real standstill still does", walk["stop"], None)
+    check("...and the axis reaches down to the walk", walk["paceHi"] >= walk["walkPace"], True)
 
     open_run(pg, "tm")
     check("a treadmill run offers no pace toggle", pg.evaluate("() => !!document.getElementById('hrPaceToggle')"), False)

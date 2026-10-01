@@ -8934,9 +8934,12 @@ function hrGraphSeries(streams, { treadmill = false } = {}) {
   let pace = null;
   const vel = treadmill ? null : streamArr(streams, 'velocity_smooth');
   if (vel && vel.length === time.length) {
-    const moving = streamArr(streams, 'moving');
     // Below 0.8 m/s (≈ 21 min/km) you are stopped, not slow, and 1000/v would shoot off the axis.
-    const raw = vel.map((v, i) => v > 0.8 && (!moving || moving[i] !== false) ? 1000 / v : null);
+    // Speed ALONE decides — not Strava's `moving` flag, which calls a 4 km/h walking recovery
+    // «stopped»: his interval runs drew every recovery as a hole, and 2 s flag blips at a jog cut the
+    // line wherever a drawn point landed on one (2026-10-01). The analyses keep the flag on purpose
+    // (they count moving TIME the way Strava does); this line shows what you did, and you walked.
+    const raw = vel.map(v => v > 0.8 ? 1000 / v : null);
     // ±60 s applied twice. ±45 s once looked fine on synthetic data and jagged on his first real
     // run — GPS pace at 1 Hz is far noisier than anything a fixture generates.
     if (raw.some(p => p != null)) pace = hrSmooth(time, hrSmooth(time, raw, 60), 60);
