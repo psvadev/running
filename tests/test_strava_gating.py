@@ -211,10 +211,10 @@ with sync_playwright() as p:
         const s = hrGraphSeries({ time:{data:[...Array(600).keys()]}, heartrate:{data:Array(600).fill(140)},
           velocity_smooth:{data:[...Array(600)].map((_, i) => i >= 300 && i < 360 ? 0 : 2.5)} });
         return s.pace.some(p => p == null) && s.pace.some(p => p != null); }"""), True)
-    # ⚠️ ...but a WALK is not a stop. Strava's `moving` flag calls a 4 km/h walking recovery «stopped»,
-    # and his interval runs drew every recovery as a hole (2026-10-01) — the very stretches the walking
-    # line exists to show. Speed alone decides. The fixture flags the walk AND a 2 s blip at a jog
-    # false, as his real streams do; only the real standstill (0 m/s) may stay empty.
+    # ⚠️ ...but moving slowly is not a stop. Strava's `moving` flag marks stretches at 1.2–2.1 m/s
+    # «stopped» (his easy run, 01.10), and the line broke wherever a drawn point landed on one. Speed
+    # alone decides. The fixture flags a walk AND a 2 s blip at a jog false, as his real streams do;
+    # only the real standstill (0 m/s) may stay empty.
     walk = pg.evaluate("""() => {
         const t = [...Array(1500).keys()], hr = t.map(() => 150);
         const vel = t.map(s => s >= 500 && s < 650 ? 1.11 : s >= 1200 && s < 1220 ? 0 : 3.2);
