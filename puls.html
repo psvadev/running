@@ -9209,7 +9209,15 @@ const DetailPanel = {
     const grid = css.getPropertyValue('--border').trim(), muted = css.getPropertyValue('--muted').trim(),
           text = css.getPropertyValue('--text').trim();
     const zones = hrZoneBounds();
-    const { hrLo: lo, hrHi: hi, paceLo, paceHi, elevLo, elevHi } = hrGraphRange(series, zones);
+    const range = hrGraphRange(series, zones);
+    const { hrLo: lo, hrHi: hi, paceLo, elevLo, elevHi } = range;
+    let paceHi = range.paceHi;   // widened below to reach the walking line
+    // The walking threshold (Innstillinger → Løpekontinuitet): slower than this the run/walk analysis
+    // counts walking. His picks (2026-10-01): only that line — the run threshold above it is not drawn —
+    // and ALWAYS in the strip, so a steady run shows how far above walking it stayed. The strip is
+    // smoothed over ±1 min, so a short walk break dips toward the line without always crossing it.
+    const walkPace = 3600 / Continuity.thresholds().definiteWalkMaxKmh;   // s/km
+    paceHi = Math.max(paceHi, Math.ceil((walkPace + 20) / 30) * 30);
     const xmax = series.t[series.t.length - 1];
     // Step chosen from the WIDTH as well as the duration: at 402 px a 65 min run on a 10 min step
     // printed «60 min» on top of «65 min», because Chart.js also labels the axis end. So only round
@@ -9246,17 +9254,54 @@ const DetailPanel = {
       });
     }};
     const pts = ys => series.t.map((x, i) => ({ x, y: ys[i] }));
+    // Pointing at a moment reads EVERYTHING at that moment, whichever chart the pointer is on: the
+    // tooltip was off, and Chart.js still drew its hover ring — a marker that said nothing (his
+    // report, 2026-10-01). The vertical line runs through both charts, which share their time axis.
+    const clock = m => { const sec = Math.round(m * 60); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`; };
+    const readout = i => [series.hr[i] != null && `${Math.round(series.hr[i])} slag/min`,
+      paceOn && series.pace[i] != null && `${secsToMmSs(Math.round(series.pace[i]))} /km`,
+      paceOn && series.elev && series.elev[i] != null && `${Math.round(series.elev[i])} m`].filter(Boolean);
+    const cross = { x: null };
+    const crosshair = { id: 'hrCross',
+      afterEvent: (c, args) => {
+        const e = args.event, a = c.chartArea;
+        const x = e.type === 'mouseout' || e.x < a.left || e.x > a.right ? null : c.scales.x.getValueForPixel(e.x);
+        if (x === cross.x) return;
+        cross.x = x; args.changed = true;
+        this._hrCharts.forEach(o => { if (o !== c) o.draw(); });
+      },
+      afterDatasetsDraw: c => {
+        if (cross.x == null) return;
+        const { ctx, chartArea: a, scales: { x } } = c, px = x.getPixelForValue(cross.x);
+        ctx.save(); ctx.strokeStyle = muted; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke(); ctx.restore();
+      } };
     const base = { animation: false, maintainAspectRatio: false, parsing: false,
-                   plugins: { legend: { display: false }, tooltip: { enabled: false } } };
+                   interaction: { mode: 'index', intersect: false },
+                   plugins: { legend: { display: false },
+                     tooltip: { displayColors: false, filter: (_, i) => i === 0,
+                                callbacks: { title: items => `${clock(series.t[items[0].dataIndex])} min`,
+                                             label: item => readout(item.dataIndex) } } } };
+    const walkLine = { id: 'walkLine', beforeDatasetsDraw(c) {
+      const { ctx, chartArea: a, scales: { y } } = c, py = y.getPixelForValue(walkPace / 60);
+      const col = css.getPropertyValue('--yellow').trim();
+      ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+      ctx.setLineDash([]); ctx.fillStyle = col; ctx.font = '600 9px system-ui'; ctx.textAlign = 'right';
+      ctx.fillText(`gange ${secsToMmSs(Math.round(walkPace))}`, a.right - 4, py - 3);
+      ctx.restore();
+    }};
     this._hrCharts.push(new Chart(document.getElementById('hrGraphHr'), {
       type: 'line',
       data: { datasets: [{ data: pts(series.hr), borderColor: text, borderWidth: 1.8, pointRadius: 0, tension: .35 }] },
-      options: { ...base, scales: { x: xAxis(!paceOn),
+      // The strip's metre axis takes 40 px on its right; the same margin here keeps a moment in this
+      // chart directly above the same moment in the strip (the crosshair made the drift visible).
+      options: { ...base, layout: { padding: { right: paceOn && series.elev ? 40 : 0 } }, scales: { x: xAxis(!paceOn),
         // Only round 20s are labelled: the range is fitted to the run, so Chart.js would otherwise
         // print its raw edges (90, 198) as ticks that read like measurements.
         y: { min: lo, max: hi, grid: { color: grid }, ...yw,
              ticks: { color: muted, font: { size: 10 }, stepSize: 10, callback: v => v % 20 === 0 ? v : null } } } },
-      plugins: [bands] }));
+      plugins: [bands, crosshair] }));
     if (paceOn) {
       this._hrCharts.push(new Chart(document.getElementById('hrGraphPace'), {
         type: 'line',
@@ -9285,7 +9330,8 @@ const DetailPanel = {
                // 30 s steps on a normal run, whole minutes when the range is wide (a run with a
                // walk in it), so the strip never carries more than about four labels.
                ticks: { color: muted, font: { size: 10 }, stepSize: (paceHi - paceLo) > 150 ? 1 : 0.5,
-                        callback: v => secsToMmSs(Math.round(v * 60)) } } } } }));
+                        callback: v => secsToMmSs(Math.round(v * 60)) } } } },
+        plugins: [walkLine, crosshair] }));
     }
   },
 

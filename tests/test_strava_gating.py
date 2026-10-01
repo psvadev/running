@@ -18,7 +18,7 @@ Two properties that are easy to break and cost nothing to assert:
 Not connected is the default state of a fresh profile, so the disconnected half needs no setup.
 The connected half fakes a stored token — StravaIO.isSignedIn() only checks for a refresh_token.
 """
-import os, pathlib, sys
+import os, pathlib, re, sys
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
 
@@ -289,6 +289,64 @@ with sync_playwright() as p:
     check("each chart carries its own label", len(labels), 2)
     check("...the first names the HR chart", labels[0], "Puls (slag/min)")
     check("...the second names pace AND høyde", labels[1], "Tempo (min/km) · høyde (m)")
+
+    # ── Pointing at a moment reads it out; the walking line (his asks, 2026-10-01) ──────────────────
+    # The tooltip was off while Chart.js still drew its hover ring — a marker that said nothing. Now
+    # either chart reads out time, HR, pace and height at that moment, and one vertical line marks it
+    # in both. This stream: HR 150, 2.5 m/s (6:40 /km), a 60 m hill.
+    def hover(canvas, fx=0.5):
+        box = pg.evaluate(f"() => {{ const r = document.getElementById('{canvas}').getBoundingClientRect();"
+                          " return [r.left, r.top, r.width, r.height]; }")
+        pg.mouse.move(box[0] + box[2] * fx, box[1] + box[3] * 0.5)
+        pg.wait_for_timeout(150)
+    READ = """(id) => { const t = Chart.getChart(document.getElementById(id)).tooltip;
+        return t.opacity ? [t.title.join(''), ...t.body.flatMap(b => b.lines)] : null; }"""
+    hover("hrGraphHr")
+    got = pg.evaluate(READ, "hrGraphHr")
+    check("pointing at the HR chart reads out the moment: time · HR · pace · height",
+          bool(got) and [bool(re.fullmatch(r"\d+:\d\d min", got[0])), got[1], got[2], got[3].endswith(" m")],
+          [True, "150 slag/min", "6:40 /km", True])
+    # The vertical line is drawn in the OTHER chart too. Read where it must be: a pixel column at the
+    # top of the pace strip, before and after — nothing else is drawn there on this run.
+    PIX = """() => { const c = Chart.getChart(document.getElementById('hrGraphPace')), cv = c.canvas;
+        const k = cv.width / cv.clientWidth, x = c.scales.x.getPixelForValue(window.__crossAt);
+        return [...cv.getContext('2d').getImageData(Math.round(x * k), Math.round((c.chartArea.top + 3) * k), 1, 1).data]; }"""
+    # The moment under the pointer (hover() points at the middle of the canvas), from the HR chart's own
+    # axis — not from its tooltip, so this check stands on the line alone.
+    pg.evaluate("""() => { const c = Chart.getChart(document.getElementById('hrGraphHr'));
+        window.__crossAt = c.scales.x.getValueForPixel(c.canvas.clientWidth * 0.5); }""")
+    pg.mouse.move(2, 2); pg.wait_for_timeout(150)
+    away = pg.evaluate(PIX)
+    hover("hrGraphHr")
+    check("...and marks that moment in the pace strip too", pg.evaluate(PIX) != away, True)
+    # A moment must sit directly above itself: the strip's metre axis takes 40 px on the right, and
+    # without the same margin on the HR chart the two time axes drifted apart.
+    check("...where the two charts put the same minute at the same place", pg.evaluate("""() => {
+        const h = Chart.getChart(document.getElementById('hrGraphHr')), p = Chart.getChart(document.getElementById('hrGraphPace'));
+        return [5, 15, 25].map(m => Math.round(h.scales.x.getPixelForValue(m) - p.scales.x.getPixelForValue(m))); }"""), [0, 0, 0])
+    hover("hrGraphPace", 0.3)
+    got = pg.evaluate(READ, "hrGraphPace")
+    check("pointing at the pace strip reads out the same three values",
+          got and got[1:3], ["150 slag/min", "6:40 /km"])
+    pg.mouse.move(2, 2)
+    # Walking = slower than 7.0 km/h → 8:34 /km (the run/walk analysis' own threshold). This run sits
+    # at 6:40 all the way, so the line is only there because the strip is made to reach it.
+    WALK = """() => { const c = Chart.getChart(document.getElementById('hrGraphPace')), cv = c.canvas;
+        const k = cv.width / cv.clientWidth;
+        const y = c.scales.y, a = c.chartArea, ctx = cv.getContext('2d');
+        const walk = 3600 / Continuity.thresholds().definiteWalkMaxKmh / 60;
+        const row = Math.round(y.getPixelForValue(walk) * k);
+        const px = ctx.getImageData(Math.round(a.left * k), row, Math.round((a.right - a.left) * k), 1).data;
+        let amber = 0; for (let i = 0; i < px.length; i += 4) if (px[i] > 200 && px[i+1] > 150 && px[i+1] < 215 && px[i+2] < 130) amber++;
+        return { reaches: y.max >= walk, amber: amber > 20 }; }"""
+    w = pg.evaluate(WALK)
+    check("a steady 6:40 run's strip still reaches the walking line at 8:34", w["reaches"], True)
+    check("...and the line is drawn there", w["amber"], True)
+    # His thresholds are settings (Innstillinger → Løpekontinuitet): the line follows them.
+    pg.evaluate("() => { Store.data.continuitySettings = { walkMaxKmh: 6, runMinKmh: 6.5 }; }")
+    open_run(pg, "man"); open_run(pg, "out", wait=600)
+    check("...and moves with his own threshold (6.0 km/h → 10:00 /km)",
+          pg.evaluate("""() => Chart.getChart(document.getElementById('hrGraphPace')).scales.y.max >= 10"""), True)
     check("no page errors with the hill drawn", errs, [])
     pg.close()
 
