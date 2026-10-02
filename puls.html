@@ -3724,9 +3724,8 @@ const Store = {
     this._migrate();
     this.loadedFromPersisted = true;
     // Never waited for and never blocking: a load must not fail because its backup did. A failure is
-    // kept in BackupDB.lastError, which the Lokale sikkerhetskopier card shows. An empty dataset has
-    // nothing to protect, and must not take the day's first-copy slot from the data that follows.
-    if (snapshot && this.data.sessions.length) BackupDB.saveDaily(json, this.data.sessions.length).catch(() => {});
+    // kept in BackupDB.lastError, which the Lokale sikkerhetskopier card shows.
+    if (snapshot) BackupDB.saveDaily(json, this.data.sessions.length).catch(() => {});
     return true;
   },
 
@@ -3992,6 +3991,10 @@ const HandleDB = {
 // Lokale sikkerhetskopier card, and the actions that snapshot before a bulk change stop when their
 // copy fails. It used to swallow everything (`catch {}`), and a transaction that aborted after its
 // write succeeded — a quota failure at commit — left save() waiting forever.
+// What a failed backup said, for a message: IndexedDB errors are DOMExceptions whose message can be
+// empty, so the name stands in.
+const errText = (e, fallback = '') => (e && (e.message || e.name)) || fallback;
+
 const BackupDB = {
   // The last failed backup WRITE, `{ at, message }` or null. Only a successful write clears it: a
   // read, a restore or a re-render must never take down the warning it exists to show.
@@ -4046,14 +4049,19 @@ const BackupDB = {
   // are kept. «Før endring» is ONE copy under a key that can never be a date: the state right before
   // the latest bulk change, overwritten by the next (his call: deliberately single-level).
   BEFORE_KEY: 'før-endring',
+  // The line every confirm that takes a «før endring» copy ends with.
+  FIRST_NOTE: 'En kopi tas først — du finner den øverst under Innstillinger → Lokale sikkerhetskopier.',
   _isDayKey: k => /^\d{4}-\d{2}-\d{2}$/.test(k),
   // The FIRST state seen each day wins, so today's copy can undo a mistake made earlier today (it used
   // to be overwritten by every load and Drive pull). Atomic: the "is today there?" read and the write
   // share one readwrite transaction, and IndexedDB runs readwrite transactions on a store one at a
   // time, so a second caller sees the first caller's committed copy instead of overwriting it (the
   // template's saveDailyBackup reads and writes in two transactions and has that race). The put is
-  // queued BEFORE the trim's key read, so the trim sees the new day. → 'written' | 'exists'
+  // queued BEFORE the trim's key read, so the trim sees the new day. → 'written' | 'exists' | 'empty'
   async saveDaily(json, sessionCount) {
+    // An empty dataset has nothing to protect, and must not take the day's first-copy slot from the
+    // data that follows.
+    if (!sessionCount) return 'empty';
     const date = localISODate();
     return this._write((store, track) => {
       let outcome = 'exists';
@@ -4067,8 +4075,10 @@ const BackupDB = {
       return () => outcome;
     });
   },
-  // Taken right before a bulk change; the callers stop when it fails. → 'written'
-  async saveBefore(json, sessionCount, reason) {
+  // Taken right before a bulk change, of the data as it stands; the callers stop when it fails.
+  // → 'written'
+  async saveBefore(reason) {
+    const json = Store.toJSON(), sessionCount = Store.data.sessions.length;
     return this._write((store, track) => {
       track(store.put({ kind: 'before', reason, date: localISODate(), timestamp: new Date().toISOString(),
                         sessionCount, json }, this.BEFORE_KEY));
@@ -4078,15 +4088,20 @@ const BackupDB = {
   // Every backup WRITE goes through here. A failure is kept in `lastError` and rethrown; only a write
   // that actually stored a copy clears it — a saveDaily that found today's copy already there does not.
   async _write(work) {
+    let changed = false;
     try {
       const outcome = await this._run('readwrite', work);
-      if (outcome === 'written') this.lastError = null;
+      if (outcome === 'written') { this.lastError = null; changed = true; }
       return outcome;
     } catch (e) {
-      this.lastError = { at: new Date().toISOString(), message: (e && (e.message || e.name)) || 'ukjent feil' };
+      this.lastError = { at: new Date().toISOString(), message: errText(e, 'ukjent feil') };
+      changed = true;
       throw e;
     } finally {
-      if (typeof Settings !== 'undefined') Settings.renderBackupList();
+      // Only when the card has something new to show: a saveDaily that found today's copy already
+      // there changes nothing, and it runs on every return to the tab — redrawing would read all 8
+      // copies back each time (a few MB on the phone) for a list that may not even be on screen.
+      if (changed && typeof Settings !== 'undefined') Settings.renderBackupList();
     }
   },
   // Rejects when the store can't be read — a caller must never show that as "no backups".
@@ -5693,7 +5708,7 @@ const StravaBackfill = {
       // Snapshot before a bulk mutation, same as the Slett-alle button — this writes stravaId
       // onto dozens of sessions at once, so a bad match set should be recoverable from
       // Innstillinger → Lokale sikkerhetskopier. No copy, no change: it must have LANDED first.
-      try { await BackupDB.saveBefore(Store.toJSON(), Store.data.sessions.length, 'Koble gamle økter til Strava'); }
+      try { await BackupDB.saveBefore('Koble gamle økter til Strava'); }
       catch { showToast('Kunne ikke ta sikkerhetskopi først — ingenting er koblet. Se Lokale sikkerhetskopier.', 'error'); return; }
       const byId = {};
       Store.data.sessions.forEach(s => byId[s.id] = s);
@@ -5883,7 +5898,7 @@ const Continuity = {
       // sessions), same as the Slett-alle button. No copy, no change — and inside the try, so the
       // finally below always gives the button back (a failed copy used to leave it dead).
       if (snapshot) {
-        try { await BackupDB.saveBefore(Store.toJSON(), Store.data.sessions.length, 'Analyser alle Strava-økter'); }
+        try { await BackupDB.saveBefore('Analyser alle Strava-økter'); }
         catch { setMsg('Kunne ikke ta sikkerhetskopi først — ingenting er analysert. Se Lokale sikkerhetskopier.', 'var(--danger)'); return; }
       }
       for (const s of pending) {
@@ -12543,11 +12558,11 @@ const Settings = {
     });
     document.getElementById('btnDownload').addEventListener('click', () => FileIO.download());
     document.getElementById('btnClearAll').addEventListener('click', async () => {
-      if (!confirm('Slett ALLE treningsøkter?\nEn kopi tas først — du finner den øverst under Innstillinger → Lokale sikkerhetskopier.')) return;
+      if (!confirm('Slett ALLE treningsøkter?\n' + BackupDB.FIRST_NOTE)) return;
       // Snapshot the pre-clear state so it's recoverable from Lokale sikkerhetskopier — and wait for
       // it to LAND: this copy is the only way back, so no copy means nothing is deleted.
-      try { await BackupDB.saveBefore(Store.toJSON(), Store.data.sessions.length, 'Tøm alle data'); }
-      catch (e) { alert(`Kunne ikke ta sikkerhetskopi før slettingen — ingenting er slettet.\n\n${e?.message || e?.name || ''}`); return; }
+      try { await BackupDB.saveBefore('Tøm alle data'); }
+      catch (e) { alert(`Kunne ikke ta sikkerhetskopi før slettingen — ingenting er slettet.\n\n${errText(e)}`); return; }
       Store.data.sessions = [];
       Store.data.lastUpdated = new Date().toISOString();
       FileIO.save(); refreshAll(); this.render();
@@ -12596,7 +12611,7 @@ const Settings = {
     const warn = e ? `<p class="muted-sm" style="color:var(--danger);margin-bottom:8px">⚠️ Siste sikkerhetskopi feilet ${fmtDate(localISODate(new Date(e.at)))} kl. ${this._clock(e.at)}: ${escapeHtml(e.message)}</p>` : '';
     if (readError) {
       // A list that can't be read is NOT an empty list: say so, and touch nothing.
-      container.innerHTML = warn + `<p class="muted-sm" style="color:var(--danger)">Kunne ikke lese sikkerhetskopiene: ${escapeHtml(readError?.message || readError?.name || 'ukjent feil')}</p>`;
+      container.innerHTML = warn + `<p class="muted-sm" style="color:var(--danger)">Kunne ikke lese sikkerhetskopiene: ${escapeHtml(errText(readError, 'ukjent feil'))}</p>`;
       return;
     }
     if (!backups.length) {
@@ -12612,22 +12627,18 @@ const Settings = {
         <button class="btn-secondary btn-sm" onclick="Settings.restoreBackup('${key}')">↩ Gjenopprett</button>
       </div>`;
     container.innerHTML = warn
-      + (before ? row(BackupDB.BEFORE_KEY, this._backupLabel(before), before.sessionCount) : '')
+      + (before ? row(BackupDB.BEFORE_KEY, this._beforeLabel(before), before.sessionCount) : '')
       + backups.filter(b => b.kind !== 'before').map(b => row(b.date, fmtDate(b.date), b.sessionCount)).join('');
   },
   _clock: iso => new Date(iso).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' }),
-  _backupLabel(b) {
-    return b.kind === 'before'
-      ? `Før «${escapeHtml(b.reason || 'endring')}» · ${fmtDate(b.date)} kl. ${this._clock(b.timestamp)}`
-      : fmtDate(b.date);
-  },
+  _beforeLabel(b) { return `Før «${escapeHtml(b.reason || 'endring')}» · ${fmtDate(b.date)} kl. ${this._clock(b.timestamp)}`; },
 
   // By key: a date for a daily copy, BackupDB.BEFORE_KEY for «før endring». Read first, so the
   // confirm can say exactly what comes back.
   async restoreBackup(key) {
     let rec;
     try { rec = await BackupDB.restore(key); }
-    catch (e) { alert(`Kunne ikke lese sikkerhetskopien — ingenting er endret.\n\n${e?.message || e?.name || ''}`); return; }
+    catch (e) { alert(`Kunne ikke lese sikkerhetskopien — ingenting er endret.\n\n${errText(e)}`); return; }
     if (!rec?.json) { alert('Kunne ikke laste sikkerhetskopi.'); return; }
     const what = rec.kind === 'before'
       ? `kopien fra før «${rec.reason || 'endring'}» (${fmtDate(rec.date)} kl. ${this._clock(rec.timestamp)}, ${rec.sessionCount} økter)`
@@ -13538,9 +13549,9 @@ const Settings = {
     const lines = renames.slice(0, SHOW).map(r => `${fmtDate(r.s.dato)}  ${r.s.oktnavn || '(uten navn)'} → ${r.name}`);
     if (renames.length > SHOW) lines.push(`…og ${okter(renames.length - SHOW)} til`);
     if (!confirm(`Gi ${okter(renames.length)} navn fra planen?\n\n${lines.join('\n')}\n\n`
-      + 'Andre navn røres ikke. En kopi tas først — du finner den øverst under Innstillinger → Lokale sikkerhetskopier.')) return;
-    try { await BackupDB.saveBefore(Store.toJSON(), Store.data.sessions.length, 'Navn fra planen'); }
-    catch (e) { alert(`Kunne ikke ta sikkerhetskopi — ingen navn er endret.\n\n${e?.message || e?.name || ''}`); return; }
+      + 'Andre navn røres ikke. ' + BackupDB.FIRST_NOTE)) return;
+    try { await BackupDB.saveBefore('Navn fra planen'); }
+    catch (e) { alert(`Kunne ikke ta sikkerhetskopi — ingen navn er endret.\n\n${errText(e)}`); return; }
     renames.forEach(r => { r.s.oktnavn = r.name; });
     Store.data.lastUpdated = new Date().toISOString();
     FileIO.save();
@@ -13877,7 +13888,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // anything is edited. Never on hide (his call, 2026-09-28): a copy taken then would already hold
   // that visit's changes. saveDaily writes only when today's copy is missing.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible' || !Store.data.sessions.length) return;
+    if (document.visibilityState !== 'visible') return;
     BackupDB.saveDaily(Store.toJSON(), Store.data.sessions.length).catch(() => {});
   });
   const hashTab = window.location.hash.slice(1);

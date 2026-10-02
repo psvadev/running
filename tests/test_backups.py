@@ -101,7 +101,7 @@ UNSTUB = """() => { const P = IDBObjectStore.prototype, o = window.__orig;
 WRITE = """async ([which, ms]) => {
   const call = () => which === 'daily'
     ? BackupDB.saveDaily(Store.toJSON(), Store.data.sessions.length)
-    : BackupDB.saveBefore(Store.toJSON(), Store.data.sessions.length, 'test');
+    : BackupDB.saveBefore('test');
   let p; try { p = call(); } catch (e) { return 'missing:' + e.name; }
   return Promise.race([
     Promise.resolve(p).then(v => 'resolved:' + v, e => 'rejected:' + ((e && e.name) || String(e))),
@@ -222,6 +222,19 @@ with sync_playwright() as pw:
     check("...the next successful write resolves", pg.evaluate(WRITE, ["before", 2500]), "resolved:written")
     pg.evaluate("async () => { await Settings.renderBackupList(); }")
     check("...and takes the warning down", "Siste sikkerhetskopi feilet" in pg.evaluate(CARD), False)
+    # ...and the card follows a write ON ITS OWN, with no render call: Tøm alle sits on this very page,
+    # so if its copy fails the warning must appear where he is looking. (Every check above renders
+    # by hand, so a write that stopped redrawing the card passed them all — falsified 2026-10-02.)
+    pg.evaluate(STUB, "constraint")
+    pg.evaluate(WRITE, ["before", 2500])
+    pg.evaluate(UNSTUB)
+    pg.wait_for_timeout(300)
+    check("a failed write puts the warning on the open card by itself", "Siste sikkerhetskopi feilet" in pg.evaluate(CARD), True)
+    # Shown by hand first, so the next check cannot pass merely because the warning never came up.
+    pg.evaluate("async () => { await Settings.renderBackupList(); }")
+    pg.evaluate(WRITE, ["before", 2500])
+    pg.wait_for_timeout(300)
+    check("...and the next good write takes it down by itself", "Siste sikkerhetskopi feilet" in pg.evaluate(CARD), False)
 
     print("== a list that cannot be read is not an empty list ==")
     before = pg.evaluate(RAW)
@@ -259,6 +272,20 @@ with sync_playwright() as pw:
     check("a load writes today's copy", (first.get("kind"), first.get("sessionCount")), ("day", 4))
     check("...and a later load the same day leaves it alone (still 4 sessions, not 5)",
           records(pg).get(today, {}).get("sessionCount"), 4)
+    # An empty dataset has nothing to protect: it must not take the day's slot from the data that
+    # follows (a fresh device opening before its Drive pull). One rule, inside saveDaily, for both the
+    # load and the visibility path.
+    pg.evaluate(RAW_DEL, today)
+    empty = pg.evaluate("""async () => { const keep = Store.toJSON();
+      Store.load(JSON.stringify({ sessions: [], shoes: [], goals: {}, events: [] }), { snapshot: true });
+      await new Promise(r => setTimeout(r, 300));
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await new Promise(r => setTimeout(r, 300));
+      const direct = await BackupDB.saveDaily('{"sessions":[]}', 0);
+      Store.load(keep, { snapshot: false }); return direct; }""")
+    check("an empty dataset never takes today's copy (load, visibility or a direct call)",
+          (empty, today in records(pg)), ("empty", False))
 
     print("== first copy wins, atomically: two saves started together ==")
     pg.evaluate(RAW_DEL, today)
@@ -282,6 +309,14 @@ with sync_playwright() as pw:
     pg.evaluate("() => { Store.data.sessions.pop(); }")
     pg.evaluate(VISIBILITY, "hidden"); pg.evaluate(VISIBILITY, "visible"); pg.wait_for_timeout(400)
     check("...and later returns the same day leave it alone (still 5)", records(pg).get(today, {}).get("sessionCount"), 5)
+    # Every return to the tab runs this; with today's copy there, nothing changed, so the card is not
+    # redrawn — a redraw reads all 8 copies back (a few MB on the phone) for nothing.
+    reads = pg.evaluate("""async () => { let n = 0; const orig = BackupDB.getAll;
+      BackupDB.getAll = function () { n++; return orig.apply(this, arguments); };
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await new Promise(r => setTimeout(r, 400)); BackupDB.getAll = orig; return n; }""")
+    check("...without reading the copies back to redraw a card that has nothing new", reads, 0)
     pg.evaluate("() => { delete document.visibilityState; }")
 
     print("== «Analyser alle» does not run without its safety copy ==")
