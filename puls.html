@@ -2829,14 +2829,22 @@ function plannedTitle(p) {
   return GENERIC_WORKOUT_TITLES.includes(t.toLowerCase()) ? '' : t;
 }
 
+// The name the form gives a run that has nothing better: «Runna Intervaller».
+const autoName = (plan, type) => `${plan} ${type}`;
+
 // A run's name that says nothing its plan and type columns don't: blank, or «{plan} {type}» — as the
 // form generates it («Runna Intervaller»), or as he typed it by hand before the form did («Runna
 // intervaller», «Runna long run»). Only such a name may give way to a better one, Strava's title or the
 // plan's workout; any other name he typed is his.
 function hasGenericName(s) {
   const n = (s.oktnavn || '').trim().toLowerCase().replace(/ run$/, '');
-  return !n || n === `${s.treningsplan} ${s.okttype}`.toLowerCase();
+  return !n || n === autoName(s.treningsplan, s.okttype).toLowerCase();
 }
+
+// Whether a saved run may take a workout's name, from Strava («Oppdater fra Strava») or from the plan
+// («Hent navn fra planen»): only over a name that says nothing of its own, and never a race — its name
+// is its 🏁 event's or his.
+const mayTakeWorkoutName = s => s.okttype !== 'Race' && hasGenericName(s);
 
 // Older runs whose name says nothing of its own, each with the named workout the imported plan says it
 // was (his ask, 2026-09-29: «all intervals are called the same regardless of regular, pyramids, broken
@@ -2850,7 +2858,7 @@ function planNameRenames() {
   const byId = new Map(Store.data.sessions.map(s => [s.id, s]));
   return planned.flatMap(p => {
     const s = byId.get(matchOf[p.id]), name = plannedTitle(p);
-    if (!s || !name || s.okttype === 'Race' || !hasGenericName(s)) return [];
+    if (!s || !name || !mayTakeWorkoutName(s)) return [];
     const sameWorkout = s.okttype === p.okttype || (p.fromCompleted && s.dato === p.date);
     return sameWorkout ? [{ s, name }] : [];
   }).sort((a, b) => a.s.dato.localeCompare(b.s.dato));
@@ -6215,7 +6223,7 @@ const Form = {
   shoeTouched: false,   // a hand-picked shoe is final for the rest of this form — same rule as planTouched
   pendingGearId: null,  // Strava gear this form could not match; save() links it to the shoe he picks
   stravaGear: null,     // the imported activity's gear, kept only to compare against the chosen shoe
-  stravaTitle: '',      // the imported activity's own title ('' = none, or Strava's time-of-day default)
+  stravaTitle: '',      // the imported activity's workout name — stravaWorkoutTitle ('' = none of its own)
 
   init() {
     document.getElementById('fDato').value = localISODate();
@@ -6326,7 +6334,7 @@ const Form = {
     } else if (this.stravaTitle) {
       generated = this.stravaTitle;
     } else if (type && plan && plan !== 'Egentrening') {
-      generated = `${plan} ${type}`;
+      generated = autoName(plan, type);
     }
     const nameEl = document.getElementById('fOktnavn');
     if (!nameEl.value.trim() || nameEl.value === this.lastAutoOktnavn) {
@@ -6343,7 +6351,7 @@ const Form = {
     const nameEl = document.getElementById('fOktnavn');
     const run = { oktnavn: nameEl.value, okttype: document.getElementById('fOkttype').value,
                   treningsplan: document.getElementById('fTreningsplan').value };
-    if (this.stravaTitle && run.okttype !== 'Race' && hasGenericName(run)) nameEl.value = this.stravaTitle;
+    if (this.stravaTitle && mayTakeWorkoutName(run)) nameEl.value = this.stravaTitle;
   },
 
   togglePulsdata() {
@@ -11166,6 +11174,20 @@ function updateStravaFetchVisibility() {
 // «Runna Easy». The Norwegian forms are a best guess at Strava's wording — the English ones are certain.
 const STRAVA_DEFAULT_TITLE = /^((monday|tuesday|wednesday|thursday|friday|saturday|sunday) )?(morning|lunch|afternoon|evening|night) run$|^(morgen|formiddags|lunsj|ettermiddags|kvelds|natt)løp$/i;
 
+// A Strava activity's title → the workout's own name, or '' when it has none. Runna names the workout
+// there («Pyramid Intervals»), which says more than the generated «Runna Intervaller» (his call,
+// 2026-09-29) — but not Strava's time-of-day default, nor Runna's generic «Easy Run»: easy and long runs
+// have no name of their own, so they keep «Runna Easy».
+// Runna puts the run's distance in front on Strava — «7.5km Easy Run», «11km Progressive Long Run»,
+// «5km Race» (his screenshot, 2026-09-30) — and it goes first: the distance is its own column, and what
+// is left is either generic or the workout's own name. Only before a name ending «Run» or «Race», the
+// only kinds Runna prefixes: in «1km Repeats» the km is the rep, part of the name. (The PLAN side,
+// parseRunnaIcs, still strips that «1km » — parked in HANDOFF until a «Repeats» row shows up.)
+function stravaWorkoutTitle(name) {
+  const t = (name || '').trim().replace(/^[\d.]+\s*km\s+(?=.*\b(run|race)$)/i, '');
+  return STRAVA_DEFAULT_TITLE.test(t) ? '' : plannedTitle({ title: t });
+}
+
 const StravaImport = {
   activities: [],
 
@@ -11261,19 +11283,11 @@ const StravaImport = {
     try {
       // Remember which Strava activity filled this session so an edit can re-pull it later.
       document.getElementById('fStravaId').value = a.id;
-      // …and its title: Runna names the workout there («Pyramid Intervals»), which says more than the
-      // generated «Runna Intervaller» (his call, 2026-09-29). Not Strava's time-of-day default, nor
-      // Runna's generic «Easy Run» — easy and long runs have no name of their own, so they keep
-      // «Runna Easy». Whether the field may change: maybeAutoName decides on a new run (a typed name
-      // and a race's 🏁 event win over it), takeStravaTitle on a saved one — an edit only reaches here
-      // through «Oppdater fra Strava», since Hent fra Strava is hidden while editing.
-      // Runna puts the run's distance in front on Strava — «7.5km Easy Run», «11km Progressive Long Run»,
-      // «5km Race» (his screenshot, 2026-09-30) — and it goes first: the distance is its own column, and
-      // what is left is either generic or the workout's own name. Only before a name ending «Run» or
-      // «Race», the only kinds Runna prefixes: in «1km Repeats» the km is the rep, part of the name.
-      const title = (a.name || '').trim().replace(/^[\d.]+\s*km\s+(?=.*\b(run|race)$)/i, '');
-      Form.stravaTitle = STRAVA_DEFAULT_TITLE.test(title) || GENERIC_WORKOUT_TITLES.includes(title.toLowerCase())
-        ? '' : title;
+      // …and the workout's name from its title (stravaWorkoutTitle). Whether the field may change:
+      // maybeAutoName decides on a new run (a typed name and a race's 🏁 event win over it),
+      // takeStravaTitle on a saved one — an edit only reaches here through «Oppdater fra Strava», since
+      // Hent fra Strava is hidden while editing.
+      Form.stravaTitle = stravaWorkoutTitle(a.name);
       if (Form.editId) Form.takeStravaTitle(); else Form.maybeAutoName();
       document.getElementById('fDistanse').value = (a.distance / 1000).toFixed(2);
 

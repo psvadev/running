@@ -636,6 +636,12 @@ with sync_playwright() as p:
     # has met «1km Repeats • 9km», a 9 km session of 1 km reps.
     check("...but a rep distance is part of the name: «400m Repeats» and «1km Repeats» stay whole",
           [named(title='400m Repeats')[1], named(title='1km Repeats')[1]], ['400m Repeats', '1km Repeats'])
+    # The rule itself, as the ONE function the import calls (it was inline in _populate, 8000 lines
+    # from the naming helpers it shares a list with) — his real title shapes, no form in between.
+    check("stravaWorkoutTitle: his real title shapes, straight to the workout's name or none",
+          tp.evaluate("""() => ['7.5km Easy Run', 'Friday Lunch Run', '11km Progressive Long Run', '1km Repeats',
+                                 '  Pyramid Intervals ', '5km Race', 'Morgenløp', ''].map(stravaWorkoutTitle)"""),
+          ['', '', 'Progressive Long Run', '1km Repeats', 'Pyramid Intervals', '', '', ''])
     check("Egentrening, which had no generated name, gets the title",
           named(plan='Egentrening', title='Tur med Kari')[1], 'Tur med Kari')
     check("a race keeps its 🏁 event's name", named(dato='2026-10-03', type='Race', title='10K race')[1],
