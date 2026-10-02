@@ -6705,8 +6705,8 @@ const Form = {
   // invisible fields, on the theory that a venue-hidden field is not saved — but read() drops
   // Høydemeter by VENUE, not by visibility, and the two can disagree: a hidden Høydemeter of
   // -50 was skipped here and still stored. Visibility is the wrong axis. Nothing is needed in its
-  // place, because syncVenueFields always EMPTIES the hidden field (its rule 1, pinned by
-  // test_venue_fields), and an empty optional field is valid — so it can never block a save.
+  // place, because syncVenueFields always EMPTIES the hidden field (pinned by test_venue_fields),
+  // and an empty optional field is valid — so it can never block a save.
   firstInvalidNumber() {
     return [...document.querySelectorAll('#panel-form input[type=number]')]
       .find(el => !el.checkValidity()) || null;
