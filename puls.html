@@ -10416,14 +10416,13 @@ function renderDashboard() {
   const hero = n
     ? `<div class="rk-hero"><div class="rk-big rk-num">${recs.totalDist.toFixed(1)} km<span class="rk-tot">totalt</span></div>`
       + `<div class="rk-say">løpt på <b class="rk-num">${hoursMins(recs.totalTime)}</b> over `
-      + `<b class="rk-num">${n} ${n === 1 ? 'økt' : 'økter'}</b>.`
+      + `<b class="rk-num">${okter(n)}</b>.`
       + (line2 ? `<br>${line2.replace(/^([a-zæøå])/, c => c.toUpperCase())}.` : '') + `</div></div>`
     : `<div class="rk-hero"><div class="rk-say">Ingen økter matcher filteret.</div></div>`;
   const row = (label, value, sub, extra = {}) =>
     `<div class="rk-row"${extra.tooltip ? ` title="${extra.tooltip}"` : ''}><span class="rk-l">${label}</span>`
     + `<span class="rk-v rk-num"${extra.color ? ` style="color:${extra.color}"` : ''}>${value}</span>`
     + (sub ? `<span class="rk-s">${sub}</span>` : '') + `</div>`;
-  const MND = ['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
   document.getElementById('recordsGrid').innerHTML = hero + `<div class="rk-groups">
     <div class="rk-group"><h4>Enkeltøkter</h4>${[
       row('Lengste økt (distanse)', recs.longestDist ? fmtDist(recs.longestDist.distanse)+' km' : '–', recs.longestDist ? fmtDate(recs.longestDist.dato) : ''),
@@ -10435,7 +10434,7 @@ function renderDashboard() {
     ].join('')}</div>
     <div class="rk-group"><h4>Perioder</h4>${[
       row('Beste uke', recs.besteUke ? recs.besteUkeKm.toFixed(1)+' km' : '–', recs.besteUke ? fmtWeekLabel(recs.besteUke) : ''),
-      row('Beste måned', recs.besteMåned ? recs.besteMånedKm.toFixed(1)+' km' : '–', recs.besteMåned ? `${MND[+recs.besteMåned.slice(5,7)-1]} ${recs.besteMåned.slice(0,4)}` : ''),
+      row('Beste måned', recs.besteMåned ? recs.besteMånedKm.toFixed(1)+' km' : '–', recs.besteMåned ? `${PICKER_MONTHS[+recs.besteMåned.slice(5,7)-1]} ${recs.besteMåned.slice(0,4)}` : ''),
       row('Beste 4-ukersperiode', recs.beste4Blokk ? recs.beste4Blokk.toFixed(1)+' km' : '–', 'Rullerende 4 uker'),
       row('Lengste streak', recs.longestStreak ? `${recs.longestStreak} ${recs.longestStreak === 1 ? 'uke' : 'uker'}` : '–', recs.longestStreak ? 'på rad' : ''),
     ].join('')}</div>
