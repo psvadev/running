@@ -1421,6 +1421,73 @@ with sync_playwright() as b0:
     check("no page errors", perr, [])
     pg.close()
 
+    # ── 5b. A fetched run finds ITS planned session, also on another day of the week (2026-10-04) ──
+    # His report: the long run moved to Sunday arrived as «Easy» / «Runna Easy» with no Øktbeskrivelse,
+    # although Strava said «12km Long Run». The plan was only looked up by the form's DATE, and the
+    # title — Runna's record of the workout he started — was thrown away as «generic». Now the title is
+    # the evidence: a generic one gives the TYPE, a named one must equal the plan's title, and the
+    # planned session that fits, not yet run, in the same ISO week, supplies type, Mål distanse and
+    # Øktbeskrivelse. With no such session the title's type still sets Økt-type.
+    print("== a fetched run finds its planned session within the week ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    perr = []
+    pg.on("pageerror", lambda e: perr.append(str(e)))
+    pg.add_init_script(FREEZE)
+    pg.goto(APP)
+    pg.evaluate("""() => localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [{ id: 'done', dato: '2026-09-29', okttype: 'Easy', treningsplan: 'Runna', distanse: 7,
+                     varighet: 2700, soner: [0,0,0,0,0], løpetype: 'utendors' }],
+        shoes: [], shoeDefaults: {}, goals: {}, events: [], customSessionTypes: [], customPlans: [],
+        plannedSessions: [
+          { id: 'pE',  date: '2026-09-29', okttype: 'Easy', distance: 7,  title: 'Easy Run', beskrivelse: 'Rolig 7 km' },
+          { id: 'pI',  date: '2026-10-01', okttype: 'Intervaller', distance: 8, title: 'Pyramid Intervals', beskrivelse: 'Pyramide 1-2-3-2-1' },
+          { id: 'pL',  date: '2026-10-03', okttype: 'Long', distance: 12, title: 'Long Run', beskrivelse: 'Langtur 12 km rolig' },
+          { id: 'pE2', date: '2026-10-04', okttype: 'Easy', distance: 6,  title: 'Easy Run', beskrivelse: 'Rolig 6 km' }],
+        consistencySettings: { kmThreshold: 15, runThreshold: 2 },
+        settings: { maxHR: 195, zones: [] }, lastUpdated: ''
+    }))""")
+    pg.goto(APP)
+    pg.evaluate("""() => { switchTab('form');
+      StravaIO.fetchActivityDetail = async () => ({ description: '' }); StravaIO.fetchZones = async () => null; }""")
+    pg.wait_for_timeout(400)
+    FETCH = """async ([date, title, km]) => {
+      Form.clear();
+      const d = document.getElementById('fDato'); d.value = date; d.dispatchEvent(new Event('change'));
+      await StravaImport._populate({ id: 7, name: title, distance: km * 1000, moving_time: km * 400,
+                                     average_speed: 2.5, trainer: false, has_heartrate: false });
+      const v = id => document.getElementById(id).value;
+      return { type: v('fOkttype'), name: v('fOktnavn'), mal: v('fMalDistanse'), besk: v('fBeskrivelse'),
+               hint: document.getElementById('planPrefillHint').textContent };
+    }"""
+    def fetched(date, title, km=12):
+        return pg.evaluate(FETCH, [date, title, km])
+
+    # Positive control: on the planned date with a title that says nothing, the date's plan fills —
+    # as before. Without it, every «does not fill» below would pass on a prefill that never runs.
+    f = fetched("2026-10-04", "Sunday Morning Run", 6)
+    check("control: a title with no workout in it → the DATE's plan, as before",
+          (f["type"], f["mal"], f["besk"]), ("Easy", "6", "Rolig 6 km"))
+    f = fetched("2026-10-04", "12km Long Run")
+    check("⚠️ his run: Sunday's «12km Long Run» is Saturday's planned long run, not Sunday's easy",
+          (f["type"], f["name"], f["mal"], f["besk"]), ("Long", "Runna Long", "12", "Langtur 12 km rolig"))
+    check("...and the 📋 line says it was planned for another day", "planlagt lørdag 03.10.2026" in f["hint"], True)
+    f = fetched("2026-09-30", "Pyramid Intervals", 8)
+    check("a NAMED workout on a day with no plan finds its session by name",
+          (f["type"], f["name"], f["besk"]), ("Intervaller", "Pyramid Intervals", "Pyramide 1-2-3-2-1"))
+    # Wednesday: Tuesday's easy is the NEARER one (1 day vs 4), so only the «already done» rule can
+    # send this run to Sunday's — on Friday the distance alone would, and the check could not fail.
+    f = fetched("2026-09-30", "Easy Run", 7)
+    check("a session already run is not handed out twice — Tuesday's easy is done, so Sunday's",
+          f["besk"], "Rolig 6 km")
+    f = fetched("2026-10-06", "10km Long Run", 10)
+    check("another week's plan is never borrowed — the title still sets the type",
+          (f["type"], f["name"], f["mal"], f["besk"], f["hint"]), ("Long", "Runna Long", "", "", ""))
+    f = fetched("2026-10-04", "Broken Miles", 9)
+    check("a named workout the plan does not have changes nothing — the date's plan, as before",
+          (f["type"], f["besk"]), ("Easy", "Rolig 6 km"))
+    check("no page errors", perr, [])
+    pg.close()
+
     # ── Consistency pass (2026-09-27), from a review of every tab in Firefox ────────────────────
     # Each of these was a small inconsistency he had stopped seeing; each check fails if its fix is
     # reverted. Firefox itself is not in this suite (CI is WebKit-only by decision), so the Firefox

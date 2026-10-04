@@ -2816,11 +2816,18 @@ function matchPlannedSessions(planned) {
   return matchOf;
 }
 
-// Runna's names for a session with no workout of its own — they only restate the okttype column. One
-// list for both readers: the plan card hides them, and a Strava title that is one of them does not
-// replace «Runna Easy» (a fetched easy run would otherwise read «Easy Run» beside older «Runna Easy»).
-const GENERIC_WORKOUT_TITLES = ['easy run', 'long run', 'recovery run', 'tempo run', 'tempo', 'threshold run',
-  'intervals', 'interval session', 'race', 'test', 'time trial'];
+// Runna's names for a session with no workout of its own — they only restate the okttype column, and
+// map to it here. One list for every reader: the plan card hides them, a Strava title that is one of
+// them does not replace «Runna Easy» (a fetched easy run would otherwise read «Easy Run» beside older
+// «Runna Easy»), and it DOES say what kind of run it was — a long run moved to Sunday arrived as
+// «Easy» because only the plan for that date was asked (his report, 2026-10-04).
+const RUNNA_TYPE_TITLES = {
+  'easy run': 'Easy', 'recovery run': 'Easy', 'long run': 'Long',
+  'tempo run': 'Tempo', 'tempo': 'Tempo', 'threshold run': 'Tempo',
+  'intervals': 'Intervaller', 'interval session': 'Intervaller',
+  'race': 'Race', 'test': 'Test', 'time trial': 'Test',
+};
+const GENERIC_WORKOUT_TITLES = Object.keys(RUNNA_TYPE_TITLES);
 
 // A planned session's display title, minus the redundant "<Type> Run" phrasing that just restates the
 // okttype column (keeps flavored names like "Rolling 300s" / "Progressive Long Run" / "400m Repeats").
@@ -2862,6 +2869,24 @@ function planNameRenames() {
     const sameWorkout = s.okttype === p.okttype || (p.fromCompleted && s.dato === p.date);
     return sameWorkout ? [{ s, name }] : [];
   }).sort((a, b) => a.s.dato.localeCompare(b.s.dato));
+}
+
+// The planned session a fetched run WAS, when the Strava title says which: a generic title gives the
+// type («Long Run» → Long), a named one must equal the plan's own title («Pyramid Intervals»). Searched
+// across the run's ISO week, not just its date — he moves sessions between days (his ask, 2026-10-04) —
+// nearest day first, and never a session a run of its type has already done (matchPlannedSessions'
+// pairing, so the form and the adherence card agree on what is done). → the planned session, or null
+function plannedSessionFor(date, { type = '', workout = '' } = {}) {
+  if (!type && !workout) return null;
+  const planned = Store.data.plannedSessions || [];
+  const matchOf = matchPlannedSessions(planned);
+  const byId = new Map((Store.data.sessions || []).map(s => [s.id, s]));
+  const done = p => byId.get(matchOf[p.id])?.okttype === p.okttype;
+  const wk = absWeekNum(date), named = workout.toLowerCase(), at = new Date(date);
+  const fits = p => (type && p.okttype === type) || (named && plannedTitle(p).toLowerCase() === named);
+  const gap = p => Math.abs(new Date(p.date) - at);
+  return planned.filter(p => absWeekNum(p.date) === wk && fits(p) && !done(p))
+    .sort((a, b) => gap(a) - gap(b))[0] || null;
 }
 
 // True if a date (YYYY-MM-DD string) falls inside a registered Sykdom/Ferie event window; returns
@@ -6489,11 +6514,26 @@ const Form = {
   // A planned session carries only what was PRESCRIBED — type, target distance, the session text.
   // Varighet, puls, soner and høydemeter do not exist until the run has happened, which is why those
   // stay empty here and arrive from «Hent fra Strava» instead.
-  applyPlannedDefault() {
+  //
+  // `from` — {type, workout} read from a fetched run's Strava title — finds the planned session by WHAT
+  // was run instead of by date (plannedSessionFor): a session moved to another day of the week brings
+  // its own type, distance and prescription, and the title's type is set even when no plan has it.
+  applyPlannedDefault(from) {
     const hint = document.getElementById('planPrefillHint');
     if (this.editId) { if (hint) hint.textContent = ''; return; }
     const date = document.getElementById('fDato').value;
-    const p = (Store.data.plannedSessions || []).find(x => x.date === date);
+    const typeEl = document.getElementById('fOkttype');
+    const found = from && plannedSessionFor(date, from);
+    if (found) {
+      this.clearPlanPrefill();   // the date's prescription, if it was not this run's
+    } else if (from?.type) {
+      // The title says what was run and no plan in the week has it: the type is still right, and the
+      // date's own plan (another kind of run) must not stay in the form under it.
+      this.clearPlanPrefill(); if (hint) hint.textContent = '';
+      typeEl.value = from.type;
+      return;
+    }
+    const p = found || (Store.data.plannedSessions || []).find(x => x.date === date);
     // ⚠️ Already logged → do NOT re-offer the prescription. save() ends in clear(), which runs this
     // again for today's date, so logging the day's planned run put the whole Øktbeskrivelse straight
     // back into the empty form. It read as text lingering from the session just saved (reported
@@ -6502,11 +6542,12 @@ const Form = {
     // Trade-off, taken deliberately: on a double day the second run gets no prefill. The plan holds
     // one session per date, so the alternative is guessing WHICH run consumed it, and a wrong guess
     // silently attaches one run's prescription to another.
-    const logged = (Store.data.sessions || []).some(s => s.dato === date);
+    // (A session found by the title passed plannedSessionFor's own «already done» test instead.)
+    const logged = !found && (Store.data.sessions || []).some(s => s.dato === date);
     if (!p || logged) { this.clearPlanPrefill(); if (hint) hint.textContent = ''; return; }
     // Økt-type is deliberately NOT tracked for withdrawal: it survives clear() by design (see the
     // comment there), so taking it back would fight a rule that predates this.
-    if (p.okttype) document.getElementById('fOkttype').value = p.okttype;
+    if (p.okttype) typeEl.value = p.okttype;
     // Fill-when-empty, the same guard the Strava populate uses, so whichever arrives first wins and
     // neither can clobber text you typed. In practice the plan is the reliable source: Runna often
     // does not push the prescription to Strava, which is why this field sat empty for most easy and
@@ -6528,7 +6569,9 @@ const Form = {
     record('fMalDistanse', p.distance);
     record('fBeskrivelse', p.beskrivelse);
     this.planPrefill = written;
-    if (hint) hint.textContent = `📋 Fra planen (Runna): ${p.okttype}${p.distance ? ` · ${p.distance} km` : ''}`;
+    const moved = p.date !== date
+      ? ` · planlagt ${new Date(p.date).toLocaleDateString('nb-NO', { weekday: 'long' })} ${fmtDate(p.date)}` : '';
+    if (hint) hint.textContent = `📋 Fra planen (Runna): ${p.okttype}${p.distance ? ` · ${p.distance} km` : ''}${moved}`;
   },
 
   // Take back ONLY what the prefill itself wrote, and only while it is still exactly that. Anything
@@ -11184,9 +11227,14 @@ const STRAVA_DEFAULT_TITLE = /^((monday|tuesday|wednesday|thursday|friday|saturd
 // only kinds Runna prefixes: in «1km Repeats» the km is the rep, part of the name. (The PLAN side,
 // parseRunnaIcs, still strips that «1km » — parked in HANDOFF until a «Repeats» row shows up.)
 function stravaWorkoutTitle(name) {
-  const t = (name || '').trim().replace(/^[\d.]+\s*km\s+(?=.*\b(run|race)$)/i, '');
+  const t = stravaTitleCore(name);
   return STRAVA_DEFAULT_TITLE.test(t) ? '' : plannedTitle({ title: t });
 }
+const stravaTitleCore = name => (name || '').trim().replace(/^[\d.]+\s*km\s+(?=.*\b(run|race)$)/i, '');
+// …and the type a generic one names («12km Long Run» → Long), '' for any other title. Only Runna's
+// fixed list, never a guess from a named workout's last words: «Broken Miles» says nothing about
+// its type, and a rule that read some names but not others would be wrong without a visible reason.
+const stravaTitleType = name => RUNNA_TYPE_TITLES[stravaTitleCore(name).toLowerCase()] || '';
 
 const StravaImport = {
   activities: [],
@@ -11288,7 +11336,6 @@ const StravaImport = {
       // takeStravaTitle on a saved one — an edit only reaches here through «Oppdater fra Strava», since
       // Hent fra Strava is hidden while editing.
       Form.stravaTitle = stravaWorkoutTitle(a.name);
-      if (Form.editId) Form.takeStravaTitle(); else Form.maybeAutoName();
       document.getElementById('fDistanse').value = (a.distance / 1000).toFixed(2);
 
       // Løpetype first — dispatching 'change' reuses the existing inline handler that
@@ -11296,6 +11343,16 @@ const StravaImport = {
       // elevation is set below or it would get wiped.
       document.getElementById('fLopetype').value = a.trainer ? 'treadmill' : 'utendors';
       document.getElementById('fLopetype').dispatchEvent(new Event('change'));
+
+      // A NEW run: the title says which planned session this was, also when it was moved to another
+      // day of the week — type, Mål distanse and Øktbeskrivelse come from that session, and the type
+      // from the title alone when no plan has it. Then what follows from the type (shoe, plan for a
+      // race), and the name last, so it is named after the type it ends up with.
+      if (!Form.editId) {
+        Form.applyPlannedDefault({ type: stravaTitleType(a.name), workout: Form.stravaTitle });
+        Form.applyShoeDefault(); Form.syncPlanForType();
+      }
+      if (Form.editId) Form.takeStravaTitle(); else Form.maybeAutoName();
 
       // Calories only live on the detail endpoint, not the list Strava was fetched from —
       // kick it off now so it runs alongside the zones fetch below instead of adding latency after.
