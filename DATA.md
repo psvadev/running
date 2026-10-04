@@ -2,6 +2,15 @@
 
 Field dictionary and caveats for the session data. Purpose: let any future session (human, Claude, or an AI chat fed the TSV export) reason correctly about this data without rediscovering its assumptions. Short and factual — architecture/dev context lives in HANDOFF.md (local).
 
+## Changing the format: add, never rename
+
+A field's **name and meaning are permanent**. Something new gets a new field; an existing one is never renamed, given a different unit, or reused for something else — and a field the app stops using is left in the file, not deleted. Every older copy of `puls.json` then stays readable as it is: a downloaded archive, a daily backup, a «før endring» copy, a tab still running an older version of the app. This is what makes the format safe without a version number:
+
+- **Loading upgrades, it never breaks.** `Store._migrate()` fills in what an older file lacks, in steps that are safe to repeat, and touches nothing it does not recognise.
+- **Saving keeps what it doesn't know.** The whole document is written back as it is held, and an edited session is merged into the stored one (`{ ...old, ...changes }`), so a field written by a newer version survives an older one saving.
+
+A rename is the one change that would break this — an archive, a backup or an older open tab would read the old name and silently lose or misread the value.
+
 ## Session fields
 
 A trailing **`?`** on a type marks an **optional** field — the key may be absent from a session's JSON (each row notes what "absent" means, e.g. `land` absent = home country). Types without `?` are present on every session.
