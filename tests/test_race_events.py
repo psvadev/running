@@ -982,15 +982,20 @@ with sync_playwright() as b0:
           matched({'dato': WED, 'okttype': 'Tempo'}), True)
     check("Thu Tempo completes Wed's Long (ran it late)",
           matched({'dato': '2026-08-13', 'okttype': 'Tempo'}), True)
-    # Within the week, the SAME type completes it on any day (his call, 2026-10-04 — it was a 1.5-day
-    # grace, older than the type gate, with no decision behind it; the type gate already stops the
-    # false «done» it was there for). A different type still never counts early, however close.
-    check("Mon Long completes Wed's Long — two days early, same week, same type",
-          matched({'dato': '2026-08-10', 'okttype': 'Long'}), True)
-    check("...Mon intervals still do not",
-          matched({'dato': '2026-08-10', 'okttype': 'Intervaller'}), False)
+    # A SAME-type run more than a day early (his call B, 2026-10-04): it completes the session only once
+    # the planned day has PASSED. While the session is still ahead it must not — an extra easy on
+    # Monday would otherwise tick off Thursday's planned easy before he has run it, the 12.08 false
+    # «done» again (test_weeknow caught exactly that: «✓ I dag» for a run not yet run). Once the day is
+    # over, a session he moved earlier in the week is credited. The clock here is frozen at 05.08.2026,
+    # so the 10.–16.08 week is AHEAD and 27.07–02.08 has passed.
+    check("ahead: Mon Long does NOT yet complete Wed's Long — two days early, the day still to come",
+          matched({'dato': '2026-08-10', 'okttype': 'Long'}), False)
+    check("passed: Mon Long DOES complete the Wed's Long it was moved from — same week, day over",
+          matched({'dato': '2026-07-27', 'okttype': 'Long'}, planned_date='2026-07-29'), True)
+    check("...Mon intervals still do not, day over or not",
+          matched({'dato': '2026-07-27', 'okttype': 'Intervaller'}, planned_date='2026-07-29'), False)
     check("...and the week is still the limit: the Sunday before is another week",
-          matched({'dato': '2026-08-09', 'okttype': 'Long'}), False)
+          matched({'dato': '2026-07-26', 'okttype': 'Long'}, planned_date='2026-07-29'), False)
 
     # Egentrening means "not part of a programme", so it cannot complete the programme's session —
     # even when type, date and distance all line up perfectly.
