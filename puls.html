@@ -2740,8 +2740,8 @@ function plannedForBlock(startDate, endDate) {
 }
 
 // Match each planned session to a logged run in the same ISO week (nearest date, then closest
-// distance), so a Friday session done Saturday still matches. A run only completes a planned
-// session if done on/after the planned day (1-day grace) and the same type is strongly preferred.
+// distance), so a Friday session done Saturday still matches. A run done BEFORE the planned day
+// completes it only if it is the same type (any day of that week); the same type is strongly preferred.
 // Returns { plannedId: actualId } without mutating stored objects.
 //
 // ⚠️ THE SCORE HAS NO CEILING, AND THAT IS LOAD-BEARING TO UNDERSTAND: any surviving pair can be
@@ -2788,10 +2788,11 @@ function matchPlannedSessions(planned) {
     actuals.forEach(a => {
       if (absWeekNum(a.dato) !== wk) return;
       const dayDiff = (new Date(a.dato) - pd) / 86400000;
-      if (dayDiff < -1.5) return;
-      // A run done BEFORE its planned day only counts when the TYPE matches. The early grace exists
-      // so you can run Wednesday's Long on Tuesday — but Tuesday's intervals are not Wednesday's Long
-      // done early, and without this the card claims a session is done before you have started it.
+      // A run done BEFORE its planned day only counts when the TYPE matches — then on any day of the
+      // week (his call, 2026-10-04: sessions get moved; a 1.5-day grace predated this gate and had no
+      // decision behind it). Wednesday's Long run on Monday is the long run — but Tuesday's intervals
+      // are not Wednesday's Long done early, and without this the card claims a session is done before
+      // you have started it.
       // Worst possible timing: the false "done" exists ONLY while the session is still pending, and
       // it disappears the moment you actually run (the real session then scores ~0 and wins), so it
       // misleads precisely when the card is meant to tell you what is left.

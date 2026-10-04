@@ -982,8 +982,15 @@ with sync_playwright() as b0:
           matched({'dato': WED, 'okttype': 'Tempo'}), True)
     check("Thu Tempo completes Wed's Long (ran it late)",
           matched({'dato': '2026-08-13', 'okttype': 'Tempo'}), True)
-    check("two days early is still out of range",
-          matched({'dato': '2026-08-10', 'okttype': 'Long'}), False)
+    # Within the week, the SAME type completes it on any day (his call, 2026-10-04 — it was a 1.5-day
+    # grace, older than the type gate, with no decision behind it; the type gate already stops the
+    # false «done» it was there for). A different type still never counts early, however close.
+    check("Mon Long completes Wed's Long — two days early, same week, same type",
+          matched({'dato': '2026-08-10', 'okttype': 'Long'}), True)
+    check("...Mon intervals still do not",
+          matched({'dato': '2026-08-10', 'okttype': 'Intervaller'}), False)
+    check("...and the week is still the limit: the Sunday before is another week",
+          matched({'dato': '2026-08-09', 'okttype': 'Long'}), False)
 
     # Egentrening means "not part of a programme", so it cannot complete the programme's session —
     # even when type, date and distance all line up perfectly.
