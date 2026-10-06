@@ -6992,7 +6992,7 @@ const Log = {
         <td>${fmtDate(s.dato)}</td>
         <td style="color:var(--muted)">${s.uke||''}</td>
         <td>${badge}${venueBadge}</td>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.oktnavn||'')}${trophy}${s.beskrivelse ? ` <span title="${escapeHtml(s.beskrivelse)}" style="cursor:default">📋</span>` : ''}${s.notater ? ` <span title="${escapeHtml(s.notater)}" style="cursor:default">📝</span>` : ''}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.oktnavn||'')}${trophy}${s.avbrutt ? ` <span data-avbrutt title="Avbrutt — fullførte ikke økta" style="color:var(--yellow);cursor:default">◐</span>` : ''}${s.beskrivelse ? ` <span title="${escapeHtml(s.beskrivelse)}" style="cursor:default">📋</span>` : ''}${s.notater ? ` <span title="${escapeHtml(s.notater)}" style="cursor:default">📝</span>` : ''}</td>
         <td style="color:var(--muted);font-size:11px">${escapeHtml(s.treningsplan||'')}</td>
         <td class="num">${fmtDist(s.distanse)}</td>
         <td class="num">${malCell(s)}</td>

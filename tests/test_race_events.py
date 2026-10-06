@@ -1559,6 +1559,16 @@ with sync_playwright() as b0:
       return { off: off === undefined, on, cleared }; }""")
     check("Form: «Avbrutt» is stored only when ticked, and clear() unticks it",
           form, {"off": True, "on": True, "cleared": False})
+    # The log row says it too (his screenshot 06.10: dimmed by Avvik, nothing for Avbrutt) — the plan's
+    # ◐ beside the name, with the 📋/📝 icons, so an aborted run is findable when scrolling back.
+    pg.evaluate("() => switchTab('log')")
+    pg.wait_for_timeout(300)
+    marks = pg.evaluate("""() => Object.fromEntries(['a1', 'a2'].map(id => {
+        const r = document.querySelector(`#logBody tr[onclick*="'${id}'"]`), m = r && r.querySelector('[data-avbrutt]');
+        return [id, r ? (m ? [m.textContent, m.title] : null) : 'no row']; }))""")
+    check("Logg: the aborted run's name carries ◐ «Avbrutt — fullførte ikke økta»",
+          marks["a1"], ["◐", "Avbrutt — fullførte ikke økta"])
+    check("...and a completed run's does not", marks["a2"], None)
     check("no page errors", perr, [])
     pg.close()
 
