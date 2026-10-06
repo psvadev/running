@@ -221,6 +221,7 @@
      11px so the baseline-aligned header row keeps its rhythm; weight and colour carry the emphasis. */
   .wk-now-head .wk-now-plan { font-size:11px; color:var(--text); font-weight:600; }
   .wk-now-head .wk-now-plan-done { color:var(--green); opacity:.85; }
+  .wk-now-head .wk-now-plan-partial { color:var(--yellow); opacity:.85; }
   .wk-now-head .wk-now-go { margin-left:auto; font-size:11px; color:var(--muted); }
   .wk-now-stats { display:flex; flex-wrap:wrap; gap:10px; }
   .wk-now-stats .insight-item { min-width:120px; }
@@ -247,6 +248,7 @@
      Overdue dims rather than strikes through: a strikethrough reads as CANCELLED, and a missed
      session is not cancelled. Pending is the base style — it needs no rule. */
   .wk-plan-item.wk-plan-done { color:var(--green); opacity:.85; }
+  .wk-plan-item.wk-plan-partial { color:var(--yellow); opacity:.85; }
   .wk-plan-item.wk-plan-overdue { opacity:.5; }
   /* Today is a locator inside the week, not the loudest thing on the card — the header line owns
      that now. The accent day name alone is enough to find your place; weighting the whole item put
@@ -1094,6 +1096,12 @@
           <input type="checkbox" id="fUtenforAnalyse" style="width:auto;margin:0"> Avvik — hold utenfor analyse
         </label>
         <div style="font-size:11px;color:var(--muted);margin-top:4px">Trender og kvalitetsgrafer hopper over økten — km og volum telles fortsatt (reise, sykdom, dårlig pulsbelte …)</div>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="fAvbrutt" style="width:auto;margin:0"> Avbrutt — fullførte ikke økta
+        </label>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Den planlagte økta vises som påbegynt ◐, ikke fullført — km og volum telles fortsatt (smerte, skade, sykdom underveis …)</div>
       </div>
     </div>
   </div>
@@ -2408,6 +2416,7 @@ function formatSessionTsv(sessions, opts = {}) {
     // carefully without reading a single body.
     const flags = [];
     if (s.utenforAnalyse) flags.push('Avvik');
+    if (s.avbrutt) flags.push('Avbrutt');
     if (!hasZoneData(s)) flags.push('Uten pulsdata');
     const hdr = `=== ${s.dato}${s.oktnavn ? ` | ${s.oktnavn}` : ''}${distLabel}`
               + `${flags.length ? ` | ${flags.join(' | ')}` : ''} ===`;
@@ -2803,8 +2812,11 @@ function matchPlannedSessions(planned) {
       // session he moved earlier in the week is credited: pending is the safer error while it lasts.
       if (dayDiff < -1.5 && p.date >= today) return;
       const typePenalty = a.okttype === p.okttype ? 0 : 100;
+      // An «Avbrutt» run still holds its session (◐) — but a complete run of the type that week is
+      // the make-up and takes it: 50 outranks any day gap a same-type pair can have (≤ 60 only at
+      // opposite ends of the week), so only a complete run several days off loses to it.
       pairs.push({ pid: p.id, aid: a.id,
-        score: typePenalty + Math.abs(dayDiff) * 10 + Math.abs((a.distanse || 0) - p.distance) });
+        score: typePenalty + (a.avbrutt ? 50 : 0) + Math.abs(dayDiff) * 10 + Math.abs((a.distanse || 0) - p.distance) });
     });
   });
 
@@ -2887,7 +2899,7 @@ function plannedSessionFor(date, { type = '', workout = '' } = {}) {
   const planned = Store.data.plannedSessions || [];
   const matchOf = matchPlannedSessions(planned);
   const byId = new Map((Store.data.sessions || []).map(s => [s.id, s]));
-  const done = p => byId.get(matchOf[p.id])?.okttype === p.okttype;
+  const done = p => { const s = byId.get(matchOf[p.id]); return s?.okttype === p.okttype && !s.avbrutt; };
   const wk = absWeekNum(date), named = workout.toLowerCase(), at = new Date(date);
   const fits = p => (type && p.okttype === type) || (named && plannedTitle(p).toLowerCase() === named);
   const gap = p => Math.abs(new Date(p.date) - at);
@@ -2941,7 +2953,9 @@ function plannedToday(today) {
   if (!evt) return null;
   const planned = plannedForBlock(evt.date, evt.endDate || null);
   const p = planned.find(x => x.date === today);
-  return p ? { p, status: plannedStatus(p, matchPlannedSessions(planned), today) } : null;
+  if (!p) return null;
+  const matchOf = matchPlannedSessions(planned);
+  return { p, matchOf, status: plannedStatus(p, matchOf, today) };
 }
 
 // Adherence status for a planned session. A session dated *today* is still 'pending' (○), NOT a
@@ -2949,7 +2963,13 @@ function plannedToday(today) {
 // window is 'excused' (–) and left out of the adherence count. Matched runs are always 'done' (even
 // if logged on their own day, and even during a Ferie — active beats excused). Used by the
 // Planlegging card, the block hero, and block detail so the three surfaces stay identical.
+//
+// 'partial' (◐, 2026-10-05): the run that holds the session was marked «Avbrutt» — started, not
+// completed. It is due and NOT completed in adherence (his pick, over counting it as half), and named
+// beside the % the way 'excused' is.
 function plannedStatus(p, matchOf, today) {
+  const run = matchedRun(p, matchOf);
+  if (run) return run.avbrutt ? 'partial' : 'done';
   if (matchOf[p.id]) return 'done';
   if (offPeriodKind(p.date)) return 'excused';
   return p.date < today ? 'overdue' : 'pending';
@@ -2957,7 +2977,21 @@ function plannedStatus(p, matchOf, today) {
 // Sessions that count toward adherence: done or genuinely overdue. 'pending' (today/future) and
 // 'excused' (Syk/Ferie) both leave the denominator.
 function plannedDueList(planned, matchOf, today) {
-  return planned.filter(p => { const s = plannedStatus(p, matchOf, today); return s === 'done' || s === 'overdue'; });
+  return planned.filter(p => ['done', 'partial', 'overdue'].includes(plannedStatus(p, matchOf, today)));
+}
+// The logged run a planned session was paired with (matchPlannedSessions), or undefined.
+function matchedRun(p, matchOf) {
+  return matchOf[p.id] ? (Store.data.sessions || []).find(s => s.id === matchOf[p.id]) : undefined;
+}
+// The one mark per status, for every list of planned sessions.
+const PLAN_MARK = {
+  done: '<span style="color:var(--green)">✓</span>', overdue: '<span style="color:#e05555">✗</span>',
+  partial: '<span style="color:var(--yellow)">◐</span>', excused: '<span style="color:var(--muted)">–</span>',
+  pending: '<span style="color:var(--muted)">○</span>' };
+// A planned session's distance, and for an aborted one what was run of it: «5.3 av 9 km».
+function plannedKmText(p, matchOf, st) {
+  const run = st === 'partial' && matchedRun(p, matchOf);
+  return run ? `${run.distanse} av ${p.distance} km` : `${p.distance} km`;
 }
 // One block's adherence, in one place. The Planlegging card computes this for the block it is showing
 // AND for every block in its index — two encodings of "how much of this plan did I do" would be the
@@ -2966,7 +3000,8 @@ function plannedDueList(planned, matchOf, today) {
 function plannedAdherence(rows, today) {
   const matchOf = matchPlannedSessions(rows);
   const due = plannedDueList(rows, matchOf, today);
-  const done = due.filter(p => matchOf[p.id]).length;
+  const done = due.filter(p => plannedStatus(p, matchOf, today) === 'done').length;
+  const partial = due.filter(p => plannedStatus(p, matchOf, today) === 'partial').length;
   // ⚠️ pct is null for TWO different "cannot say" cases, and neither is 0%:
   //   nothing has come due yet, and
   //   every due row was rebuilt from a COMPLETED event, so the misses were never in the data.
@@ -2974,7 +3009,7 @@ function plannedAdherence(rows, today) {
   // ratio is 100% by construction. Same rule as elsewhere here — a number you cannot support is not
   // a number you round down, it is one you decline to print.
   const measurable = due.length && !due.every(p => p.fromCompleted);
-  return { matchOf, due, done, measurable: !!measurable,
+  return { matchOf, due, done, partial, measurable: !!measurable,
            pct: measurable ? Math.round(done / due.length * 100) : null };
 }
 
@@ -6664,6 +6699,7 @@ const Form = {
       beskrivelse: document.getElementById('fBeskrivelse').value.trim() || null,
       notater: document.getElementById('fNotater').value.trim() || null,
       utenforAnalyse: document.getElementById('fUtenforAnalyse').checked || undefined,
+      avbrutt: document.getElementById('fAvbrutt').checked || undefined,
       land: resolveLandInput(document.getElementById('fLand').value) || undefined,
       stravaId: document.getElementById('fStravaId').value || undefined,
     };
@@ -6703,6 +6739,7 @@ const Form = {
     document.getElementById('fBeskrivelse').value = s.beskrivelse || '';
     document.getElementById('fNotater').value = s.notater || '';
     document.getElementById('fUtenforAnalyse').checked = !!s.utenforAnalyse;
+    document.getElementById('fAvbrutt').checked = !!s.avbrutt;
     document.getElementById('fLand').value = s.land ? landName(s.land) : '';
     markLandInput();   // an old free-text land shows red before Lagre refuses it
     this.stravaGear = null;
@@ -6826,6 +6863,7 @@ const Form = {
     document.getElementById('fLopetype').value = lastLopetype;
     document.getElementById('fUtenPuls').checked = false;
     document.getElementById('fUtenforAnalyse').checked = false;
+    document.getElementById('fAvbrutt').checked = false;
     this.togglePulsdata();
     this.planTouched = false;
     document.getElementById('fTreningsplan').value = DEFAULT_PLAN;
@@ -8562,9 +8600,7 @@ function renderBlocks() {
         ${(() => {
           const planned = plannedForBlock(current.startDate, current.endIsOpen ? null : current.endDate);
           if (!planned.length) return '';
-          const matchOf = matchPlannedSessions(planned);
-          const pastDue = plannedDueList(planned, matchOf, today);
-          const done = pastDue.filter(p => matchOf[p.id]).length;
+          const { matchOf, due: pastDue, done, partial } = plannedAdherence(planned, today);
           const adhPct = pastDue.length ? Math.round(done / pastDue.length * 100) : 0;
           const excused = planned.filter(p => plannedStatus(p, matchOf, today) === 'excused').length;
           const next = planned.filter(p => plannedStatus(p, matchOf, today) === 'pending').slice(0, 3);
@@ -8572,7 +8608,7 @@ function renderBlocks() {
           const bar = pastDue.length ? `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:12px">
             <span style="color:var(--muted)">Planlagte økter</span>
-            <span style="font-weight:600;color:var(--green)">${done} av ${pastDue.length} fullført · ${adhPct}%${excused ? `<span style="color:var(--muted);font-weight:400"> · ${excused} unntatt</span>` : ''}</span>
+            <span style="font-weight:600;color:var(--green)">${done} av ${pastDue.length} fullført · ${adhPct}%${partial ? `<span style="color:var(--muted);font-weight:400"> · ${partial} avbrutt</span>` : ''}${excused ? `<span style="color:var(--muted);font-weight:400"> · ${excused} unntatt</span>` : ''}</span>
           </div>
           <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
             <div style="width:${adhPct}%;height:100%;background:var(--green);border-radius:4px;transition:width .3s"></div>
@@ -9192,6 +9228,7 @@ const DetailPanel = {
         : null],
       ['Land',           s.land ? landName(s.land) : null],
       ['Avvik',          s.utenforAnalyse ? 'Holdt utenfor analyse (trender/kvalitetsgrafer)' : null],
+      ['Avbrutt',        s.avbrutt ? 'Fullførte ikke økta — den planlagte økta står som påbegynt ◐' : null],
       ['Øktbeskrivelse', s.beskrivelse || null],
       ['Notater',        s.notater || null],
     ].filter(([,v]) => v);
@@ -9949,22 +9986,22 @@ const DetailPanel = {
       // Through the SHARED helper, not a second copy of the rule — this line and the Planlegging
       // card sat inches apart in meaning and would drift the moment one learned something new.
       const pToday = localISODate();
-      const { matchOf: pMatch, due: pPastDue, done: pDone, pct: pPct, measurable: pMeas } = plannedAdherence(planned, pToday);
+      const { matchOf: pMatch, due: pPastDue, done: pDone, partial: pPartial, pct: pPct, measurable: pMeas } = plannedAdherence(planned, pToday);
       const pExcused = planned.filter(p => plannedStatus(p, pMatch, pToday) === 'excused').length;
       const pAdh = pMeas
-        ? `${pDone} av ${pPastDue.length} fullført · ${pPct}%${pExcused ? ` · ${pExcused} unntatt` : ''}`
+        ? `${pDone} av ${pPastDue.length} fullført · ${pPct}%${pPartial ? ` · ${pPartial} avbrutt` : ''}${pExcused ? ` · ${pExcused} unntatt` : ''}`
         : `${okter(planned.length)}${pPastDue.length ? ' · hentet fra fullførte økter' : ''}`;
       const pRows = planned.map(p => {
         const pst = plannedStatus(p, pMatch, pToday);
-        const icon = pst === 'done' ? '<span style="color:var(--green)">✓</span>' : pst === 'overdue' ? '<span style="color:#e05555">✗</span>' : pst === 'excused' ? '<span style="color:var(--muted)">–</span>' : '<span style="color:var(--muted)">○</span>';
-        const iTitle = pst === 'excused' ? (offPeriodKind(p.date) === 'illness' ? 'Sykdom – unntatt' : 'Ferie – unntatt') : '';
+        const icon = PLAN_MARK[pst];
+        const iTitle = pst === 'partial' ? 'Avbrutt — fullførte ikke økta' : pst === 'excused' ? (offPeriodKind(p.date) === 'illness' ? 'Sykdom – unntatt' : 'Ferie – unntatt') : '';
         const tc = (typeof TYPE_COLORS !== 'undefined' && TYPE_COLORS[p.okttype]) || 'var(--text)';
         return `<div style="display:flex;align-items:center;gap:10px;font-size:12px;padding:5px 4px;border-bottom:1px solid var(--border)">
           <span title="${iTitle}" style="width:13px;text-align:center;flex-shrink:0">${icon}</span>
           <span style="color:var(--muted);min-width:76px;flex-shrink:0">${fmtDate(p.date)}</span>
           <span style="color:${tc};min-width:70px;flex-shrink:0">${escapeHtml(p.okttype)}</span>
           <span style="flex:1;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(plannedTitle(p))}</span>
-          <span style="font-weight:600;flex-shrink:0">${p.distance} km</span>
+          <span style="font-weight:600;flex-shrink:0">${plannedKmText(p, pMatch, pst)}</span>
         </div>`;
       }).join('');
       plannedHtml = `<div class="dp-section-label">Planlagte økter <span style="font-weight:400;color:var(--muted);font-size:11px">· ${pAdh}</span></div>${pRows}`;
@@ -10201,11 +10238,11 @@ function weekPlanHtml(today, absWk, underStats) {
   const matchOf = matchPlannedSessions(planned);
   const rows = planned.map(p => ({ p, st: plannedStatus(p, matchOf, today) })).filter(r => r.st !== 'excused');
   if (!rows.length) return none;
-  const MARK = { done: '✓', overdue: '✗', pending: '○' };
+  const MARK = { done: '✓', partial: '◐', overdue: '✗', pending: '○' };
 
   const items = rows.map(({ p, st }) => {
     const day = new Date(p.date).toLocaleDateString('nb-NO', { weekday: 'short' }).replace('.', '');
-    const what = [p.okttype, p.distance ? `${p.distance} km` : null].filter(Boolean).join(' · ');
+    const what = [p.okttype, p.distance ? plannedKmText(p, matchOf, st) : null].filter(Boolean).join(' · ');
     const flavour = plannedTitle(p);            // '' for generic names like "Easy Run"
     // 🏁 on a maximal effort, and ONLY there. This is the one planned-session surface where colour
     // carries STATUS, so unlike «Planlagte økter» and the block drill-down — which tint the type
@@ -10258,17 +10295,17 @@ function renderWeekNow(allSessions) {
   const pt = plannedToday(today);
   let planHtml = '';
   if (pt && pt.status !== 'excused') {
-    const done = pt.status === 'done';
+    const done = pt.status === 'done', partial = pt.status === 'partial';
     const flavour = plannedTitle(pt.p);           // '' for generic names like "Easy Run"
     // Runna's own estimate, when the import carried one. Rounded to whole minutes and prefixed "~"
     // because the source is itself rounded up to the nearest five — presenting 2400 as "40:00" would
     // claim a precision it does not have. Dropped once the session is done: what it took is a fact
     // sitting on the logged session, and an estimate beside it would only invite the wrong comparison.
-    const mins = !done && pt.p.estimatedSecs ? Math.round(pt.p.estimatedSecs / 60) : 0;
-    const what = [pt.p.okttype, pt.p.distance ? `${pt.p.distance} km` : null,
+    const mins = !done && !partial && pt.p.estimatedSecs ? Math.round(pt.p.estimatedSecs / 60) : 0;
+    const what = [pt.p.okttype, pt.p.distance ? plannedKmText(pt.p, pt.matchOf, pt.status) : null,
                   mins ? `~${mins} min` : null].filter(Boolean).join(' · ');
-    planHtml = `<span class="wk-now-plan${done ? ' wk-now-plan-done' : ''}">`
-      + `${done ? '✓' : '📋'} I dag: ${escapeHtml(what)}${flavour ? ` — ${escapeHtml(flavour)}` : ''}</span>`;
+    planHtml = `<span class="wk-now-plan${done ? ' wk-now-plan-done' : partial ? ' wk-now-plan-partial' : ''}">`
+      + `${done ? '✓' : partial ? '◐' : '📋'} I dag: ${escapeHtml(what)}${flavour ? ` — ${escapeHtml(flavour)}` : ''}</span>`;
   }
 
   const head = `<div class="wk-now-head">
@@ -13684,7 +13721,7 @@ const Settings = {
       listEl.innerHTML = `<p style="color:var(--muted);font-size:13px">Ingen plan importert ennå.</p>`;
       return;
     }
-    const { matchOf, due: pastDue, done, pct, measurable } = plannedAdherence(planned, today);
+    const { matchOf, due: pastDue, done, partial, pct, measurable } = plannedAdherence(planned, today);
     const excused = planned.filter(p => plannedStatus(p, matchOf, today) === 'excused').length;
     const excusedTxt = excused ? ` · ${excused} unntatt (Syk/Ferie)` : '';
     // Between blocks the list is a block you are not currently running, so name it — and say WHICH
@@ -13701,7 +13738,7 @@ const Settings = {
       // feed and the ratio would be 100% by construction. State what is true — how many sessions the
       // block holds — and say why the rest is missing rather than printing a number that flatters.
       adhEl.innerHTML = lead + (measurable
-        ? `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">· ${planned.length} totalt i planen${excusedTxt}</span></div>`
+        ? `<div style="font-size:13px"><strong>${done} av ${pastDue.length}</strong> planlagte økter fullført · ${pct}% <span style="color:var(--muted)">${partial ? `· ${partial} avbrutt ` : ''}· ${planned.length} totalt i planen${excusedTxt}</span></div>`
         : `<div style="font-size:13px">${okter(planned.length)} <span style="color:var(--muted)">· hentet fra fullførte økter, så forfall kan ikke måles${excusedTxt}</span></div>`);
     }
     // Silent at zero: most weeks have no run long enough, and a standing "0 økter" line would be
@@ -13715,15 +13752,15 @@ const Settings = {
     const shown = this.plannedExpanded ? planned : planned.slice(0, COLLAPSE_N);
     let html = shown.map(p => {
       const st = plannedStatus(p, matchOf, today);
-      const icon = st === 'done' ? '<span style="color:var(--green)">✓</span>' : st === 'overdue' ? '<span style="color:#e05555">✗</span>' : st === 'excused' ? '<span style="color:var(--muted)">–</span>' : '<span style="color:var(--muted)">○</span>';
-      const iTitle = st === 'done' ? 'Matchet med logget økt' : st === 'overdue' ? 'Ingen logget økt denne uken' : st === 'excused' ? (offPeriodKind(p.date) === 'illness' ? 'Sykdom – unntatt fra måltall' : 'Ferie – unntatt fra måltall') : (p.date === today ? 'I dag – ikke logget ennå' : 'Kommende');
+      const icon = PLAN_MARK[st];
+      const iTitle = st === 'done' ? 'Matchet med logget økt' : st === 'partial' ? 'Avbrutt — fullførte ikke økta' : st === 'overdue' ? 'Ingen logget økt denne uken' : st === 'excused' ? (offPeriodKind(p.date) === 'illness' ? 'Sykdom – unntatt fra måltall' : 'Ferie – unntatt fra måltall') : (p.date === today ? 'I dag – ikke logget ennå' : 'Kommende');
       const tc = (typeof TYPE_COLORS !== 'undefined' && TYPE_COLORS[p.okttype]) || 'var(--text)';
       return `<div style="display:flex;align-items:center;gap:10px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--border)">
         <span title="${iTitle}" style="width:14px;text-align:center;flex-shrink:0">${icon}</span>
         <span style="color:var(--muted);min-width:92px;flex-shrink:0">${fmtDate(p.date)}</span>
         <span style="color:${tc};min-width:76px;flex-shrink:0;font-weight:500">${escapeHtml(p.okttype)}</span>
         <span style="flex:1;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(plannedTitle(p))}</span>
-        <span style="font-weight:600;flex-shrink:0">${p.distance} km</span>
+        <span style="font-weight:600;flex-shrink:0">${plannedKmText(p, matchOf, st)}</span>
         ${fuelWorthy(p, today) ? `<button type="button" class="tc-chip" data-fuel-km="${p.distance}" data-fuel-secs="${p.estimatedSecs}" data-fuel-type="${escapeHtml(p.okttype)}" title="Regn ut fueling for denne økta" style="flex-shrink:0;padding:2px 8px">⛽</button>` : ''}
       </div>`;
     }).join('');
@@ -13739,7 +13776,7 @@ const Settings = {
           const a = plannedAdherence(g.rows, today);
           // No sessions came due in a block (imported and abandoned before its first session) is not
           // 0% — say nothing rather than assert a number the data cannot support.
-          const score = a.pct === null ? `${g.rows.length} økter` : `${a.done} av ${a.due.length} · ${a.pct}%`;
+          const score = a.pct === null ? `${g.rows.length} økter` : `${a.done} av ${a.due.length} · ${a.pct}%${a.partial ? ` · ${a.partial} avbrutt` : ''}`;
           const col = a.pct === null ? 'var(--muted)' : a.pct >= 85 ? 'var(--green)' : a.pct >= 60 ? 'var(--text)' : 'var(--muted)';
           return `<div class="planned-block-row" data-block="${toSafeAttr(g.b)}"
               onclick="DetailPanel.openBlock(JSON.parse(this.dataset.block))"

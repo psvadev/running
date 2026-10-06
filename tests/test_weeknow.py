@@ -290,7 +290,7 @@ with sync_playwright() as p:
           d.sessions = d.sessions.filter(s => !String(s.id).startsWith('ex'));
           if (cfg.sessionsExtra) d.sessions = d.sessions.concat(cfg.sessionsExtra.map((s, i) => ({
             id:'ex'+i, dato: today, uke:'', oktnavn:'Logged', okttype: s.okttype,
-            treningsplan:'Runna', varighet: s.varighet, distanse: s.distanse,
+            treningsplan:'Runna', varighet: s.varighet, distanse: s.distanse, avbrutt: s.avbrutt,
             tempo: 360, soner:[0,0,0,0,0] })));
           localStorage.setItem('lpl_cache', JSON.stringify(d));
         }""", {"planned": planned, "eventsExtra": events_extra or [], "sessionsExtra": sessions_extra or []})
@@ -331,6 +331,23 @@ with sync_playwright() as p:
     # session; an estimate sitting beside it invites comparing a rounded-up guess with a measurement.
     check("...and drops the estimate", "min" in txt2, False)
     check("done is styled apart", pg.locator(".wk-now-plan-done").count(), 1)
+
+    # ⚠️ ABORTED is not done (his report 2026-10-05: a run stopped for calf pain showed «✓ I dag» and a
+    # green ✓ in the week list). Marked «Avbrutt» on the run, it reads ◐ with what was run against what
+    # was planned, is not styled as done, and does not count in «Planlagt denne uken · N/M».
+    with_plan([{"today": True, "okttype": "Intervaller", "distance": 9}],
+              sessions_extra=[{"okttype": "Intervaller", "distanse": 5.3, "varighet": 2020, "avbrutt": True}])
+    check("aborted: ◐ with run against planned, not ✓",
+          pg.locator(".wk-now-plan").inner_text(), "◐ I dag: Intervaller · 5.3 av 9 km")
+    check("...not styled as done", pg.locator(".wk-now-plan-done").count(), 0)
+    check("...and not counted in the week's tally", "PLANLAGT DENNE UKEN · 0/1" in pg.locator("#weekNowCard").inner_text(), True)
+    check("...its week-list item is ◐ too", pg.locator(".wk-plan-item.wk-plan-partial").count(), 1)
+    # Positive control for the tally: the same run NOT marked aborted is the 1/1 the old code showed.
+    with_plan([{"today": True, "okttype": "Intervaller", "distance": 9}],
+              sessions_extra=[{"okttype": "Intervaller", "distanse": 5.3, "varighet": 2020}])
+    check("control: unmarked, the same short run is done (1/1, ✓)",
+          ("PLANLAGT DENNE UKEN · 1/1" in pg.locator("#weekNowCard").inner_text(),
+           pg.locator(".wk-now-plan").inner_text().startswith("✓")), (True, True))
 
     # excused by a registered Sykdom -> suppressed, same as the streak nudge
     with_plan([{"today": True, "okttype": "Easy", "distance": 5}],

@@ -1500,6 +1500,68 @@ with sync_playwright() as b0:
     check("no page errors", perr, [])
     pg.close()
 
+    # ── 5c. «Avbrutt»: a run stopped part-way is not a completed session (2026-10-05) ──────────────
+    # His report: an interval run stopped at 5.3 of 9 km for calf pain showed green ✓ everywhere the
+    # plan is shown. «Avvik» could not help — it is about DATA QUALITY (keep it out of the trends), and
+    # a run with a faulty strap is Avvik yet fully completed. «Avbrutt» is its own field, set by hand
+    # (never inferred from distance: a long run shortened on purpose is not aborted). An aborted run
+    # still holds its planned session — status 'partial', ◐ with km run against km planned — counts as
+    # NOT completed in adherence (his pick, over «half»), and is named beside the % like «unntatt».
+    # A complete run of the same type later that week takes the session from it (a make-up).
+    print("== «Avbrutt»: started, not completed ==")
+    pg = b.new_page(viewport={"width": 1280, "height": 900})
+    perr = []
+    pg.on("pageerror", lambda e: perr.append(str(e)))
+    pg.add_init_script(FREEZE)          # 05.08.2026: both weeks below are over
+    pg.goto(APP)
+    pg.evaluate("""() => {
+      const run = (id, d, type, km, extra) => Object.assign({ id, dato:d, uke:'', oktnavn:'x', okttype:type,
+        treningsplan:'Runna', distanse:km, varighet:km * 380, tempo:380, soner:[0,0,0,0,0] }, extra || {});
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [run('t1','2026-07-21','Tempo',3,{ avbrutt:true }), run('t2','2026-07-22','Tempo',7),
+                   run('a1','2026-07-27','Intervaller',5.3,{ avbrutt:true }), run('a2','2026-07-29','Easy',8)],
+        shoes: [], goals: {}, settings: { zones: [] }, customSessionTypes: [], customPlans: [],
+        events: [{ id:'c', type:'plan', title:'Runna 10K #2', date:'2026-07-20', endDate:'2026-10-01' }],
+        plannedSessions: [
+          { id:'pT', date:'2026-07-21', okttype:'Tempo',       distance:7,  title:'' },
+          { id:'pI', date:'2026-07-27', okttype:'Intervaller', distance:9,  title:'Broken Miles' },
+          { id:'pE', date:'2026-07-29', okttype:'Easy',        distance:8,  title:'' },
+          { id:'pL', date:'2026-07-31', okttype:'Long',        distance:13, title:'' }], lastUpdated: '' }));
+    }""")
+    pg.goto(APP)
+    st = pg.evaluate("""() => { const pl = Store.data.plannedSessions, m = matchPlannedSessions(pl), t = localISODate();
+      const a = plannedAdherence(pl, t);
+      return { status: Object.fromEntries(pl.map(p => [p.id, plannedStatus(p, m, t)])),
+               pT: m.pT, due: a.due.length, done: a.done, partial: a.partial, pct: a.pct }; }""")
+    check("the aborted interval session is 'partial' — not done, not missed", st["status"]["pI"], "partial")
+    check("a make-up Tempo the next day takes its session from the aborted one", (st["pT"], st["status"]["pT"]), ("t2", "done"))
+    check("adherence: 2 of 4 completed, 50% — the aborted one is due and NOT completed",
+          (st["due"], st["done"], st["pct"]), (4, 2, 50))
+    check("...and counted apart, as its own number", st["partial"], 1)
+    pg.evaluate("() => { switchTab('plan'); Settings.renderPlannedList(); }")
+    pg.wait_for_timeout(300)
+    head = pg.locator('#plannedAdherence').inner_text()
+    check("Planlegging: «2 av 4 … fullført · 50%» and «1 avbrutt» beside it",
+          ("2 av 4" in head, "50%" in head, "1 avbrutt" in head), (True, True, True))
+    rowI = pg.evaluate("""() => [...document.querySelectorAll('#plannedList > div')]
+        .map(r => r.innerText).find(t => t.includes('Broken Miles')) || ''""")
+    check("...its row reads ◐ with the km run against the km planned", ("◐" in rowI, "5.3 av 9 km" in rowI), (True, True))
+    pg.evaluate("() => switchTab('dash')")
+    pg.wait_for_timeout(400)
+    card = pg.locator('#blocksCard').inner_text()
+    check("Dashboard block card: the same «2 av 4 fullført · 50%» and «1 avbrutt»",
+          ("2 av 4 fullført · 50%" in card, "1 avbrutt" in card), (True, True))
+    # The form: one checkbox, round-tripped, absent from the JSON when unticked (like utenforAnalyse).
+    form = pg.evaluate("""() => { switchTab('form'); Form.clear();
+      const box = document.getElementById('fAvbrutt'); if (!box) return 'missing';
+      const off = Form.read().avbrutt; box.checked = true; const on = Form.read().avbrutt;
+      Form.clear(); const cleared = box.checked;
+      return { off: off === undefined, on, cleared }; }""")
+    check("Form: «Avbrutt» is stored only when ticked, and clear() unticks it",
+          form, {"off": True, "on": True, "cleared": False})
+    check("no page errors", perr, [])
+    pg.close()
+
     # ── Consistency pass (2026-09-27), from a review of every tab in Firefox ────────────────────
     # Each of these was a small inconsistency he had stopped seeing; each check fails if its fix is
     # reverted. Firefox itself is not in this suite (CI is WebKit-only by decision), so the Firefox
