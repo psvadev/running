@@ -169,6 +169,7 @@ with sync_playwright() as pw:
         const fill = row.querySelector('.shoe-bar-fill');
         out[name] = { color: fill ? fill.style.background : null,
                       width: fill ? fill.style.width : null,
+                      tip: fill ? fill.parentElement.title : null,
                       km: row.querySelector('.shoe-bar-km').textContent.trim() };
       }
       return out;
@@ -180,8 +181,12 @@ with sync_playwright() as pw:
           {'Fersk': '40%', 'Halvveis': '80%', 'Sliten': '92%', 'Utslitt': '100%'})
     check("⚠️ a shoe with no limit has no bar there either — only its km",
           (dash.get('Ukjent', {}).get('width'), dash.get('Ukjent', {}).get('km')), (None, '380 km'))
-    check("the km reads against the limit, like the Planlegging card",
-          (dash.get('Sliten', {}).get('km'), dash.get('Utslitt', {}).get('km')), ('92 / 100 km', '110 / 100 km'))
+    # The limit sits in the bar's tooltip, not beside the km: name + km share the line that sets the
+    # card's minimum width, and «92 / 100 km» there broke test_charts' 900 px pair check (+9 px).
+    check("the km line stays «N km» — the line that sets the card's width",
+          (dash.get('Sliten', {}).get('km'), dash.get('Utslitt', {}).get('km')), ('92 km', '110 km'))
+    check("...and the bar's tooltip names the limit",
+          (dash.get('Sliten', {}).get('tip'), dash.get('Utslitt', {}).get('tip')), ('92 av 100 km', '110 av 100 km'))
     chart = pg.evaluate("() => (document.getElementById('shoeBarChart') || {}).innerText || ''")
     check("no ⚠️/🔴 beside a red bar — the bar says it", any(c in chart for c in ('⚠️', '🔴')), False)
 
@@ -450,7 +455,7 @@ with sync_playwright() as pw:
     GEOM = r"""() => [...document.querySelectorAll('#shoeBarChart .shoe-bar-wrap > div')].map(r => {
       const box = e => e.getBoundingClientRect();
       const name = r.querySelector('[title]'), bar = r.querySelector('.shoe-bar-bg');
-      const km = [...r.querySelectorAll('span')].find(s => /^\d+( \/ \d+)? km/.test(s.textContent.trim()));
+      const km = [...r.querySelectorAll('span')].find(s => /^\d+ km/.test(s.textContent.trim()));
       const R = box(r), N = box(name), K = box(km), B = bar && box(bar);   // no limit → no bar
       return { name: name.title, cut: name.scrollWidth > name.clientWidth + 1,
                barFull: B ? Math.abs(B.left - R.left) <= 1 && Math.abs(B.right - R.right) <= 1 : null,

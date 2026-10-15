@@ -10933,10 +10933,13 @@ function renderDashboard() {
       // the MOST-USED shoe — always blue, the longest always full — so a bar that looks like the
       // Planlegging one meant «used most» here and «worn out» there, and wear showed only as ⚠️/🔴
       // once red. No limit set → no bar, only the km: the same silence as everywhere else.
+      // The limit goes in the bar's tooltip, NOT beside the km: name + km share a line whose width
+      // is this card's minimum, and the 880 px two-column breakpoint is where this pair just fits —
+      // «612 / 800 km» there pushed the pair 9 px past the grid at 900 px (test_charts caught it).
       const w = shoeWear(km, shoe);
-      const kmText = w ? `${km.toFixed(0)} / ${w.limit} km` : `${km.toFixed(0)} km`;
+      const kmText = `${km.toFixed(0)} km`;
       const bar = w
-        ? `<div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${w.pct.toFixed(1)}%;background:${SHOE_BAND_COLOR[w.band]}"></div></div>`
+        ? `<div class="shoe-bar-bg" title="${km.toFixed(0)} av ${w.limit} km"><div class="shoe-bar-fill" style="width:${w.pct.toFixed(1)}%;background:${SHOE_BAND_COLOR[w.band]}"></div></div>`
         : '';
       const st = shoeStats[name] || {};
       const chips = [];
