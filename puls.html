@@ -10914,7 +10914,6 @@ function renderDashboard() {
   const shoeEntries = Object.entries(shoeMap)
     .filter(([name]) => !Store.data.shoes.find(s => s.name === name)?.retired)
     .sort((a,b) => b[1]-a[1]);
-  const maxKm = shoeEntries[0]?.[1] || 1;
   const shoeObjects = Store.data.shoes;
   const shoeStats = {};
   sessions.forEach(s => {
@@ -10929,12 +10928,16 @@ function renderDashboard() {
   document.getElementById('shoeBarChart').innerHTML = `<div class="shoe-bar-wrap">${
     shoeEntries.map(([name, km]) => {
       const shoe = shoeObjects.find(s => s.name === name);
-      // Same `shoeWear` thresholds as the Sko card's bar and the Innsikter warning — this was the
-      // THIRD independent copy (it warned at 90/100 while the card used 80/100 and the insight
-      // 85/95). Kept as ⚠️/🔴 rather than gaining a bar: the dashboard shows the state, the
-      // Planlegging card explains it.
+      // The same wear bar as the Sko card on Planlegging: km against the shoe's own limit, coloured
+      // by `shoeWear`'s band (2026-10-15, his pick). Until then this bar was the shoe's km against
+      // the MOST-USED shoe — always blue, the longest always full — so a bar that looks like the
+      // Planlegging one meant «used most» here and «worn out» there, and wear showed only as ⚠️/🔴
+      // once red. No limit set → no bar, only the km: the same silence as everywhere else.
       const w = shoeWear(km, shoe);
-      const warn = w && w.band === 'red' ? (w.spent ? ' 🔴' : ' ⚠️') : '';
+      const kmText = w ? `${km.toFixed(0)} / ${w.limit} km` : `${km.toFixed(0)} km`;
+      const bar = w
+        ? `<div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${w.pct.toFixed(1)}%;background:${SHOE_BAND_COLOR[w.band]}"></div></div>`
+        : '';
       const st = shoeStats[name] || {};
       const chips = [];
       if (st.count)     chips.push(`<span class="shoe-stat"><span class="sv">${st.count}</span><span class="sl">${oktNoun(st.count)}</span></span>`);
@@ -10949,9 +10952,9 @@ function renderDashboard() {
       <div style="cursor:pointer" onclick="DetailPanel.openShoe('${nameEsc}')">
         <div class="shoe-bar-head">
           <span class="shoe-bar-name" title="${escapeHtml(name)}">👟 ${escapeHtml(name)}</span>
-          <span class="shoe-bar-km">${km.toFixed(0)} km${warn}</span>
+          <span class="shoe-bar-km">${kmText}</span>
         </div>
-        <div class="shoe-bar-bg"><div class="shoe-bar-fill" style="width:${(km/maxKm*100).toFixed(1)}%"></div></div>${metaLine}
+        ${bar}${metaLine}
       </div>`;
     }).join('')
   }</div>`;

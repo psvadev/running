@@ -156,15 +156,34 @@ with sync_playwright() as pw:
     check("110 % draws a red bar", bars.get('Utslitt'), 'var(--danger)')
     check("⚠️ a shoe with no limit draws no bar at all", bars.get('Ukjent'), None)
 
+    # Sko oversikt draws the SAME wear bar (2026-10-15, his pick B). Until then its bar was each
+    # shoe's km against the most-used shoe — always blue, the longest always full — with ⚠️/🔴 after
+    # the km only once red. A full bar there meant «used most», not «worn out», while the bar that
+    # looks the same on Planlegging meant wear.
     pg.evaluate("() => switchTab('dash')")
     pg.wait_for_timeout(500)
+    dash = pg.evaluate("""() => {
+      const out = {};
+      for (const row of document.querySelectorAll('#shoeBarChart .shoe-bar-wrap > div')) {
+        const name = row.querySelector('.shoe-bar-name').title;
+        const fill = row.querySelector('.shoe-bar-fill');
+        out[name] = { color: fill ? fill.style.background : null,
+                      width: fill ? fill.style.width : null,
+                      km: row.querySelector('.shoe-bar-km').textContent.trim() };
+      }
+      return out;
+    }""")
+    check("the dashboard bar has the Planlegging bar's colour, shoe for shoe",
+          {k: dash.get(k, {}).get('color') for k in bars}, bars)
+    check("...and its length is the wear, not the share of the most-used shoe",
+          {k: dash.get(k, {}).get('width') for k in ('Fersk', 'Halvveis', 'Sliten', 'Utslitt')},
+          {'Fersk': '40%', 'Halvveis': '80%', 'Sliten': '92%', 'Utslitt': '100%'})
+    check("⚠️ a shoe with no limit has no bar there either — only its km",
+          (dash.get('Ukjent', {}).get('width'), dash.get('Ukjent', {}).get('km')), (None, '380 km'))
+    check("the km reads against the limit, like the Planlegging card",
+          (dash.get('Sliten', {}).get('km'), dash.get('Utslitt', {}).get('km')), ('92 / 100 km', '110 / 100 km'))
     chart = pg.evaluate("() => (document.getElementById('shoeBarChart') || {}).innerText || ''")
-    check("the dashboard marks 92 % with ⚠️", '⚠️' in chart.split('Sliten')[1][:40], True)
-    check("...and 110 % with 🔴", '🔴' in chart.split('Utslitt')[1][:40], True)
-    check("80 % gets no dashboard mark — it is yellow, not red",
-          any(c in chart.split('Halvveis')[1][:40] for c in ('⚠️', '🔴')), False)
-    check("...and neither does 40 %",
-          any(c in chart.split('Fersk')[1][:40] for c in ('⚠️', '🔴')), False)
+    check("no ⚠️/🔴 beside a red bar — the bar says it", any(c in chart for c in ('⚠️', '🔴')), False)
 
     ins = pg.evaluate("""() => {
       const el = document.getElementById('insightContent');
@@ -431,11 +450,11 @@ with sync_playwright() as pw:
     GEOM = r"""() => [...document.querySelectorAll('#shoeBarChart .shoe-bar-wrap > div')].map(r => {
       const box = e => e.getBoundingClientRect();
       const name = r.querySelector('[title]'), bar = r.querySelector('.shoe-bar-bg');
-      const km = [...r.querySelectorAll('span')].find(s => /^\d+ km/.test(s.textContent.trim()));
-      const R = box(r), N = box(name), B = box(bar), K = box(km);
+      const km = [...r.querySelectorAll('span')].find(s => /^\d+( \/ \d+)? km/.test(s.textContent.trim()));
+      const R = box(r), N = box(name), K = box(km), B = bar && box(bar);   // no limit → no bar
       return { name: name.title, cut: name.scrollWidth > name.clientWidth + 1,
-               barFull: Math.abs(B.left - R.left) <= 1 && Math.abs(B.right - R.right) <= 1,
-               barBelow: B.top >= N.bottom - 1,
+               barFull: B ? Math.abs(B.left - R.left) <= 1 && Math.abs(B.right - R.right) <= 1 : null,
+               barBelow: B ? B.top >= N.bottom - 1 : null,
                kmRight: Math.abs(K.right - R.right) <= 1,
                kmOnNameLine: Math.abs((K.top + K.bottom) / 2 - (N.top + N.bottom) / 2) <= 4,
                kmWhole: km.scrollWidth <= km.clientWidth + 1 && K.right <= R.right + 1,
