@@ -700,6 +700,91 @@ with sync_playwright() as p:
     check("...and changing the type after the click renames nothing — only the click takes the title",
           updated(name='', type='Race', title='Tønsberg 10K', retype='Tempo')[0], '')
     tp.close()
+
+    # ── A tab left open overnight must not log yesterday's run twice (audit 2026-11-11, LG-1) ───────
+    # The form's date was set to today only on load and after a save, so a Firefox tab left open since
+    # Tuesday evening still said Tuesday on Wednesday — and «Hent fra Strava» auto-picked Tuesday's ONE
+    # run, the one already logged, and a save filed it twice. Now: the date the app itself wrote moves
+    # to today when the tab is shown, when the form is opened and when Strava is asked (never a date you
+    # chose, never a half-entered session); a run already in the log is never auto-picked, and is
+    # marked in the picker; saving a Strava run that is already logged asks first. Oslo clock, pinned.
+    print("== a tab left open overnight does not log yesterday's run twice ==")
+    ctx = b.new_context(timezone_id="Europe/Oslo")
+    tp = ctx.new_page()
+    odialogs, oanswer = [], {"ok": False}
+    tp.on("dialog", lambda d: (odialogs.append(d.message), d.accept() if oanswer["ok"] else d.dismiss()))
+    TUE, WED = "2026-11-10T20:00:00Z", "2026-11-11T17:00:00Z"        # 21:00 Tuesday, 18:00 Wednesday
+    tp.clock.set_fixed_time(TUE)
+    tp.goto(APP)
+    tp.wait_for_timeout(400)
+    tp.evaluate("""() => {
+      Store.data.sessions.push({ id: 'tue', dato: '2026-11-10', uke: isoWeek('2026-11-10'), oktnavn: 'Tirsdag',
+        okttype: 'Easy', treningsplan: 'Egentrening', løpetype: 'utendors', distanse: 8, varighet: 2880,
+        tempo: 360, soner: [0,0,0,0,0], stravaId: '501' });
+      StravaIO.fetchActivities = async () => [
+        { id: 501, type: 'Run', name: 'Tirsdag', start_date_local: '2026-11-10T19:00:00Z', distance: 8000 },
+        { id: 502, type: 'Run', name: 'Onsdag',  start_date_local: '2026-11-11T17:30:00Z', distance: 6000 }];
+      window.__populated = [];
+      StravaImport._populate = async a => { window.__populated.push(a.id); };
+      switchTab('form'); Form.clear();
+    }""")
+    VIS = "() => { document.dispatchEvent(new Event('visibilitychange')); return [document.getElementById('fDato').value, document.getElementById('fUke').value]; }"
+    check("control: on Tuesday evening the form says Tuesday", tp.input_value("#fDato"), "2026-11-10")
+    tp.clock.set_fixed_time(WED)
+    check("control: the page's clock is now Wednesday", tp.evaluate("() => localISODate()"), "2026-11-11")
+    check("shown again on Wednesday: the app's own date moves to today",
+          tp.evaluate(VIS), ["2026-11-11", "2026-46"])
+    # Tuesday and Wednesday share ISO week 46, so the week above could not tell an updated Uke from a
+    # stale one (mutation U8, 2026-11-11). Sunday night → Monday crosses a week.
+    tp.clock.set_fixed_time("2026-11-08T21:00:00Z")                  # 22:00 Sunday, week 45
+    tp.evaluate("() => Form.clear()")
+    check("control: on Sunday night the form says week 45", tp.input_value("#fUke"), "2026-45")
+    tp.clock.set_fixed_time("2026-11-09T06:00:00Z")                  # 07:00 Monday
+    check("...shown on Monday morning, the week moves with the date", tp.evaluate(VIS), ["2026-11-09", "2026-46"])
+
+    # Not a date you chose, and not a half-entered session.
+    tp.clock.set_fixed_time(TUE)
+    tp.evaluate("() => { Form.clear(); document.getElementById('fDato').value = '2026-11-08'; }")
+    tp.clock.set_fixed_time(WED)
+    check("a date you chose stays", tp.evaluate(VIS)[0], "2026-11-08")
+    tp.clock.set_fixed_time(TUE)
+    tp.evaluate("() => { Form.clear(); document.getElementById('fDistanse').value = '5'; }")
+    tp.clock.set_fixed_time(WED)
+    check("a half-entered session keeps its date", tp.evaluate(VIS)[0], "2026-11-10")
+
+    # «Hent fra Strava» on a stale form: today's run, never yesterday's logged one.
+    tp.clock.set_fixed_time(TUE)
+    tp.evaluate("() => Form.clear()")
+    tp.clock.set_fixed_time(WED)
+    tp.evaluate("async () => { window.__populated = []; await StravaImport.open(); }")
+    check("«Hent fra Strava» on a form left on Tuesday fills in Wednesday's run",
+          (tp.evaluate("() => window.__populated"), tp.input_value("#fDato")), ([502], "2026-11-11"))
+    # Deliberately on Tuesday: its only run is logged, so nothing is filled in by itself.
+    tp.evaluate("""async () => { window.__populated = []; document.getElementById('fDato').value = '2026-11-10';
+                                 await StravaImport.open(); }""")
+    check("on a day whose only run is logged, nothing is filled in by itself",
+          tp.evaluate("() => window.__populated"), [])
+    check("...the picker lists both runs, the logged one marked",
+          tp.evaluate("""() => [...document.querySelectorAll('#stravaActivityList .dp-session-row')]
+                               .map(r => [r.children[1].textContent.includes('Tirsdag'), !!r.querySelector('.strava-logged')])"""),
+          [[True, True], [False, False]])
+    tp.evaluate("() => StravaImport.close()")
+
+    # Saving a Strava run that is already logged asks first.
+    SAVE_TWIN = """() => { Form.clear();
+      const set = (id, v) => { document.getElementById(id).value = v; };
+      set('fDato', '2026-11-10'); set('fDistanse', '8'); set('fVarighet', '48:00'); set('fStravaId', '501');
+      const n = Store.data.sessions.length; Form.save(); return Store.data.sessions.length - n; }"""
+    odialogs.clear(); oanswer["ok"] = False
+    check("Avbryt: a second copy of a logged Strava run is not saved", tp.evaluate(SAVE_TWIN), 0)
+    check("...and the question names the logged one",
+          any("allerede logget (10.11.2026, «Tirsdag»)" in m for m in odialogs), True)
+    odialogs.clear(); oanswer["ok"] = True
+    check("OK: saved on purpose", tp.evaluate(SAVE_TWIN), 1)
+    odialogs.clear()
+    check("control: a run with no Strava id saves without asking",
+          (tp.evaluate(SAVE_TWIN.replace("set('fStravaId', '501');", "")), odialogs), (1, []))
+    ctx.close()
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))

@@ -6344,6 +6344,7 @@ window._testAerobicMetrics = function () {
 // ═══════════════════════════════════════════════════════
 const Form = {
   editId: null,
+  autoDate: '',         // the date the app itself last wrote into #fDato — see refreshStaleDate
   returnTab: null,
   lastAutoOktnavn: '',
   planTouched: false,   // set once Treningsplan is hand-picked; syncPlanForType then keeps its hands off
@@ -6354,7 +6355,7 @@ const Form = {
   stravaTitle: '',      // the imported activity's workout name — stravaWorkoutTitle ('' = none of its own)
 
   init() {
-    document.getElementById('fDato').value = localISODate();
+    document.getElementById('fDato').value = this.autoDate = localISODate();
     this.updateWeek();
     this.refreshShoeDropdown();
 
@@ -6883,6 +6884,10 @@ const Form = {
     }
     if (!s.dato) { alert('Velg en dato.'); return; }
     if (s.distanse <= 0) { alert('Fyll inn distanse.'); return; }
+    // The same Strava activity logged twice double-counts every total it reaches (week, shoe, load,
+    // plan). The picker no longer fills one in by itself, but a hand pick still can — so ask.
+    const twin = !this.editId && s.stravaId && Store.data.sessions.find(x => String(x.stravaId) === String(s.stravaId));
+    if (twin && !confirm(`Denne Strava-økten er allerede logget (${fmtDate(twin.dato)}${twin.oktnavn ? ', «' + twin.oktnavn + '»' : ''}).\n\nOK: Lagre den en gang til.\nAvbryt: Ikke lagre.`)) return;
     // He picked a shoe on a form whose Strava gear matched nothing — store the link now, so the next
     // import of that gear resolves by itself. His explicit pick, never inferred from a pattern.
     if (this.pendingGearId && s.sko) {
@@ -6911,8 +6916,22 @@ const Form = {
     Continuity.autoAnalyzeOnSave(savedId);
   },
 
+  // The form's date is set to today only when the page loads and after a save, so a tab left open
+  // overnight still said yesterday — and «Hent fra Strava» then filled in yesterday's run, already
+  // logged (audit 2026-11-11, LG-1). Brought forward to today only while it is still the date the app
+  // itself wrote and nothing has been typed: a date you chose, or a session half-entered, is yours.
+  refreshStaleDate() {
+    const el = document.getElementById('fDato');
+    const today = localISODate();
+    if (this.editId || !el || el.value !== this.autoDate || this.autoDate === today) return;
+    if (['fDistanse', 'fVarighet', 'fStravaId'].some(id => document.getElementById(id)?.value)) return;
+    el.value = this.autoDate = today;
+    this.updateWeek();
+    this.applyPlannedDefault();
+  },
+
   clear() {
-    document.getElementById('fDato').value = localISODate();
+    document.getElementById('fDato').value = this.autoDate = localISODate();
     this.updateWeek();
     ['fOktnavn','fVarighet','fDistanse','fGjpuls','fToppuls',
      'fSone1','fSone2','fSone3','fSone4','fSone5',
@@ -11368,9 +11387,15 @@ const StravaImport = {
       // If exactly one run matches the date being logged, skip the picker entirely —
       // populating doesn't save anything, so this is safe to do without confirmation.
       // The forceAll override (from "Vis alle økter") always shows the full list instead.
+      // A run already in the log is never filled in on its own: on a tab left open since yesterday the
+      // form still says yesterday, and yesterday's ONE run — the one already logged — was auto-picked
+      // and saved a second time (audit 2026-11-11, LG-1). It stays in the picker, marked.
+      Form.refreshStaleDate();
+      const logged = new Set(Store.data.sessions.filter(s => s.stravaId).map(s => String(s.stravaId)));
+      this.logged = logged;
       if (!forceAll) {
         const logDate = document.getElementById('fDato').value;
-        const sameDate = runs.filter(a => a.start_date_local.slice(0, 10) === logDate);
+        const sameDate = runs.filter(a => a.start_date_local.slice(0, 10) === logDate && !logged.has(String(a.id)));
         if (sameDate.length === 1) {
           this.close();
           await this._populate(sameDate[0]);
@@ -11405,7 +11430,7 @@ const StravaImport = {
     document.getElementById('stravaActivityList').innerHTML = this.activities.map((a, i) => `
       <div class="dp-session-row" onclick="StravaImport.select(${i})">
         <span style="min-width:80px;color:var(--muted)">${fmtDate((a.start_date_local || '').slice(0, 10))}</span>
-        <span style="flex:1">${escapeHtml(a.name)}</span>
+        <span style="flex:1">${escapeHtml(a.name)}${this.logged?.has(String(a.id)) ? ' <span class="strava-logged" style="color:var(--muted);font-size:11px">· allerede logget</span>' : ''}</span>
         <span style="min-width:60px;text-align:right">${(a.distance/1000).toFixed(1)} km</span>
       </div>`).join('');
   },
@@ -14006,6 +14031,7 @@ function switchTab(name, skipHistory = false) {
   // case that matters: tapping Løpeatlas there must reveal the atlas, not leave the sheet covering it.
   closeMoreSheet();
   if (!skipHistory) history.pushState({ tab: name }, '', '#' + name);
+  if (name === 'form') Form.refreshStaleDate();
   if (name === 'dash') renderDashboard();
   if (name === 'atlas') renderAtlas(Store.data.sessions, Store.data.events);
   if (name === 'log') Log.render();
@@ -14072,6 +14098,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
     BackupDB.saveDaily(Store.toJSON(), Store.data.sessions.length).catch(() => {});
+    Form.refreshStaleDate();
   });
   const hashTab = window.location.hash.slice(1);
   const initialTab = VALID_TABS.includes(hashTab) ? hashTab : 'form';
