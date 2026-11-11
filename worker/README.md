@@ -2,7 +2,7 @@
 
 Stateless Cloudflare Worker handling the Strava OAuth token exchange (`/exchange`) and refresh (`/refresh`). Holds `STRAVA_CLIENT_SECRET` so it never has to live in `puls.html` or the browser.
 
-CORS is locked to the app's origin via the `ALLOWED_ORIGINS` allowlist at the top of `index.js` (`https://psvadev.github.io`) — only the deployed app may use it as a token proxy from a browser. If the app ever moves to a custom domain, add that origin to `ALLOWED_ORIGINS` and redeploy. (CORS only blocks browser callers; it isn't a substitute for auth against a server-side script — see the note in `index.js`.)
+CORS is locked to the app's origin via the `ALLOWED_ORIGINS` allowlist at the top of `index.js` (`https://psvadev.github.io`) — only the deployed app may use it as a token proxy from a browser. If the app ever moves to a custom domain, add that origin to `ALLOWED_ORIGINS` and redeploy. **Running your own copy?** Replace it with YOUR page's origin (e.g. `https://<your-username>.github.io`, plus `http://localhost:8080` to test locally) before deploying — otherwise the Worker refuses your browser and «Koble til Strava» quietly stays unconnected. (CORS only blocks browser callers; it isn't a substitute for auth against a server-side script — see the note in `index.js`.)
 
 ## Option A — Cloudflare dashboard (no local tools, recommended if you don't already have Node/npm)
 
@@ -18,6 +18,7 @@ CORS is locked to the app's origin via the `ALLOWED_ORIGINS` allowlist at the to
 ### 3. Paste in the real code
 - On the worker's page, click **Edit code**
 - Replace the default content with the full contents of [`index.js`](index.js) in this folder
+- **Your own copy:** edit `ALLOWED_ORIGINS` at the top to your page's origin (see above)
 - **Save and deploy**
 
 ### 4. Add the secret
@@ -27,7 +28,7 @@ CORS is locked to the app's origin via the `ALLOWED_ORIGINS` allowlist at the to
 
 ### 5. Get the URL and wire it up
 - The worker's overview page shows its live URL (e.g. `https://puls-strava-auth.<your-subdomain>.workers.dev`)
-- In `puls.html` → **Innstillinger → Strava**, paste in the **Client ID** (step 1) and this **Worker URL**, then click "Koble til Strava"
+- In `puls.html` → **Innstillinger → Datafil → Strava**, paste in the **Client ID** (step 1) and this **Worker URL**, then click "Koble til Strava"
 - **Running your own copy of `puls.html`?** Also put this worker's host in `connect-src` in the `Content-Security-Policy` meta tag at the top of `puls.html` (and in `WORKER` in `tests/test_csp.py`). The page only talks to the worker its policy names, so any other Worker URL is blocked by the browser — "Koble til Strava" would fail with a CSP error in the console
 
 ### Redeploying after code changes

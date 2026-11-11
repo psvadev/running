@@ -183,7 +183,7 @@ A quiet **"Om Puls — dokumentasjon på GitHub"** link sits at the bottom of th
 ### Google Drive sync (optional, cross-device)
 
 1. Go to **⚙️ Innstillinger** → **Datafil** → **Google Drive**
-2. Paste your **Client ID** and **Client Secret** (from [Google Cloud Console](https://console.cloud.google.com/) → Credentials → your OAuth 2.0 client)
+2. Paste your **Client ID** and **Client Secret** (from [Google Cloud Console](https://console.cloud.google.com/) → Credentials → your OAuth 2.0 client). Setting that client up the first time: enable the **Google Drive API** for the project, create the client as type **Web application**, and set the OAuth consent screen's publishing status to **In production** — left in *Testing*, Google ends the sign-in after 7 days (you would be asked to reconnect every week) and only listed test users can connect
 3. Click **Koble til Google Drive** — you are redirected to Google sign-in and back
 4. A `puls.json` file is created in your Drive (or the existing one is loaded)
 5. Every subsequent save syncs automatically — no further clicks needed
@@ -210,13 +210,13 @@ Opening `puls.html` directly as a local file still works fully for offline use �
 
 1. Register a Strava API application at [strava.com/settings/api](https://www.strava.com/settings/api) — copy the **Client ID** and **Client Secret**
 2. Deploy the OAuth token-exchange Worker — see [worker/README.md](worker/README.md) for full steps; works entirely through Cloudflare's dashboard, no local tooling required
-3. Go to **⚙️ Innstillinger → Datafil → Strava** (a section near the bottom of the Datafil card), paste in your **Client ID** and the Worker's URL, then click **Koble til Strava**. Running your own copy with your own Worker? Its host also has to go into `connect-src` in the `Content-Security-Policy` tag at the top of `puls.html` — otherwise the browser blocks the call
+3. Go to **⚙️ Innstillinger → Datafil → Strava** (a section near the bottom of the Datafil card), paste in your **Client ID** and the Worker's URL, then click **Koble til Strava**. Running your own copy with your own Worker? Its host also has to go into `connect-src` in the `Content-Security-Policy` tag at the top of `puls.html` — otherwise the browser blocks the call — and your page's origin has to go into `ALLOWED_ORIGINS` at the top of `worker/index.js` (e.g. `https://<your-username>.github.io`, plus `http://localhost:8080` if you test locally), or the Worker refuses the call and «Koble til Strava» quietly stays unconnected
 4. Once connected:
    - **Hent fra Strava** appears in the logging form to pull in distance/duration/HR/pace/elevation/calories from a recent run, plus the Runna workout description if Runna pushed one to that activity
    - **Fra Strava** appears next to the zone auto-calc button in Profil & Puls
    - **Synkroniser fra Strava** appears under Distanse-PR to pull your all-time outdoor best efforts (the 🏃 Ute column)
 
-**Strava's** Client Secret never leaves the Worker — only the Client ID and Worker URL are stored in localStorage. Note this differs from **Google Drive**, whose flow runs entirely in the browser: its Client Secret *is* stored in localStorage alongside the refresh token (the flow is actually secured by PKCE; the secret is only there because the Google client is registered as a "Web application" type). Drive access is scoped to `drive.file`, so it only ever reaches files this app created.
+**Strava's** Client Secret never leaves the Worker — what is stored in localStorage is the Client ID, the Worker URL and the Strava access and refresh tokens. Note this differs from **Google Drive**, whose flow runs entirely in the browser: its Client Secret *is* stored in localStorage alongside the refresh token (the flow is actually secured by PKCE; the secret is only there because the Google client is registered as a "Web application" type). Drive access is scoped to `drive.file`, so it only ever reaches files this app created.
 
 ---
 

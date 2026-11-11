@@ -183,7 +183,7 @@ En diskré lenke **«Om Puls — dokumentasjon på GitHub»** ligger nederst i �
 ### Google Drive-synk (valgfritt, på tvers av enheter)
 
 1. Gå til **⚙️ Innstillinger** → **Datafil** → **Google Drive**
-2. Lim inn **Client ID** og **Client Secret** (fra [Google Cloud Console](https://console.cloud.google.com/) → Credentials → din OAuth 2.0-klient)
+2. Lim inn **Client ID** og **Client Secret** (fra [Google Cloud Console](https://console.cloud.google.com/) → Credentials → din OAuth 2.0-klient). Første gang du setter opp klienten: slå på **Google Drive API** for prosjektet, opprett klienten som typen **Web application**, og sett publiseringsstatusen for OAuth-samtykkeskjermen til **In production** — står den på *Testing*, avslutter Google innloggingen etter 7 dager (du blir bedt om å koble til på nytt hver uke), og bare oppførte testbrukere kan koble til
 3. Klikk **Koble til Google Drive** — du sendes til Google-innlogging og tilbake igjen
 4. En `puls.json`-fil opprettes i Drive-en din (eller den eksisterende lastes inn)
 5. Hver påfølgende lagring synkroniseres automatisk — ingen flere klikk nødvendig
@@ -210,13 +210,13 @@ Når Drive er aktiv, skjules statusen for den lokale filen og synk-indikatoren �
 
 1. Registrer en Strava API-applikasjon på [strava.com/settings/api](https://www.strava.com/settings/api) — kopier **Client ID** og **Client Secret**
 2. Sett opp Workeren som utveksler OAuth-tokens — se [worker/README.md](worker/README.md) for alle stegene; alt gjøres gjennom Cloudflares dashbord, uten noe lokalt verktøy
-3. Gå til **⚙️ Innstillinger → Datafil → Strava** (en seksjon nær bunnen av Datafil-kortet), lim inn **Client ID** og Workerens URL, og klikk **Koble til Strava**. Kjører du din egen kopi med din egen Worker, må Workerens vertsnavn også inn i `connect-src` i `Content-Security-Policy`-taggen øverst i `puls.html` — ellers blokkerer nettleseren kallet
+3. Gå til **⚙️ Innstillinger → Datafil → Strava** (en seksjon nær bunnen av Datafil-kortet), lim inn **Client ID** og Workerens URL, og klikk **Koble til Strava**. Kjører du din egen kopi med din egen Worker, må Workerens vertsnavn også inn i `connect-src` i `Content-Security-Policy`-taggen øverst i `puls.html` — ellers blokkerer nettleseren kallet — og sidens opprinnelse må inn i `ALLOWED_ORIGINS` øverst i `worker/index.js` (f.eks. `https://<ditt-brukernavn>.github.io`, pluss `http://localhost:8080` hvis du tester lokalt), ellers avviser Workeren kallet, og «Koble til Strava» forblir stille ukoblet
 4. Når du er tilkoblet:
    - **Hent fra Strava** dukker opp i loggskjemaet for å hente inn distanse/varighet/puls/tempo/høydemeter/kalorier fra et nylig løp, pluss Runna-øktbeskrivelsen hvis Runna sendte en til den økten
    - **Fra Strava** dukker opp ved siden av knappen for automatisk soneutregning i Profil & Puls
    - **Synkroniser fra Strava** dukker opp under Distanse-PR for å hente dine beste utendørsprestasjoner gjennom tidene (🏃 Ute-kolonnen)
 
-**Stravas** Client Secret forlater aldri Workeren — bare Client ID og Workerens URL lagres i localStorage. Merk at dette skiller seg fra **Google Drive**, der flyten kjører helt i nettleseren: der *lagres* Client Secret i localStorage sammen med refresh-tokenet (flyten sikres egentlig av PKCE; hemmeligheten ligger der bare fordi Google-klienten er registrert som typen «Web application»). Drive-tilgangen er avgrenset til `drive.file`, så den når aldri annet enn filer denne appen selv har opprettet.
+**Stravas** Client Secret forlater aldri Workeren — det som lagres i localStorage, er Client ID, Workerens URL og Stravas access- og refresh-token. Merk at dette skiller seg fra **Google Drive**, der flyten kjører helt i nettleseren: der *lagres* Client Secret i localStorage sammen med refresh-tokenet (flyten sikres egentlig av PKCE; hemmeligheten ligger der bare fordi Google-klienten er registrert som typen «Web application»). Drive-tilgangen er avgrenset til `drive.file`, så den når aldri annet enn filer denne appen selv har opprettet.
 
 ---
 
