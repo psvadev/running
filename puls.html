@@ -1126,7 +1126,7 @@
     </button>
     <div class="form-group" style="min-width:130px">
       <label>Økt-type</label>
-      <select id="dfType" style="padding:6px 8px;font-size:12px">
+      <select id="dfType" autocomplete="off" style="padding:6px 8px;font-size:12px">
         <option value="">Alle typer</option>
         <option>Easy</option><option>Steady</option><option>Long</option>
         <option>Tempo</option><option>Intervaller</option><option>Test</option><option>Race</option>
@@ -1134,7 +1134,7 @@
     </div>
     <div class="form-group" style="min-width:130px">
       <label>Treningsplan</label>
-      <select id="dfPlan" style="padding:6px 8px;font-size:12px">
+      <select id="dfPlan" autocomplete="off" style="padding:6px 8px;font-size:12px">
         <option value="">Alle planer</option>
         <option>Egentrening</option><option>Runna</option>
       </select>
@@ -4080,6 +4080,25 @@ const HandleDB = {
 // What a failed backup said, for a message: IndexedDB errors are DOMExceptions whose message can be
 // empty, so the name stands in.
 const errText = (e, fallback = '') => (e && (e.message || e.name)) || fallback;
+// Firefox and Safari let letters into a number field: the text stays on screen, `value` reads '' and
+// validity.badInput is set. Every save outside the log form then stored «nothing» as if the field were
+// blank — a shoe limit typed «600 km» became no limit and the field emptied as if it had worked
+// (audit 2026-11-11, FX-2). Chromium never lets the letters in, so it was invisible there. Refused the
+// log form's way: say which field, keep the text, put the cursor in it. → true when it refused.
+function refuseBadNumber(...ids) {
+  const el = ids.map(id => document.getElementById(id)).find(e => e?.validity?.badInput);
+  if (!el) return false;
+  // Its own label, else the label right before it, else the form group's — never a neighbour's: the
+  // shoe-limit field shares a parent with the «Kjøpt» picker's label.
+  const prev = el.previousElementSibling;
+  const label = el.labels?.[0]?.textContent.trim()
+             || (prev?.tagName === 'LABEL' ? prev.textContent.trim() : '')
+             || el.closest('.form-group')?.querySelector('label')?.textContent.trim()
+             || el.placeholder || el.id;
+  alert(`«${label}» må være et tall.`);
+  el.focus();
+  return true;
+}
 
 const BackupDB = {
   // The last failed backup WRITE, `{ at, message }` or null. Only a successful write clears it: a
@@ -6869,7 +6888,7 @@ const Form = {
       // Name the field AND the range, then leave the value where it is and put the cursor in it.
       // Clearing it would be the worse failure: a cleared field and a never-filled one look
       // identical, so the correction would start from nothing instead of from the typo.
-      alert(`«${label}» må være ${range}.`);
+      alert(bad.validity.badInput ? `«${label}» må være et tall.` : `«${label}» må være ${range}.`);
       bad.focus();
       return;
     }
@@ -12910,6 +12929,7 @@ const Settings = {
   },
 
   addGoal() {
+    if (refuseBadNumber('newGoalKm')) return;
     const yr = String(document.getElementById('newGoalYear').value).trim();
     const km = parseFloat(document.getElementById('newGoalKm').value);
     if (!yr || !km || km <= 0) return;
@@ -13118,6 +13138,7 @@ const Settings = {
   },
 
   addUpcomingBlock() {
+    if (refuseBadNumber('newUbWeeks')) return;
     const kind = document.getElementById('newUbKind').value;
     if (!UPCOMING_BLOCK_KINDS.some(k => k.key === kind)) return;
     // No empty-string branch: parseFloat('') is NaN, and the `weeks > 0` guard below rejects NaN,
@@ -13187,6 +13208,7 @@ const Settings = {
 
   // ── Shoes ──
   addShoe() {
+    if (refuseBadNumber('newShoeRetirementKm')) return;
     const nameInput = document.getElementById('newShoeName');
     const retInput = document.getElementById('newShoeRetirementKm');
     const name = nameInput.value.trim();
@@ -13368,6 +13390,7 @@ const Settings = {
   },
 
   saveShoeRetirement(name, safeId) {
+    if (refuseBadNumber(`shoe-ret-${safeId}`)) return;
     const input = document.getElementById(`shoe-ret-${safeId}`);
     const km = parseFloat(input.value) || null;
     const obtained = readMonthYear(`shoe-obt-${safeId}`);
@@ -13503,6 +13526,7 @@ const Settings = {
   },
 
   addEvent() {
+    if (refuseBadNumber('newEvtTotalKmTarget', 'newEvtKmTarget', 'newEvtRunTarget', 'newEvtRaceDist')) return;
     const date = document.getElementById('newEvtDate').value;
     const endDate = document.getElementById('newEvtEndDate').value;
     const type = document.getElementById('newEvtType').value;
@@ -13924,6 +13948,7 @@ const Settings = {
   },
 
   autoZones() {
+    if (refuseBadNumber('sMaxHR')) return;
     const maxHR = parseInt(document.getElementById('sMaxHR').value);
     if (!maxHR) { alert('Fyll inn maks puls først.'); return; }
     ZONE_PCT.forEach(([lo, hi], i) => {
@@ -13969,6 +13994,7 @@ const Settings = {
   },
 
   saveConsistency() {
+    if (refuseBadNumber('csKmThreshold', 'csRunThreshold')) return;
     Store.data.consistencySettings = {
       kmThreshold:  parseInt(document.getElementById('csKmThreshold').value)  || 15,
       runThreshold: parseInt(document.getElementById('csRunThreshold').value) || 2,
@@ -14000,6 +14026,7 @@ const Settings = {
   },
 
   saveContinuity() {
+    if (refuseBadNumber('contWalkMax', 'contRunMin')) return;
     const walk = parseFloat(document.getElementById('contWalkMax').value);
     const run  = parseFloat(document.getElementById('contRunMin').value);
     const msg  = document.getElementById('contMsg');
@@ -14011,6 +14038,7 @@ const Settings = {
   },
 
   saveProfile() {
+    if (refuseBadNumber('sMaxHR', 'sRestHR', ...ZONE_PCT.flatMap((_, i) => [`zMin${i}`, `zMax${i}`]))) return;
     if (!Store.data.settings) Store.data.settings = {};
     Store.data.settings.maxHR  = parseInt(document.getElementById('sMaxHR').value)  || null;
     Store.data.settings.restHR = parseInt(document.getElementById('sRestHR').value) || null;
@@ -14371,6 +14399,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Dashboard filters
   document.getElementById('dfType').addEventListener('change', e => { DashFilter.type = e.target.value; renderDashboard(); });
   document.getElementById('dfPlan').addEventListener('change', e => { DashFilter.plan = e.target.value; renderDashboard(); });
+  // The filter's state is DashFilter, which every load starts empty. Firefox restores a <select>'s
+  // value on a normal reload, so after F5 the dropdown said «Long» while every chart showed all types
+  // (audit 2026-11-11, FX-1). autocomplete="off" stops the restore; this keeps the two in step anyway.
+  document.getElementById('dfType').value = DashFilter.type;
+  document.getElementById('dfPlan').value = DashFilter.plan;
   document.getElementById('chkEvents').checked = showEventMarkers;
   document.getElementById('chkEvents').addEventListener('change', e => { showEventMarkers = e.target.checked; renderDashboard(); });
   document.getElementById('dfVenuePills').addEventListener('click', e => {

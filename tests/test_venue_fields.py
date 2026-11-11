@@ -20,6 +20,7 @@ from playwright.sync_api import sync_playwright
 # Relative to this file, not the repo checkout path — CI clones somewhere else entirely.
 APP = (pathlib.Path(__file__).resolve().parent.parent / "puls.html").as_uri()
 ENGINE = os.environ.get("PW_ENGINE", "webkit")
+HTML_TEXT = (pathlib.Path(__file__).resolve().parent.parent / "puls.html").read_text(encoding="utf-8")
 passed = failed = 0
 
 
@@ -521,6 +522,115 @@ with sync_playwright() as p:
           pg.evaluate("() => Store.data.sessions.find(s => s.id === 'belte').stigning"), 1)
     check("no page errors in the log", herr, [])
     pg.close()
+
+    # ── 7. Firefox: letters in a number field, and the dashboard filter after F5 (2026-11-11) ──────
+    # FX-2: Firefox and Safari let letters INTO a number field — the text stays on screen, `value` is
+    # '' and validity.badInput is set. The log form refused it with a range message that made no sense
+    # («…må være 0 eller høyere»); every other save stored «nothing» as if blank: a shoe limit typed
+    # «600 km» became no limit, the field emptied as if it had worked. Chromium/WebKit drop the letters
+    # at the keyboard, so the REAL case runs on Firefox only — and a stubbed `validity` drives the same
+    # code on every engine, so CI guards the logic too.
+    # FX-1: Firefox restores a <select>'s value on reload while DashFilter starts empty, so the
+    # dropdown said «Long» over charts showing every type. WebKit never restores form state, so the
+    # real reload is Firefox-only too; an early DOMContentLoaded listener plays the restore everywhere.
+    print("== letters in a number field are refused visibly ==")
+    pf = b.new_page(viewport={"width": 1280, "height": 900})
+    ferr, fdlg = [], []
+    pf.on("pageerror", lambda e: ferr.append(str(e)))
+    pf.on("dialog", lambda d: (fdlg.append(d.message), d.accept()))
+    pf.goto(APP)
+    pf.wait_for_timeout(400)
+    BAD = """(id) => { const el = document.getElementById(id); el.value = '';
+      Object.defineProperty(el, 'validity', { configurable: true, get: () => ({ badInput: true, valid: false }) });
+      el.checkValidity = () => false; }"""
+    UNBAD = "(id) => { const el = document.getElementById(id); delete el.validity; delete el.checkValidity; }"
+
+    def refused(id_, action, label):
+        fdlg.clear()
+        pf.evaluate(BAD, id_)
+        pf.evaluate(action)
+        pf.wait_for_timeout(200)
+        focused = pf.evaluate("() => document.activeElement?.id")
+        pf.evaluate(UNBAD, id_)
+        return (fdlg[:1], focused) == ([f"«{label}» må være et tall."], id_)
+
+    pf.evaluate("() => switchTab('form')")
+    n0 = pf.evaluate("() => Store.data.sessions.length")
+    check("log form: «6.5km» in Distanse — «må være et tall», not a range, and nothing saved",
+          (refused('fDistanse', "() => Form.save()", "Distanse (km)"), pf.evaluate("() => Store.data.sessions.length")),
+          (True, n0))
+    pf.evaluate("() => switchTab('plan')")
+    pf.fill('#newShoeName', 'Testsko')
+    check("shoe limit: refused, said which field, cursor in it",
+          refused('newShoeRetirementKm', "() => Settings.addShoe()", "Utløpsgrense km (valgfritt)"), True)
+    check("...and no shoe was added without its limit",
+          pf.evaluate("() => Store.data.shoes.some(s => s.name === 'Testsko')"), False)
+    pf.evaluate("() => switchTab('settings')")
+    check("Maks puls: refused, nothing stored",
+          (refused('sMaxHR', "() => Settings.saveProfile()", "Maks puls (slag/min)"),
+           pf.evaluate("() => (Store.data.settings || {}).maxHR ?? null")), (True, None))
+    check("Km-grense per uke: refused", refused('csKmThreshold', "() => Settings.saveConsistency()", "Km-grense per uke"), True)
+    check("control: a real number still saves",
+          pf.evaluate("() => { document.getElementById('sMaxHR').value = '195'; Settings.saveProfile(); return Store.data.settings.maxHR; }"), 195)
+
+    if ENGINE == "firefox":
+        # The real thing: letters typed at the keyboard, as he would.
+        pf.evaluate("() => switchTab('plan')")
+        pf.fill('#newShoeName', 'Ekte')
+        pf.click('#newShoeRetirementKm')
+        pf.keyboard.type('600 km')
+        check("control (Firefox): the letters really are in the field",
+              pf.evaluate("() => document.getElementById('newShoeRetirementKm').validity.badInput"), True)
+        fdlg.clear()
+        pf.click('#btnAddShoeMain')
+        pf.wait_for_timeout(300)
+        check("Firefox: «600 km» as a shoe limit is refused, the text kept",
+              (fdlg[:1], pf.evaluate("() => Store.data.shoes.some(s => s.name === 'Ekte')"),
+               pf.evaluate("() => document.getElementById('newShoeRetirementKm').validity.badInput")),
+              (["«Utløpsgrense km (valgfritt)» må være et tall."], False, True))
+    else:
+        print(f"  SKIP typed letters ({ENGINE} drops them at the keyboard — covered by the stubbed checks above)")
+    check("no page errors with refused numbers", ferr, [])
+    pf.close()
+
+    print("== the dashboard filter after a reload ==")
+    SEED_TYPES = """() => { const run = (id, dato, okttype) => ({ id, dato, uke: isoWeek(dato), oktnavn: 'T', okttype,
+        treningsplan: 'Egentrening', løpetype: 'utendors', distanse: 8, varighet: 2880, tempo: 360, soner: [0,0,0,0,0] });
+      localStorage.setItem('lpl_cache', JSON.stringify({ sessions: [run('e1', '2026-10-01', 'Easy'), run('l1', '2026-10-02', 'Long')],
+        shoes: [], shoeDefaults: {}, goals: {}, events: [], plannedSessions: [], settings: { zones: [] }, lastUpdated: '' })); }"""
+    check("both filter dropdowns opt out of form restore",
+          all(f'id="{i}" autocomplete="off"' in HTML_TEXT for i in ("dfType", "dfPlan")), True)
+    # Everywhere: a restore played before the app's own DOMContentLoaded handler.
+    pr = b.new_page(viewport={"width": 1280, "height": 900})
+    pr.add_init_script("""document.addEventListener('DOMContentLoaded', () => {
+      if (!localStorage.getItem('test_restore')) return;
+      document.getElementById('dfType').value = 'Long'; document.getElementById('dfPlan').value = 'Egentrening'; });""")
+    pr.goto(APP)
+    pr.evaluate(SEED_TYPES)
+    pr.evaluate("() => localStorage.setItem('test_restore', '1')")
+    pr.goto(APP)
+    pr.wait_for_timeout(500)
+    check("a restored dropdown is put back in step with the filter it shows",
+          pr.evaluate("() => [document.getElementById('dfType').value, DashFilter.type, document.getElementById('dfPlan').value, DashFilter.plan]"),
+          ["", "", "", ""])
+    pr.close()
+    if ENGINE == "firefox":
+        pr = b.new_page(viewport={"width": 1280, "height": 900})
+        pr.goto(APP)
+        pr.evaluate(SEED_TYPES)
+        pr.goto(APP)
+        pr.wait_for_timeout(500)
+        pr.evaluate("() => switchTab('dash')")
+        pr.select_option('#dfType', 'Long')
+        pr.wait_for_timeout(300)
+        check("control (Firefox): the filter is on Long", pr.evaluate("() => DashFilter.type"), "Long")
+        pr.reload()
+        pr.wait_for_timeout(800)
+        check("Firefox: after F5 the dropdown and the charts agree",
+              pr.evaluate("() => [document.getElementById('dfType').value, DashFilter.type]"), ["", ""])
+        pr.close()
+    else:
+        print(f"  SKIP real reload ({ENGINE} never restores form state — covered by the played restore above)")
 
     b.close()
 
