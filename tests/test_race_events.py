@@ -541,10 +541,33 @@ with sync_playwright() as b0:
     os.remove(tmp_pre)
     check("...and clears the preview", pg.locator('#plannedImportMsg').inner_text().strip(), '')
 
+    # A plan import rewrites every block its file carries — Runna's carries every earlier one — so it
+    # takes the «før endring» copy first, and a copy that fails imports nothing (audit 2026-11-11, DS-5).
+    idialogs = []
+    pg.on("dialog", lambda d: (idialogs.append(d.message), d.accept()))
+    pg.evaluate("""() => { window.__saveBefore = BackupDB.saveBefore;
+      BackupDB.saveBefore = async () => { throw new DOMException('Disken er full', 'QuotaExceededError'); }; }""")
     pg.set_input_files('#runnaIcsFile', tmp)
     pg.wait_for_timeout(700)
     pg.click('#btnConfirmIcs')
     pg.wait_for_timeout(500)
+    check("a plan import whose copy fails imports nothing", stored(), OLD)
+    check("...and says so", any(m.startswith('Kunne ikke ta sikkerhetskopi før importen — ingenting er importert')
+                                for m in idialogs), True)
+    pg.evaluate("() => { BackupDB.saveBefore = window.__saveBefore; }")
+    pg.click('#btnCancelIcs')
+    pg.wait_for_timeout(200)
+    BEFORE_COPY = """async () => { const r = await BackupDB.restore(BackupDB.BEFORE_KEY);
+      return r && [r.reason, JSON.parse(r.json).plannedSessions.map(p => p.date)]; }"""
+    dated = pg.evaluate("() => Store.data.lastUpdated")
+
+    pg.set_input_files('#runnaIcsFile', tmp)
+    pg.wait_for_timeout(700)
+    pg.click('#btnConfirmIcs')
+    pg.wait_for_timeout(500)
+    check("the import took a «før endring» copy of the plan as it was",
+          pg.evaluate(BEFORE_COPY), ['Importer plan (.ics)', OLD])
+    check("...and the change is dated", pg.evaluate("() => Store.data.lastUpdated") != dated, True)
 
     check("the earlier block's rows SURVIVE the import",
           stored(), OLD + ['2026-08-05', '2026-08-07', '2026-08-10'])
@@ -588,6 +611,23 @@ with sync_playwright() as b0:
           '2026-08-07' in stored() and '2026-08-10' in stored(), True)
     check("...and still leaves the earlier block alone",
           pg.evaluate("() => plannedForBlock('2026-06-01','2026-07-15').length"), 3)
+
+    # «Fjern alle planlagte» takes the same copy, and a failed copy removes nothing (DS-5).
+    everything = stored()
+    pg.evaluate("""() => { window.__saveBefore = BackupDB.saveBefore;
+      BackupDB.saveBefore = async () => { throw new DOMException('Disken er full', 'QuotaExceededError'); }; }""")
+    idialogs.clear()
+    pg.evaluate("() => document.getElementById('btnClearPlanned').click()")
+    pg.wait_for_timeout(500)
+    check("«Fjern alle planlagte» with a failing copy removes nothing", stored(), everything)
+    check("...says a copy is taken first, then that it failed",
+          [m.split('\n')[-1] for m in idialogs][:1] == ['En kopi tas først — du finner den øverst under Innstillinger → Lokale sikkerhetskopier.']
+          and any(m.startswith('Kunne ikke ta sikkerhetskopi — ingenting er fjernet') for m in idialogs), True)
+    pg.evaluate("() => { BackupDB.saveBefore = window.__saveBefore; }")
+    pg.evaluate("() => document.getElementById('btnClearPlanned').click()")
+    pg.wait_for_timeout(500)
+    check("...and with a working copy removes them all, keeping the copy",
+          (stored(), pg.evaluate(BEFORE_COPY)), ([], ['Fjern alle planlagte', everything]))
 
     check("no page errors", ierr, [])
     pg.close()
