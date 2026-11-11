@@ -164,3 +164,6 @@ jobs:
 
       - name: Content-Security-Policy — data only to the app's own hosts, none missed
         run: python tests/test_csp.py
+
+      - name: Google Drive sync — an unfinished save is remembered, conflicts ask with counts
+        run: python tests/test_drive_sync.py

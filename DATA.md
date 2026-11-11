@@ -147,10 +147,15 @@ Syk/Ferie/Deload/Taper events **explain gaps and dips in the volume charts** —
 - **A load must look like a dataset.** `Store.load()` validates the parsed shape *before* adopting
   it; a JSON array, `null`, or a primitive is rejected with the existing data left intact. (Such a
   file used to be adopted wholesale and then serialised back as `[]`, wiping the real data.)
-- **`pulsDrivePendingLocal`** (localStorage, device-local) — set whenever a Drive save doesn't
-  succeed, including offline. Persisted deliberately: if it were memory-only, a failed save followed
-  by a reload would let Drive's older copy overwrite the unsaved edits. While set, the next load
-  routes into the conflict prompt instead of applying Drive's copy.
+- **`pulsDrivePendingLocal`** (localStorage, device-local) — set when a Drive save STARTS and
+  cleared only when it succeeds with no other save still uploading (2026-11-11; until then it was
+  set only on a failure, so a tab closed or discarded mid-upload left it clear). Persisted
+  deliberately: if it were memory-only, a failed save followed by a reload would let Drive's older
+  copy overwrite the unsaved edits. While set, the next load routes into the conflict prompt instead
+  of applying Drive's copy. The prompt is skipped when Drive's data equals this device's (both
+  compared as the same serialisation); otherwise it names both session counts, and the side being
+  discarded is written to «før endring» first — a copy that fails changes nothing. A Drive load is
+  confirmed only once its body has arrived, so a save made before that is blocked, not lost.
 
 ## Computation conventions
 

@@ -2004,7 +2004,7 @@
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Lokale sikkerhetskopier</div>
-      <p class="muted-sm" style="margin-bottom:10px;">Hver dag du åpner appen, lagres den første tilstanden automatisk i denne nettleseren; de 7 nyeste beholdes. Rett før Tøm alle data, kobling av gamle økter til Strava, «Analyser alle» og «Hent navn fra planen» tas i tillegg en egen kopi. Den står øverst, og neste slike endring overskriver den.</p>
+      <p class="muted-sm" style="margin-bottom:10px;">Hver dag du åpner appen, lagres den første tilstanden automatisk i denne nettleseren; de 7 nyeste beholdes. Rett før Tøm alle data, kobling av gamle økter til Strava, «Analyser alle» og «Hent navn fra planen» tas i tillegg en egen kopi, og likeså av den siden du forkaster i en Drive-konflikt. Den står øverst, og neste slike endring overskriver den.</p>
       <div id="backupList"></div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
@@ -4150,9 +4150,9 @@ const BackupDB = {
     });
   },
   // Taken right before a bulk change, of the data as it stands; the callers stop when it fails.
-  // → 'written'
-  async saveBefore(reason) {
-    const json = Store.toJSON(), sessionCount = Store.data.sessions.length;
+  // `json`/`sessionCount` default to this device's data; the Drive conflict passes DRIVE's copy when
+  // the side about to be discarded is Drive's. → 'written'
+  async saveBefore(reason, json = Store.toJSON(), sessionCount = Store.data.sessions.length) {
     return this._write((store, track) => {
       track(store.put({ kind: 'before', reason, date: localISODate(), timestamp: new Date().toISOString(),
                         sessionCount, json }, this.BEFORE_KEY));
@@ -4552,9 +4552,12 @@ const DriveIO = (() => {
       if (meta.ok) {
         const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, auth);
         if (!res.ok) return { ok: false };
+        // Confirmed only once the BODY has arrived: a save made while it was still downloading would
+        // land, and then this older body would be applied over it (audit 2026-11-11, DS-6).
+        const data = await res.json();
         _lastSeenModified = (await meta.json()).modifiedTime;
         _loadConfirmed = true;
-        return { ok: true, data: await res.json() };
+        return { ok: true, data };
       }
       if (meta.status !== 404) return { ok: false };
       localStorage.removeItem('pulsDriveFileId');
@@ -4565,10 +4568,11 @@ const DriveIO = (() => {
     if (files?.length) {
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${files[0].id}?alt=media`, auth);
       if (!res.ok) return { ok: false };
+      const data = await res.json();
       localStorage.setItem('pulsDriveFileId', files[0].id);
       _lastSeenModified = files[0].modifiedTime;
       _loadConfirmed = true;
-      return { ok: true, data: await res.json() };
+      return { ok: true, data };
     }
     // Confirmed: no file exists in Drive yet — nothing to overwrite, creating is safe.
     _lastSeenModified = null;
@@ -4582,8 +4586,16 @@ const DriveIO = (() => {
   // why the whole body is wrapped. Previously only 'blocked' and 'conflict' set it, so the most
   // common failure (no network) left the flag clear and the next load quietly applied Drive's
   // older copy over the unsaved edits.
+  // And a save that never EXITS at all — the tab closed or iOS discarded it mid-upload — runs no
+  // exit either, so the flag is set BEFORE the first await and cleared only by a success
+  // (audit 2026-11-11, DS-1). It is cleared only when no other save is still uploading: an earlier
+  // save finishing must not mark a later one's edits as synced while that one is still in flight.
+  let _savesInFlight = 0;
   async function save() {
     if (!_loadConfirmed) { _setPendingLocal(true); return 'blocked'; }
+    _setPendingLocal(true);
+    _savesInFlight++;
+    let synced = false;
     try {
       const token = await _validToken();
       if (!token) { _setPendingLocal(true); return false; }
@@ -4603,7 +4615,7 @@ const DriveIO = (() => {
         const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&fields=modifiedTime`, {
           method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body
         });
-        if (res.ok) { _lastSeenModified = (await res.json()).modifiedTime; _setPendingLocal(false); return true; }
+        if (res.ok) { _lastSeenModified = (await res.json()).modifiedTime; synced = true; return true; }
         if (res.status === 404) { localStorage.removeItem('pulsDriveFileId'); fileId = null; }
       }
       if (!fileId) {
@@ -4614,13 +4626,16 @@ const DriveIO = (() => {
           method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
         });
         const d = await res.json();
-        if (d.id) { localStorage.setItem('pulsDriveFileId', d.id); _lastSeenModified = d.modifiedTime; _setPendingLocal(false); return true; }
+        if (d.id) { localStorage.setItem('pulsDriveFileId', d.id); _lastSeenModified = d.modifiedTime; synced = true; return true; }
       }
       _setPendingLocal(true);
       return false;
     } catch (e) {
       _setPendingLocal(true);   // offline / DNS / aborted request — the edits are still only local
       throw e;                  // caller's .catch still routes to _onSyncError
+    } finally {
+      _savesInFlight--;
+      if (synced && _savesInFlight === 0) _setPendingLocal(false);
     }
   }
 
@@ -4724,13 +4739,32 @@ const DriveIO = (() => {
 
   // Both sides have changes (this device edited while unsynced AND Drive may differ).
   // No merge exists — make the user choose explicitly instead of silently losing either side.
+  // Identical data is no conflict: compare the same serialisation on both sides. This used to compare
+  // compact JSON with Store.toJSON()'s indented JSON — never equal — so the dialog appeared even when
+  // nothing differed (audit 2026-11-11, DS-2). The dialog names both counts, and the side about to be
+  // discarded is copied to «før endring» first; no copy, no change.
   async function _resolveConflict(driveData) {
-    if (JSON.stringify(driveData) === Store.toJSON()) { _setPendingLocal(false); _onSyncOk(); return true; }
+    if (JSON.stringify(driveData) === JSON.stringify(Store.data)) { _setPendingLocal(false); _onSyncOk(); return true; }
+    const driveCount = (driveData.sessions || []).length;
+    const localCount = Store.data.sessions.length;
+    const dLast = driveData.lastUpdated || '', lLast = Store.data.lastUpdated || '';
+    const newer = lLast > dLast ? '\nDenne enhetens data er sist endret.'
+                : dLast > lLast ? '\nDrive-versjonen er sist endret.' : '';
     const keepLocal = confirm(
-      'Både denne enheten og Drive kan ha endringer.\n\n' +
+      'Både denne enheten og Drive har endringer.\n' +
+      `Drive har ${driveCount} økter, denne enheten har ${localCount}.${newer}\n\n` +
       'OK: Behold denne enhetens data og overskriv Drive.\n' +
-      'Avbryt: Hent Drive-versjonen (endringer gjort på denne enheten forkastes).'
+      'Avbryt: Hent Drive-versjonen (endringer gjort på denne enheten forkastes).\n' +
+      BackupDB.FIRST_NOTE
     );
+    try {
+      if (keepLocal) await BackupDB.saveBefore('Drive-konflikt: Drive-versjonen', JSON.stringify(driveData, null, 2), driveCount);
+      else await BackupDB.saveBefore('Drive-konflikt: denne enheten');
+    } catch (e) {
+      alert(`Kunne ikke ta sikkerhetskopi — ingenting er endret, og Drive-synk venter.\n\n${errText(e)}`);
+      _onSyncConflict();
+      return false;
+    }
     if (keepLocal) {
       _setPendingLocal(false);
       const ok = await save();
