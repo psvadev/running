@@ -145,8 +145,11 @@ Syk/Ferie/Deload/Taper events **explain gaps and dips in the volume charts** —
   write could run with no copy to go back to. A failed backup write is shown on that card until a
   later write succeeds; ordinary saves and loads are never blocked by a backup.
 - **A load must look like a dataset.** `Store.load()` validates the parsed shape *before* adopting
-  it; a JSON array, `null`, or a primitive is rejected with the existing data left intact. (Such a
-  file used to be adopted wholesale and then serialised back as `[]`, wiping the real data.)
+  it: a JSON array, `null`, a primitive, an object without a `sessions` **array**, or one whose
+  `shoes`/`events`/`plannedSessions` is present but not an array is rejected with the existing data
+  left intact (2026-11-11 — until then any object passed, so `{}` was adopted as an empty log and
+  saved on to Drive). A file the migration cannot digest is rejected the same way. Opening a file
+  with **fewer** sessions than this device asks first, naming both counts.
 - **`pulsDrivePendingLocal`** (localStorage, device-local) — set when a Drive save STARTS and
   cleared only when it succeeds with no other save still uploading (2026-11-11; until then it was
   set only on a failure, so a tab closed or discarded mid-upload left it clear). Persisted

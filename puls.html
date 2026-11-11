@@ -3788,14 +3788,26 @@ const Store = {
       alert('Kunne ikke lese filen. Sjekk at det er en gyldig puls JSON-fil.');
       return false;
     }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    // Any object used to pass: `{}`, a package.json or another app's export became a dataset with 0
+    // sessions, and the open path saved it straight to Drive, so every device followed (audit
+    // 2026-11-11, DS-3). A Puls file has a sessions ARRAY; the other lists, when present, are arrays.
+    const LISTS = ['shoes', 'events', 'plannedSessions'];
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.sessions) ||
+        LISTS.some(k => parsed[k] != null && !Array.isArray(parsed[k]))) {
       alert('Filen ser ikke ut som en puls-datafil. Ingenting ble endret.');
       return false;
     }
+    // _migrate runs AFTER the swap; a throw inside it used to leave the half-adopted object in memory.
+    const previous = this.data;
     this.data = parsed;
-    if (!this.data.sessions) this.data.sessions = [];
     if (!this.data.shoes) this.data.shoes = [];
-    this._migrate();
+    try {
+      this._migrate();
+    } catch (e) {
+      this.data = previous;
+      alert(`Filen kunne ikke leses som en puls-datafil. Ingenting ble endret.\n\n${errText(e)}`);
+      return false;
+    }
     this.loadedFromPersisted = true;
     // Never waited for and never blocking: a load must not fail because its backup did. A failure is
     // kept in BackupDB.lastError, which the Lokale sikkerhetskopier card shows.
@@ -4202,7 +4214,7 @@ const FileIO = {
         // ⚠️ Honour the return value. A file that fails to parse used to alert and then be adopted
         // anyway — handle stored, name shown as loaded — so the status said one thing and the data
         // said another, and the next save would write over whatever you had actually picked.
-        if (!Store.load(text, { snapshot: false })) return false;
+        if (!this.confirmReplace(text) || !Store.load(text, { snapshot: false })) return false;
         this.handle = h;
         await HandleDB.set(h);
         localStorage.setItem('lpl_handle_name', file.name);
@@ -4220,6 +4232,20 @@ const FileIO = {
       document.getElementById('fileInput').click();
       return false;
     }
+  },
+
+  // Opening a file REPLACES this device's data. One with fewer sessions asks first and names both
+  // counts, as connecting Drive does — the wrong .json from Downloads used to replace everything
+  // without a word (audit 2026-11-11, DS-3). Text that isn't a Puls file passes through here:
+  // Store.load rejects it with its own message.
+  confirmReplace(text) {
+    let n;
+    try { n = JSON.parse(text)?.sessions?.length; } catch { return true; }
+    const m = Store.data.sessions.length;
+    if (!(Number.isInteger(n) && n < m)) return true;
+    return confirm(`Filen har ${n} økter, denne enheten har ${m}.\n\n` +
+                   'OK: Åpne filen likevel (denne enhetens data erstattes).\n' +
+                   'Avbryt: Behold denne enhetens data.');
   },
 
   openNew() {
@@ -4641,7 +4667,9 @@ const DriveIO = (() => {
 
   function _applyDriveData(data) {
     const json = JSON.stringify(data);
-    Store.load(json);
+    // A Drive file that isn't a Puls dataset is rejected (Store.load says so) and must not reach
+    // the cache either — the cache is what the next boot loads.
+    if (!Store.load(json)) return;
     try { localStorage.setItem('lpl_cache', json); } catch {}
     refreshAll();
     if (!Form.editId) Form.clear();
@@ -14129,7 +14157,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const file = e.target.files[0];
     if (!file) return;
     const text = await file.text();
-    if (!Store.load(text, { snapshot: false })) return;
+    e.target.value = '';      // picking the same file again must fire `change` again (audit FX-4)
+    if (!FileIO.confirmReplace(text) || !Store.load(text, { snapshot: false })) return;
     FileIO.updateStatus(file.name + ' (Firefox-modus – bruk Last ned for å lagre)');
     // Persist before rendering, for the same reason as the picker path above: without this the
     // opened file lived in memory only and the next reload brought the old data back. Firefox has

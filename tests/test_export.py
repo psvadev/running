@@ -1,7 +1,8 @@
 """Verify the AI/TSV export blocks — in particular the [Analyse] section.  (2026-08-18)
 
 Standalone — NOT part of run_all.py, which is the fast no-browser gate. Run directly:
-    python tests/test_export.py           (needs Playwright + WebKit)
+    python tests/test_export.py                    (WebKit, as CI runs it)
+    PW_ENGINE=firefox python tests/test_export.py  (the file-open section is his real Firefox path)
 
 Why this exists: formatSessionTsv had NO coverage of any kind before this file. The header/row fusion
 (3bd33d4) was verified by an ad-hoc snapshot that was never committed, and that snapshot silently
@@ -14,10 +15,11 @@ way to emit something the app itself would refuse to show.
 
 No local data file exists — sessions are synthesised in-page.
 """
-import pathlib, sys
+import os, pathlib, sys
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
 
+ENGINE = os.environ.get("PW_ENGINE", "webkit")
 APP = (pathlib.Path(__file__).resolve().parent.parent / "puls.html").as_uri()
 passed = failed = 0
 
@@ -92,7 +94,8 @@ BUILD = """
 }"""
 
 with sync_playwright() as pw:
-    b = pw.webkit.launch()
+    b = getattr(pw, ENGINE).launch()
+    print(f"engine: {ENGINE}")
     p = b.new_page(viewport={"width": 1280, "height": 900})
     errs = []
     p.on("pageerror", lambda e: errs.append(str(e)))
@@ -286,7 +289,8 @@ with sync_playwright() as pw:
     pg2 = b.new_page(viewport={"width": 1280, "height": 900})
     ferrs = []
     pg2.on("pageerror", lambda e: ferrs.append(str(e)))
-    pg2.on("dialog", lambda d: d.accept())
+    fdialogs, fanswer = [], {"ok": True}
+    pg2.on("dialog", lambda d: (fdialogs.append(d.message), d.accept() if fanswer["ok"] else d.dismiss()))
 
     import json as _json, tempfile, os as _os
     def datafile(n_sessions, tag):
@@ -306,16 +310,39 @@ with sync_playwright() as pw:
     pg2.goto(APP)
     pg2.wait_for_timeout(500)
     check("booted from the cached file", pg2.evaluate("() => Store.data.sessions.length"), 3)
-    before = pg2.evaluate("async () => (await BackupDB.getAll()).map(b => b.sessionCount)")
+    # This used to compare the backup list before and after the open — but today's copy already exists by now
+    # (the boot wrote it, and the first copy of a day wins), so it passes whether or not the open
+    # spends a backup (audit 2026-11-11, TG-3). Empty today's slot through a RAW connection, so an open
+    # that snapshots would be the one to fill it.
+    RAW_DAY = """(op) => new Promise((res, rej) => {
+      const d = new Date(), key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-'
+                + String(d.getDate()).padStart(2, '0');
+      const r = indexedDB.open('lpl_backups');
+      r.onerror = () => rej(r.error);
+      r.onsuccess = () => { const db = r.result;
+        const tx = db.transaction('backups', op === 'delete' ? 'readwrite' : 'readonly');
+        const q = op === 'delete' ? tx.objectStore('backups').delete(key) : tx.objectStore('backups').get(key);
+        tx.oncomplete = () => { db.close(); res(op === 'delete' ? 'deleted' : !!q.result); };
+        tx.onerror = () => { db.close(); rej(tx.error); }; };
+    })"""
+    check("control: today's copy existed after the boot", pg2.evaluate(RAW_DAY, "get"), True)
+    pg2.evaluate(RAW_DAY, "delete")
+    check("control: ...and is gone before the open", pg2.evaluate(RAW_DAY, "get"), False)
 
     pg2.set_input_files("#fileInput", OPENED)
     pg2.wait_for_timeout(700)
     check("the opened file is in memory", pg2.evaluate("() => Store.data.sessions.length"), 7)
+    check("...without taking today's empty backup slot (the opened file is not «today's first state»)",
+          pg2.evaluate(RAW_DAY, "get"), False)
+    # Fault #3 of 2026-09-11: an open that skipped refreshAll() left every card on the OLD data.
+    check("...and the Logg shows it", pg2.evaluate(
+        "() => [document.querySelectorAll('#logBody tr').length, document.getElementById('logBody').innerText.includes('opened')]"),
+        [7, True])
+    check("...and the file input is reset, so picking the same file again fires again",
+          pg2.evaluate("() => document.getElementById('fileInput').value"), "")
     # THE ONE THAT MATTERED: it must survive a reload, or the restore silently reverts.
     check("...and was persisted to the cache",
           pg2.evaluate("() => JSON.parse(localStorage.getItem('lpl_cache')).sessions.length"), 7)
-    after = pg2.evaluate("async () => (await BackupDB.getAll()).map(b => b.sessionCount)")
-    check("...without spending today's backup", after, before)
     pg2.goto(APP)
     pg2.wait_for_timeout(500)
     check("...so a reload keeps it", pg2.evaluate("() => Store.data.sessions.length"), 7)
@@ -328,6 +355,56 @@ with sync_playwright() as pw:
     check("a corrupt file leaves the data alone", pg2.evaluate("() => Store.data.sessions.length"), 7)
     check("...and does not overwrite the cache",
           pg2.evaluate("() => JSON.parse(localStorage.getItem('lpl_cache')).sessions.length"), 7)
+    check("...and the status does not name the rejected file",
+          "puls_bad.json" in pg2.evaluate("() => document.getElementById('fileStatus').textContent"), False)
+
+    # Valid JSON that is not a Puls file (audit 2026-11-11, DS-3): `{}` used to be adopted as a
+    # dataset with 0 sessions and saved on to Drive. A sessions array is required; the other lists,
+    # when present, must be arrays; a file _migrate cannot digest leaves the old data in place.
+    def raw_file(name, text):
+        path = _os.path.join(tempfile.gettempdir(), name)
+        open(path, "w", encoding="utf-8").write(text)
+        return path
+    # Each case pins WHICH rule refuses it: the shape rule up front («ser ikke ut som …»), or — for a
+    # file that has the right shape but that the migration cannot digest — the guard around _migrate
+    # («kunne ikke leses …»). Several shape cases would also make _migrate throw, so a check that
+    # accepted either message could not tell the shape rule from a lucky crash (mutation T2/T3, 2026-11-11).
+    SHAPE, DIGEST = "ser ikke ut som en puls-datafil", "kunne ikke leses som en puls-datafil"
+    for name, text, rule in [("puls_empty_object.json", "{}", SHAPE),
+                             ("puls_sessions_object.json", '{"sessions": {}}', SHAPE),
+                             ("puls_shoes_string.json", '{"sessions": [], "shoes": "Novablast"}', SHAPE),
+                             ("puls_events_string.json", '{"sessions": [], "events": "x"}', SHAPE),
+                             ("puls_null_session.json", '{"sessions": [null]}', DIGEST)]:
+        fdialogs.clear()
+        pg2.set_input_files("#fileInput", raw_file(name, text))
+        pg2.wait_for_timeout(500)
+        check(f"{name}: refused by the right rule, said so, nothing changed",
+              (any(rule in m for m in fdialogs),
+               pg2.evaluate("() => Store.data.sessions.length"),
+               pg2.evaluate("() => JSON.parse(localStorage.getItem('lpl_cache')).sessions.length"),
+               name in pg2.evaluate("() => document.getElementById('fileStatus').textContent")),
+              (True, 7, 7, False))
+    check("control: the data still renders after the refusals",
+          pg2.evaluate("() => Store.data.sessions.every(s => s && s.id)"), True)
+
+    # A real Puls file with FEWER sessions asks first, naming both counts.
+    FEWER = datafile(2, "fewer")
+    fdialogs.clear(); fanswer["ok"] = False
+    pg2.set_input_files("#fileInput", FEWER)
+    pg2.wait_for_timeout(600)
+    check("a file with fewer sessions asks, naming both counts",
+          any("Filen har 2 økter, denne enheten har 7" in m for m in fdialogs), True)
+    check("Avbryt: this device's data stays — in memory and in the cache",
+          (pg2.evaluate("() => Store.data.sessions.length"),
+           pg2.evaluate("() => JSON.parse(localStorage.getItem('lpl_cache')).sessions.length")), (7, 7))
+    fdialogs.clear(); fanswer["ok"] = True
+    pg2.set_input_files("#fileInput", FEWER)
+    pg2.wait_for_timeout(600)
+    check("OK: the file is opened", (len(fdialogs), pg2.evaluate("() => Store.data.sessions.length")), (1, 2))
+    fdialogs.clear()
+    pg2.set_input_files("#fileInput", OPENED)
+    pg2.wait_for_timeout(600)
+    check("a file with MORE sessions opens without asking", (fdialogs, pg2.evaluate("() => Store.data.sessions.length")), ([], 7))
 
     check("no file-open page errors", ferrs, [])
     pg2.close()
