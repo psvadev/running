@@ -588,6 +588,36 @@ with sync_playwright() as pw:
     check("...and the comparison is otherwise unaffected",
           sorted(flagged_by), ['distanse', 'km/uke', 'konsistens'])
 
+    # ── 9. A past-year start month survives an edit (audit 2026-11-11, LG-6) ───────────────────
+    # The year list looks FORWARD (this year + 3), so a block noted for «des 2026» and edited in
+    # January 2027 showed a blank year — and «Oppdater» saved startMonth: null without a word.
+    print("== a past-year start month survives an edit ==")
+    pj = b.new_page(viewport={"width": 1280, "height": 900})
+    pj.on("pageerror", lambda e: errs.append(str(e)))
+    pj.on("dialog", lambda d: d.accept())
+    pj.add_init_script(FREEZE.replace("2026, 7, 18", "2027, 0, 10"))
+    pj.goto(APP)
+    pj.evaluate(SEED)
+    pj.evaluate("""() => { const d = JSON.parse(localStorage.getItem('lpl_cache'));
+      d.upcomingBlocks = [{ id: 'ub-old', kind: 'half', startMonth: '2026-12', weeks: 16, note: 'notert i fjor' }];
+      localStorage.setItem('lpl_cache', JSON.stringify(d)); }""")
+    pj.goto(APP)
+    pj.evaluate("() => switchTab('plan')")
+    pj.wait_for_timeout(400)
+    check("control: the page's clock is January 2027", pj.evaluate("() => new Date().getFullYear()"), 2027)
+    pj.click('[data-edit-ub="ub-old"]')
+    pj.wait_for_timeout(150)
+    check("editing it shows its own year, though it is outside the offered range",
+          (pj.locator('#newUb-m').input_value(), pj.locator('#newUb-y').input_value()), ("12", "2026"))
+    pj.click('#btnAddUb')
+    pj.wait_for_timeout(150)
+    check("saving unchanged keeps the start month",
+          pj.evaluate("() => Store.data.upcomingBlocks.find(x => x.id === 'ub-old')?.startMonth"), "2026-12")
+    check("...and the reset form offers the forward years only — 2026 was there for that block alone",
+          pj.eval_on_selector_all('#newUb-y option', "o => o.map(x => x.value).filter(Boolean)"),
+          ["2027", "2028", "2029", "2030"])
+    pj.close()
+
     check("no page errors", errs, [])
     b.close()
 

@@ -7162,8 +7162,13 @@ function monthYearPickerHTML(idBase, value, big, forward) {
   let m = `<option value="">mnd</option>`;
   PICKER_MONTHS.forEach((mo, i) => { m += `<option value="${String(i+1).padStart(2,'0')}"${cm === i+1 ? ' selected' : ''}>${mo}</option>`; });
   let y = `<option value="">år</option>`;
-  if (forward) for (let yr = nowY; yr <= nowY + 3; yr++) y += `<option value="${yr}"${cy === yr ? ' selected' : ''}>${yr}</option>`;
-  else         for (let yr = nowY; yr >= nowY - 20; yr--) y += `<option value="${yr}"${cy === yr ? ' selected' : ''}>${yr}</option>`;
+  const years = [];
+  if (forward) for (let yr = nowY; yr <= nowY + 3; yr++) years.push(yr);
+  else         for (let yr = nowY; yr >= nowY - 20; yr--) years.push(yr);
+  // A stored year outside the offered range is still offered: a block noted for «des 2026» and
+  // edited in 2027 used to show a blank year and be saved as null — silently cleared (audit LG-6).
+  if (cy && !years.includes(cy)) { years.push(cy); years.sort((a, b) => forward ? a - b : b - a); }
+  years.forEach(yr => { y += `<option value="${yr}"${cy === yr ? ' selected' : ''}>${yr}</option>`; });
   return `<select id="${idBase}-m" style="${style}">${m}</select> <select id="${idBase}-y" style="${style}">${y}</select>`;
 }
 // The block types a training plan actually comes in. Deliberately NOT BEST_EFFORT_DISTS: that list
@@ -7263,13 +7268,20 @@ function renderFilterSummary() {
 }
 
 const YEAR_COLORS = ['#6c8fff','#4caf87','#f0c060','#ff6c8f','#c07af0','#5bc8f5','#f09060'];
+// One colour per YEAR, from its place among every year in the log, so a year's pill, its line in
+// Årssammenligning and its table row agree however many years are deselected. The chart and table
+// indexed only the years left after filtering, so deselecting one shifted every later colour (LG-7).
+function yearColor(y) {
+  const years = [...new Set(Store.data.sessions.map(s => s.dato?.slice(0, 4)).filter(Boolean))].sort();
+  return YEAR_COLORS[Math.max(0, years.indexOf(String(y))) % YEAR_COLORS.length];
+}
 
 function buildYearPills(allSessions) {
   const years = [...new Set(allSessions.map(s => s.dato?.slice(0,4)).filter(Boolean))].sort();
   const container = document.getElementById('dfYearPills');
   container.innerHTML = years.map((y, i) => {
     const active = DashFilter.years.size === 0 || DashFilter.years.has(y);
-    return `<span class="year-pill ${active ? 'active' : ''}" data-year="${y}" style="${active ? `background:${YEAR_COLORS[i%YEAR_COLORS.length]};border-color:${YEAR_COLORS[i%YEAR_COLORS.length]}` : ''}">${y}</span>`;
+    return `<span class="year-pill ${active ? 'active' : ''}" data-year="${y}" style="${active ? `background:${yearColor(y)};border-color:${yearColor(y)}` : ''}">${y}</span>`;
   }).join('');
   container.querySelectorAll('.year-pill').forEach(pill => {
     pill.addEventListener('click', () => {
@@ -10919,7 +10931,7 @@ function renderDashboard() {
     return {
       label: year,
       data,
-      borderColor: YEAR_COLORS[i % YEAR_COLORS.length],
+      borderColor: yearColor(year),
       backgroundColor: 'transparent',
       pointRadius: 0,
       pointHoverRadius: 4,
@@ -10970,7 +10982,7 @@ function renderDashboard() {
         const totalKm = (st.km || 0).toFixed(1);
         const avgKm = st.weeks?.size ? (st.km / st.weeks.size).toFixed(1) : '–';
         return `<tr>
-          <td style="padding:4px 8px;font-weight:600;color:${YEAR_COLORS[i%YEAR_COLORS.length]}">${year}</td>
+          <td style="padding:4px 8px;font-weight:600;color:${yearColor(year)}">${year}</td>
           <td style="padding:4px 8px;text-align:right">${totalKm} km</td>
           <td style="padding:4px 8px;text-align:right">${st.runs || 0}</td>
           <td style="padding:4px 8px;text-align:right">${avgKm} km</td>

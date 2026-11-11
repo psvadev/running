@@ -527,6 +527,55 @@ with sync_playwright() as pw:
     check("...flat, with the years once under the axis", (m['rot'], m['title']), (0, '2025–26'))
     pg4.close()
 
+    # ── ISO week 53, and one colour per year (audit 2026-11-11, TG-6 / LG-7) ────────────────────
+    # `uke` is STORED per session, and ISO 2026 is the first 53-week year since it mattered: a cap at 52
+    # merged weeks 52 and 53 with every check here still green (mutation 13b). Pure in-page asserts.
+    print("== ISO week 53 ==")
+    pg5 = b.new_page(viewport={"width": 1280, "height": 900})
+    pg5.goto(APP)
+    pg5.wait_for_timeout(300)
+    check("isoWeek: 2026 has a week 53, New Year 2027 is in it, 4 Jan starts 2027-01",
+          pg5.evaluate("() => ['2026-12-28', '2026-12-31', '2027-01-01', '2027-01-03', '2027-01-04'].map(isoWeek)"),
+          ['2026-53', '2026-53', '2026-53', '2026-53', '2027-01'])
+    check("...and the last 53-week year, 2020, the same way",
+          pg5.evaluate("() => ['2020-12-31', '2021-01-01', '2021-01-03', '2021-01-04'].map(isoWeek)"),
+          ['2020-53', '2020-53', '2020-53', '2021-01'])
+    check("calYearWeek: late December 2026 is week 53 of 2026, New Year 2027 week 1 of 2027",
+          pg5.evaluate("() => ['2026-12-28', '2027-01-01', '2027-01-04'].map(calYearWeek)"), [53, 1, 1])
+
+    # Three years; showing two. A year's pill, its line and its table row must share one colour —
+    # the chart and table counted only the years left after filtering, so deselecting 2024 gave 2025
+    # the 2024 colour in both while its pill kept its own.
+    print("== one colour per year, whichever are shown ==")
+    pg5.evaluate("""() => {
+      const run = (id, dato) => ({ id, dato, uke: isoWeek(dato), oktnavn: 'Tur', okttype: 'Easy', treningsplan: 'Runna',
+        løpetype: 'utendors', distanse: 8, varighet: 2880, tempo: 360, soner: [0, 600, 1200, 0, 0] });
+      localStorage.setItem('lpl_cache', JSON.stringify({
+        sessions: [run('a', '2024-05-01'), run('b', '2024-06-01'), run('c', '2025-05-01'), run('d', '2025-06-01'),
+                   run('e', '2026-05-01'), run('f', '2026-06-01')],
+        shoes: [], shoeDefaults: {}, goals: {}, events: [], plannedSessions: [], settings: { zones: [] }, lastUpdated: '' })); }""")
+    pg5.goto(APP)
+    pg5.wait_for_timeout(500)
+    pg5.evaluate("() => switchTab('dash')")
+    pg5.wait_for_timeout(500)
+    for y in ("2025", "2026"):
+        pg5.click(f'#dfYearPills .year-pill[data-year="{y}"]')
+        pg5.wait_for_timeout(400)
+    COLOURS = """() => {
+      const hex = s => (s.match(/#[0-9a-f]{6}/i) || [''])[0].toLowerCase();
+      const pill = y => hex(document.querySelector(`#dfYearPills .year-pill[data-year="${y}"]`)?.getAttribute('style') || '');
+      const line = y => (Charts.yearComp?.data.datasets.find(d => d.label === y)?.borderColor || '').toLowerCase();
+      const row = y => hex([...document.querySelectorAll('#yearCompTable td')].find(td => td.textContent.trim() === y)
+                             ?.getAttribute('style') || '');
+      return ['2025', '2026'].map(y => [y, pill(y), line(y), row(y)]); }"""
+    got = pg5.evaluate(COLOURS)
+    check("control: only 2025 and 2026 are shown", pg5.evaluate("() => [...DashFilter.years].sort()"), ["2025", "2026"])
+    check("control: every colour was found", all(all(c) for c in got), True)
+    check("each shown year: pill = line = table row",
+          [g[1] == g[2] == g[3] for g in got], [True, True])
+    check("...and 2025 is not given 2024's colour", got[0][1] != pg5.evaluate("() => YEAR_COLORS[0]"), True)
+    pg5.close()
+
     check("no page errors", errs, [])
     b.close()
 
