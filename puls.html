@@ -4748,9 +4748,17 @@ const DriveIO = (() => {
     _updateBtn();
   }
 
+  // «Koble fra» must end the grant at Google, not just forget it here. It sent the stored ACCESS token,
+  // which lives an hour and has usually expired by the time anyone disconnects: Google refused it, the
+  // error was swallowed, and the refresh token stayed valid (audit 2026-11-11, SEC-2). Revoking the
+  // refresh token ends the whole grant; it goes in the body, never the URL.
   function disconnect() {
     const t = _getStoredToken();
-    if (t?.access_token) fetch(`https://oauth2.googleapis.com/revoke?token=${t.access_token}`, { method: 'POST' }).catch(() => {});
+    const tok = t?.refresh_token || t?.access_token;
+    if (tok) fetch('https://oauth2.googleapis.com/revoke', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: tok })
+    }).catch(() => {});
     localStorage.removeItem('pulsDriveToken');
     localStorage.removeItem('pulsDriveFileId');
     localStorage.removeItem('pulsDriveConnected');
@@ -4989,9 +4997,17 @@ const StravaIO = (() => {
     }
   }
 
-  function disconnect() {
+  // Strava's deauthorize takes an ACCESS token, which lives six hours — the stored one had usually
+  // expired, Strava refused it, and the app stayed authorised on his account (audit 2026-11-11, SEC-2).
+  // Refresh first (through the Worker, as every refresh goes), then deauthorize; the token goes in the
+  // body, never the URL. Forgotten here either way.
+  async function disconnect() {
     const t = _getStoredToken();
-    if (t?.access_token) fetch(`https://www.strava.com/oauth/deauthorize?access_token=${t.access_token}`, { method: 'POST' }).catch(() => {});
+    const tok = (await _validToken().catch(() => null)) || t?.access_token;
+    if (tok) fetch('https://www.strava.com/oauth/deauthorize', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ access_token: tok })
+    }).catch(() => {});
     localStorage.removeItem('pulsStravaToken');
     localStorage.removeItem('pulsStravaConnected');
     _setStatus('');

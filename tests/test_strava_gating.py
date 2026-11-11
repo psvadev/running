@@ -542,6 +542,24 @@ with sync_playwright() as p:
     # this year, every run after 15:00 showed the NEXT day (Oslo: after 22–23:00). Picking never
     # changes the form's date, so that is how a run gets filed under the wrong day: logged the next
     # morning, yesterday's afternoon run looks like today's. Checked on Tokyo AND Oslo time.
+    # ── Strava text is external text: the picker and the auto-pick line escape it (TG-5) ────────────
+    # The escaping sweep never rendered #stravaActivityList, so dropping escapeHtml(a.name) there failed
+    # nothing (audit 2026-11-11). An activity title is whatever is typed on Strava.
+    print("== a Strava activity title is text, never markup ==")
+    xp = b.new_page()
+    xp.goto(APP)
+    xp.wait_for_timeout(300)
+    XSS = '<img src=x onerror="window.__xss=1">'
+    xp.evaluate("""(n) => { StravaImport.activities = [{ id: 9, name: n, start_date_local: '2026-11-20T07:00:00Z', distance: 6000 }];
+      StravaImport._render(); StravaImport._showAutoPicked(n); }""", XSS)
+    xp.wait_for_timeout(200)
+    check("picker + «Hentet»: the title is shown as text, nothing injected",
+          xp.evaluate("""() => [document.getElementById('stravaActivityList').innerHTML.includes('&lt;img'),
+                                document.getElementById('stravaFetchMsg')?.innerHTML.includes('&lt;img') ?? 'NO EL',
+                                document.querySelectorAll('img[onerror]').length, window.__xss || 0]"""),
+          [True, True, 0, 0])
+    xp.close()
+
     print("== the Strava picker dates a run where it was run ==")
     PICK = """() => {
       StravaImport.activities = [
@@ -785,6 +803,40 @@ with sync_playwright() as p:
     check("control: a run with no Strava id saves without asking",
           (tp.evaluate(SAVE_TWIN.replace("set('fStravaId', '501');", "")), odialogs), (1, []))
     ctx.close()
+
+    # ── «Koble fra» ends the grant at Strava (audit 2026-11-11, SEC-2) ─────────────────────────────
+    # Strava's deauthorize takes an ACCESS token, which lives six hours; the stored one had usually
+    # expired, Strava refused it, the error was swallowed and the app stayed authorised. Now: refresh
+    # first (through the Worker), then deauthorize with the fresh token — in the body, not the URL.
+    print("== Koble fra Strava: refresh, then deauthorize ==")
+    WORKER = "https://puls-strava-auth.petter-cerb.workers.dev"
+    dctx = b.new_context()
+    hits = []
+    H = {"access-control-allow-origin": "*", "access-control-allow-headers": "content-type",
+         "access-control-allow-methods": "POST,OPTIONS", "content-type": "application/json"}
+
+    def strava_route(route):
+        r = route.request
+        if r.method == "OPTIONS":
+            return route.fulfill(status=204, headers=H)
+        hits.append((r.url.split("?")[0], r.post_data or "", "?" in r.url))
+        body = '{"access_token":"fresh","refresh_token":"r2","expires_at":9999999999}' if r.url.endswith("/refresh") else "{}"
+        route.fulfill(status=200, headers=H, body=body)
+    dctx.route(WORKER + "/**", strava_route)
+    dctx.route("https://www.strava.com/oauth/**", strava_route)
+    dp = dctx.new_page()
+    dp.goto(APP)
+    dp.evaluate("""(w) => { localStorage.setItem('pulsStravaClientId', '12345'); localStorage.setItem('pulsStravaWorkerUrl', w);
+      localStorage.setItem('pulsStravaToken', JSON.stringify({ access_token: 'stale', refresh_token: 'r1', expires_at: 0 })); }""", WORKER)
+    dp.goto(APP)
+    dp.wait_for_timeout(300)
+    dp.evaluate("async () => { await StravaIO.disconnect(); }")
+    dp.wait_for_timeout(500)
+    check("the stale token is refreshed first, then the FRESH one deauthorizes — in the body",
+          [(u.rsplit('/', 1)[-1], d if 'deauthorize' in u else '', q) for u, d, q in hits],
+          [("refresh", "", False), ("deauthorize", "access_token=fresh", False)])
+    check("...and the token is forgotten here", dp.evaluate("() => localStorage.getItem('pulsStravaToken')"), None)
+    dctx.close()
     b.close()
 
 print(f"\n{passed}/{passed+failed} passed" + ("" if not failed else f"  ({failed} FAILED)"))

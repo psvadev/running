@@ -1253,9 +1253,16 @@ with sync_playwright() as b0:
           { id:'b0', type:'plan', title:p, date:'2026-04-01', endDate:'2026-05-15' },
           { id:'b1', type:'plan', title:p, date:'2026-06-01', endDate:'2026-07-15' },
           { id:'b2', type:'plan', title:p, date:'2026-08-03', endDate:'2026-10-01' },
+          // b3 runs TODAY: the dashboard's week-plan and «I dag» lines render only inside an active
+          // plan block, so without it p2 below reached nothing (the control further down proves it does).
+          { id:'b3', type:'plan', title:p, date: localISODate() },
           { id:'r1', type:'race', title:p, date:'2026-10-01', distanceKm:10 },
           { id:'i1', type:'illness', title:p, date:'2026-07-20', endDate:'2026-07-22' }],
-        plannedSessions: [{ id:'p1', date:'2026-08-06', okttype:'Easy', distance:5, title:p }],
+        // p2 is dated TODAY (computed in-page): the sweep's only plan row was 2026-08-06, so the
+        // dashboard's «Planlagt denne uken» and «I dag» lines — which show a Runna title — never rendered
+        // and dropping their escapeHtml failed nothing (audit 2026-11-11, TG-5).
+        plannedSessions: [{ id:'p1', date:'2026-08-06', okttype:'Easy', distance:5, title:p },
+                          { id:'p2', date: localISODate(), okttype:'Long', distance:12, title:p }],
         lastUpdated:'' }));
     }""", PAYLOAD)
     pg.goto(APP)
@@ -1308,6 +1315,16 @@ with sync_playwright() as b0:
     # LAST block — the oldest, which has nothing before it to compare against. Hence every block, and
     # a flag, rather than an index anyone would have to keep in step with the render order.
     check("the block comparison panel actually opened", saw_comparison, True)
+    # This week's plan on the dashboard shows the Runna title after « — » — proof that line rendered.
+    pg.evaluate("() => switchTab('dash')")
+    pg.wait_for_timeout(400)
+    check("control: today's planned title reached the dashboard's plan lines",
+          pg.evaluate("() => document.body.innerHTML.includes(' — &lt;img src=x onerror=')"), True)
+    # The event-rail tooltip renders only on hover, so the walk never met it (TG-5): call it directly.
+    pg.evaluate("() => evtTipShow(Store.data.events, 10, 10)")
+    pg.wait_for_timeout(100)
+    check("control: the event tooltip rendered the titles, escaped",
+          pg.evaluate("() => document.getElementById('evtTooltip').innerHTML.includes('&lt;img src=x')"), True)
 
     check("⚠️ no injected element executed anywhere",
           pg.evaluate("() => window.__xss || 0"), 0)

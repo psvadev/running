@@ -56,6 +56,7 @@ class FakeDrive:
         self.held = []
         self.media_gets = 0
         self.patches = 0
+        self.revoked = []
 
     @property
     def modified(self):
@@ -150,8 +151,11 @@ def setup(p, browser):
     ctx = browser.new_context(viewport={"width": 1280, "height": 900})
     ctx.add_init_script(SLOW_BODY)
     ctx.route(re.compile(r"^https://www\.googleapis\.com/"), drive.handle)
-    ctx.route(re.compile(r"^https://(oauth2\.googleapis\.com|api\.github\.com)/"),
-              lambda r: r.fulfill(status=200, headers=CORS, body="[]"))
+    def oauth(r):
+        if r.request.method != "OPTIONS" and "/revoke" in r.request.url:
+            drive.revoked.append((r.request.url, r.request.post_data or ""))
+        r.fulfill(status=200, headers=CORS, body="[]")
+    ctx.route(re.compile(r"^https://(oauth2\.googleapis\.com|api\.github\.com)/"), oauth)
     ctx.route("https://puls.test/**", lambda r: r.fulfill(
         status=200, body=HTML, headers={"content-type": "text/html; charset=utf-8"}))
     dialogs = []
@@ -313,6 +317,19 @@ with sync_playwright() as p:
     pg.evaluate("() => localStorage.removeItem('test_slowBody')")
     pg.wait_for_timeout(2600)
     check("control: once it arrives, saving works again", pg.evaluate("() => DriveIO.save()"), True)
+    pg.close(); ctx.close()
+
+    # ── SEC-2: «Koble fra» revokes the grant, not an expired access token ──────────────────────────
+    # It sent the stored ACCESS token (1 h) as ?token=…; usually expired, refused by Google, the error
+    # swallowed — and the refresh token stayed valid. Revoking the REFRESH token ends the whole grant.
+    print("== Koble fra Google Drive: the refresh token is revoked ==")
+    ctx, pg, drive, dialogs = setup(p, b)
+    pg.evaluate("() => DriveIO.disconnect()")
+    pg.wait_for_timeout(400)
+    check("one revoke, for the refresh token, in the body — no token in the URL",
+          [(u.split("?")[0], d, "?" in u) for u, d in drive.revoked],
+          [("https://oauth2.googleapis.com/revoke", "token=test-r", False)])
+    check("...and the tokens are forgotten here", pg.evaluate("() => localStorage.getItem('pulsDriveToken')"), None)
     pg.close(); ctx.close()
     b.close()
 
