@@ -497,6 +497,39 @@ with sync_playwright() as pw:
     check("nothing overflows the viewport",
           pg.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1"), True)
 
+    # ── «Ferdig om ca. N uker» divides by the window the runs came from (audit 2026-11-11, LG-3) ───
+    # It chose the divisor by the run COUNT: exactly two runs in 8 weeks were divided by 12 (rate too
+    # low, date pushed out 1.5×), and three or more from the 12-week fallback by 8 (1.5× too early).
+    # Frozen clock 2026-08-18: 56 days back is 23.06, 84 days back 26.05.
+    print("== the retirement estimate's rate ==")
+
+    def projected(runs):
+        sp2 = b.new_page(viewport={"width": 1280, "height": 900})
+        sp2.add_init_script(FREEZE)
+        sp2.goto(APP)
+        sp2.evaluate("""(runs) => {
+          const run = (id, dato, distanse) => ({ id, dato, uke: isoWeek(dato), oktnavn: 'Tur', okttype: 'Easy',
+            treningsplan: 'Egentrening', løpetype: 'utendors', distanse, varighet: distanse * 360, tempo: 360,
+            soner: [0,0,0,0,0], sko: 'Proj' });
+          localStorage.setItem('lpl_cache', JSON.stringify({ sessions: runs.map(([d, km], i) => run('p' + i, d, km)),
+            shoes: [{ name: 'Proj', retirementKm: 100 }], shoeDefaults: {}, goals: {}, events: [], plannedSessions: [],
+            settings: { zones: [] }, lastUpdated: '' })); }""", runs)
+        sp2.goto(APP)
+        sp2.evaluate("() => switchTab('plan')")
+        sp2.wait_for_timeout(500)
+        txt = sp2.evaluate("() => document.getElementById('panel-plan').innerText")
+        sp2.close()
+        import re as _re
+        m = _re.search(r"Ferdig om ca\. (\d+) uker", txt)
+        return int(m.group(1)) if m else None
+
+    # Two runs inside 8 weeks, 16 km: 84 km left at 16/8 = 2 km/week → 42 weeks (÷12 gave 63).
+    check("two runs in the last 8 weeks: rate over 8 weeks → 42 weeks",
+          projected([["2026-07-01", 8], ["2026-08-01", 8]]), 42)
+    # One run inside 8 weeks, three inside 12: 30 km/12 = 2.5 km/week, 70 km left → 28 weeks (÷8 gave 19).
+    check("the 12-week fallback: rate over 12 weeks → 28 weeks",
+          projected([["2026-06-01", 10], ["2026-06-10", 10], ["2026-08-01", 10]]), 28)
+
     check("no page errors", errs, [])
     b.close()
 

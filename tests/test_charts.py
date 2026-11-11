@@ -576,6 +576,38 @@ with sync_playwright() as pw:
     check("...and 2025 is not given 2024's colour", got[0][1] != pg5.evaluate("() => YEAR_COLORS[0]"), True)
     pg5.close()
 
+    # ── «5:60» and the PMC morning (audit 2026-11-11, LG-2 / LG-5) ───────────────────────────────
+    # secsToMmSs rounded only the seconds part of an AVERAGE, so 359.5 s/km printed «5:60» in Ukentlig
+    # and Månedlig oversikt. And the PMC loop walked noon-anchored days against the clock, so before
+    # 12:00 today was not in CTL/ATL/TSB at all — a morning run missing until midday.
+    print("== «5:60» never printed; the PMC includes today in the morning ==")
+    ctx6 = b.new_context(viewport={"width": 1280, "height": 900}, timezone_id="Europe/Oslo")   # CI runs on UTC
+    pg6 = ctx6.new_page()
+    pg6.clock.set_fixed_time("2026-11-11T08:00:00Z")                 # 09:00 in Oslo
+    pg6.goto(APP)
+    pg6.wait_for_timeout(300)
+    check("secsToMmSs rounds the whole value: 359.5 → 6:00, 359.4 → 5:59, 59.6 → 1:00",
+          pg6.evaluate("() => [secsToMmSs(359.5), secsToMmSs(359.4), secsToMmSs(59.6), secsToMmSs(0)]"),
+          ["6:00", "5:59", "1:00", "0:00"])
+    pg6.evaluate("""() => {
+      const run = (id, tempo) => ({ id, dato: localISODate(), uke: isoWeek(localISODate()), oktnavn: 'Tur', okttype: 'Easy',
+        treningsplan: 'Runna', løpetype: 'utendors', distanse: 5, varighet: 5 * tempo, tempo, soner: [0, 600, 900, 0, 0], rpe: 4 });
+      localStorage.setItem('lpl_cache', JSON.stringify({ sessions: [run('m1', 331), run('m2', 388)],
+        shoes: [], shoeDefaults: {}, goals: {}, events: [], plannedSessions: [], settings: { zones: [] }, lastUpdated: '' })); }""")
+    pg6.goto(APP)
+    pg6.wait_for_timeout(500)
+    pg6.evaluate("() => switchTab('dash')")
+    pg6.wait_for_timeout(800)
+    weekly = pg6.evaluate("() => document.getElementById('weeklyBody')?.innerText || ''")
+    check("control: this week's row is in Ukentlig oversikt", "2" in weekly and "km" in weekly, True)
+    check("...and two runs averaging 359.5 s/km read 6:00, not 5:60", ("6:00" in weekly, ":60" in weekly), (True, False))
+    check("control: the page's clock is 09:00 today", pg6.evaluate("() => [localISODate(), new Date().getHours()]"),
+          ["2026-11-11", 9])
+    check("the PMC's last day is today, at 09:00",
+          pg6.evaluate("() => Charts.pmc ? Charts.pmc.data.labels[Charts.pmc.data.labels.length - 1] : 'NO CHART'"), "2026-11-11")
+    pg6.close()
+    ctx6.close()
+
     check("no page errors", errs, [])
     b.close()
 

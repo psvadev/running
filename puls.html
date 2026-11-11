@@ -2239,6 +2239,9 @@ function strictHmsToSecs(str) {
 
 function secsToMmSs(s) {
   if (!s && s !== 0) return '';
+  // Whole seconds first, as secsToHms does: an averaged 359.5 s/km rounded only its seconds part and
+  // printed «5:60» in Ukentlig/Månedlig oversikt (audit 2026-11-11, LG-2).
+  s = Math.round(s);
   const m = Math.floor(s / 60);
   const sec = Math.round(s % 60);
   return `${m}:${String(sec).padStart(2,'0')}`;
@@ -7747,7 +7750,10 @@ function renderPMCChart(allSessions) {
   let ctl = 0, atl = 0;
   const labels = [], ctlData = [], atlData = [], tsbData = [];
   const d = new Date(firstDate);
-  while (d <= today) {
+  // By calendar day: `d` sits at noon, so comparing with the clock left today out until 12:00 — a
+  // morning run was missing from CTL/ATL/TSB until midday (audit 2026-11-11, LG-5).
+  const todayKey = localISODate(today);
+  while (localISODate(d) <= todayKey) {
     const key = localISODate(d);
     const tss = dailyLoad[key] || 0;
     ctl = ctl * kCTL + tss * (1 - kCTL);
@@ -13302,11 +13308,16 @@ const Settings = {
           const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() - 56);
           const cutoffStr = localISODate(cutoff);
           let recent = Store.data.sessions.filter(s => s.sko === name && s.dato >= cutoffStr);
+          let usedFallback = false;
           if (recent.length < 2) {
             const cutoff12 = new Date(now); cutoff12.setDate(cutoff12.getDate() - 84);
             recent = Store.data.sessions.filter(s => s.sko === name && s.dato >= localISODate(cutoff12));
+            usedFallback = true;
           }
-          const windowWeeks = recent.length >= 2 ? (recent.length < 3 ? 12 : 8) : 0;
+          // Divide by the window the runs CAME from. This chose by the run count instead: exactly two
+          // runs in 8 weeks were divided by 12, and three or more from the 12-week fallback by 8 — the
+          // rate 1.5× off either way, and the retirement date with it (audit 2026-11-11, LG-3).
+          const windowWeeks = recent.length >= 2 ? (usedFallback ? 12 : 8) : 0;
           if (windowWeeks > 0) {
             const weeklyRate = recent.reduce((sum, s) => sum + (s.distanse || 0), 0) / windowWeeks;
             if (weeklyRate > 0) {
