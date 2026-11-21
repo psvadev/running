@@ -560,6 +560,48 @@ with sync_playwright() as p:
           [True, True, 0, 0])
     xp.close()
 
+    # ── 64-bit activity ids: the id is Strava's id_str, never a rounded number (2026-11-21) ─────────
+    # From 2027-06-01 Strava ids may exceed 2^53, where JSON.parse rounds a number silently: 2^53 + 1
+    # reads back as 2^53. Answered by a stub with the RAW JSON text, so the browser's own parser meets
+    # the big number exactly as it would from Strava.
+    print("== a 64-bit Strava id survives intact ==")
+    BIG = "9007199254740993"                                   # 2^53 + 1 — a double cannot hold it
+    ictx = b.new_context()
+    seen_urls = []
+    IH = {"access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type",
+          "access-control-allow-methods": "GET,OPTIONS", "content-type": "application/json"}
+
+    def big_route(route):
+        r = route.request
+        if r.method == "OPTIONS":
+            return route.fulfill(status=204, headers=IH)
+        seen_urls.append(r.url)
+        if "/athlete/activities" in r.url:
+            body = ('[{"id": ' + BIG + ', "id_str": "' + BIG + '", "type": "Run", "name": "Stor"},'
+                    ' {"id": 16012345678, "type": "Run", "name": "Gammel"}]')
+        elif "/activities/" + BIG in r.url and "/streams" not in r.url:
+            body = '{"id": ' + BIG + ', "id_str": "' + BIG + '", "type": "Run"}'
+        else:
+            body = "{}"
+        route.fulfill(status=200, headers=IH, body=body)
+    ictx.route("https://www.strava.com/api/**", big_route)
+    ip = ictx.new_page()
+    ip.goto(APP)
+    ip.evaluate("""() => { localStorage.setItem('pulsStravaClientId', '12345');
+      localStorage.setItem('pulsStravaToken', JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3600e3 })); }""")
+    ip.goto(APP)
+    ip.wait_for_timeout(300)
+    check("control: the browser itself rounds the raw number", ip.evaluate("(s) => String(JSON.parse(s))", BIG), "9007199254740992")
+    got = ip.evaluate("""async () => { const list = await StravaIO.fetchActivities(10);
+      const page = await StravaIO.fetchActivitiesPage({ perPage: 10 });
+      const det = await StravaIO.fetchActivityDetail(list[0].id);
+      return [list[0].id, page[0].id, det.id, typeof list[1].id, String(list[1].id)]; }""")
+    check("the list, the paged list and the detail all carry the exact id, as a string",
+          got[:3], [BIG, BIG, BIG])
+    check("...and an activity without id_str keeps its numeric id, as before", got[3:], ["number", "16012345678"])
+    check("...and the detail was asked for the EXACT id", any("/activities/" + BIG in u for u in seen_urls), True)
+    ictx.close()
+
     print("== the Strava picker dates a run where it was run ==")
     PICK = """() => {
       StravaImport.activities = [

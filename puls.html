@@ -5040,11 +5040,18 @@ const StravaIO = (() => {
     }
   }
 
+  // From 2027-06-01 Strava's activity ids may be 64-bit (their mail, 2026-11). A JSON number above
+  // 2^53 silently loses digits, so the stored stravaId, the stream fetches and «Vis på Strava» would
+  // all point at the wrong activity with no error anywhere. `id_str` is the same value as a string;
+  // it becomes THE id at the only three places activities enter, and every use downstream already
+  // treats the id as a string. Without id_str the number is used, as before.
+  const _withIdStr = a => (a && a.id_str ? { ...a, id: a.id_str } : a);
+
   async function fetchActivities(perPage = 10) {
     const { ok, status, data } = await _authedFetch(`https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}`);
     if (status === 429) { showToast('Strava-grense nådd — prøv igjen senere', 'error'); return null; }
     if (!ok) return null;
-    return data;
+    return Array.isArray(data) ? data.map(_withIdStr) : data;
   }
 
   async function fetchZones(activityId) {
@@ -5060,14 +5067,14 @@ const StravaIO = (() => {
     const { ok, status, data } = await _authedFetch(`https://www.strava.com/api/v3/athlete/activities?${params}`);
     if (status === 429) return { error: 429 };
     if (!ok) return null;
-    return data;
+    return Array.isArray(data) ? data.map(_withIdStr) : data;
   }
 
   async function fetchActivityDetail(activityId) {
     const { ok, status, data } = await _authedFetch(`https://www.strava.com/api/v3/activities/${activityId}`);
     if (status === 429) return { error: 429 };
     if (!ok) return null;
-    return data;
+    return _withIdStr(data);
   }
 
   async function fetchAthleteZones() {
