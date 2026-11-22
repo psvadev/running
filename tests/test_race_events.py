@@ -462,12 +462,12 @@ with sync_playwright() as b0:
         "DTSTART;VALUE=DATE:20260812", "SUMMARY:\U0001F3C3 400m Repeats",
         "DESCRIPTION:\U0001F4CA Summary:\\nDistance: 4.27km\\n\\n\U0001F4CB Description:\\n1.5km warm up"
         "\\n\\n\U0001F4F2 View in the Runna app: https://club.runna.com/n9Tx/activities?activityId=secret-uuid-1234",
-        "LOCATION:Skøyen, Oslo, Norway",
-        "GEO:59.91616325015404;10.634521393154518",
+        "LOCATION:Rådhusplassen, Oslo, Norway",
+        "GEO:59.9115;10.7337",
         "X-USER-TIMEZONE:Europe/Oslo", "END:VEVENT", "END:VCALENDAR"])
     blob = pg.evaluate("(t) => JSON.stringify(parseRunnaIcs(t))", LOCATED)
-    for needle, what in [("59.916", "GEO latitude"), ("10.634", "GEO longitude"),
-                         ("Skøyen", "LOCATION"), ("Europe/Oslo", "timezone"),
+    for needle, what in [("59.9115", "GEO latitude"), ("10.7337", "GEO longitude"),
+                         ("Rådhusplassen", "LOCATION"), ("Europe/Oslo", "timezone"),
                          ("club.runna.com", "the Runna link"), ("n9Tx", "the personal share token")]:
         check(f"{what} never reaches the parsed session", needle in blob, False)
     check("no sourceUrl field at all",
